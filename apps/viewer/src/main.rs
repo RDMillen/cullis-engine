@@ -79,7 +79,7 @@ fn parse_args() -> Result<Args, Error> {
 /// What is on screen: a region's terrain or a single mesh.
 enum Scene {
     Terrain(Box<TerrainRenderer>),
-    Model(ModelRenderer),
+    Model(Box<ModelRenderer>),
 }
 
 impl Scene {
@@ -127,7 +127,7 @@ impl Scene {
                     model.images.len() - 1
                 );
                 Ok((
-                    Self::Model(ModelRenderer::new(device, queue, &model)),
+                    Self::Model(Box::new(ModelRenderer::new(device, queue, &model))),
                     OrbitCamera::framing(model.lo, model.hi),
                     status,
                 ))
