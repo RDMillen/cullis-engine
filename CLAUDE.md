@@ -20,12 +20,15 @@ Clean-room Rust engine for Fable: The Lost Chapters (requires the original game)
 
 - Rust comes from rustup in `~/.cargo/bin` (add it to `PATH` in non-interactive shells); `rust-toolchain.toml` pins the nightly.
 - Desktop: `cargo build`, `cargo test`, `cargo clippy --all-targets`.
-- Vita: `cargo vita build vpk --upload` (VitaSDK at `/usr/local/vitasdk`, set `VITASDK`).
 - Survey of the install: `cargo run --release -p fable-data --example survey > docs/survey.md`.
 
 ## Code rules
 
-- Shared engine code: no per-frame allocation, no `std::process`, no threads beyond the job system.
+- Desktop only: this repo targets x86-64 desktop with wgpu. A PS Vita port will be a separate repository that reuses these crates, so follow the portability rules:
+  - No x86-specific code: no SIMD intrinsics or inline assembly without a portable fallback.
+  - Parse with explicit little-endian reads, never by casting structs over bytes; never assume a pointer width.
+  - `fable-data`, `engine-core`, `engine-script` and `engine-audio` must not depend on wgpu, windowing or desktop-only crates.
+  - Shared engine code: no per-frame allocation, no `std::process`, no threads beyond the job system.
 - Parsers keep unknown fields as `unknown_*` and document what has been observed about them.
 - Round-trip formats where possible: decode, re-encode, compare bytes.
 - Every new or changed format updates its page in `docs/formats/`.

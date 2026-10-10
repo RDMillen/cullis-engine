@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): textures, and desktop-only scope
+
+- Added `fable_data::dxt` (DXT1/3/5 decoding) and `fable_data::texture`. All 6,717 textures in `textures.big` and `frontend.big` unpack exactly (one 16-bit texture unsupported). PNG export via the `texture_png` example; DXT1, DXT3 and DXT5 samples checked by eye.
+- Learned: the top level is LZO1X-compressed except its last 3 bytes, which follow raw (or the whole level is raw when the length is 0); the rest of the mip chain is raw; levels are padded to powers of two; levels below 4x4 are stored at bits-per-pixel size; bank type 1 is a frame sequence, other types one image; `0x20` is DXT3, `0x23` DXT5.
+- Scope change (Ross): this repository is the desktop reimplementation only. The PS Vita version will be a separate repository, an ARM port that reuses these crates. PLAN.md, README, CLAUDE.md and the Nix shell were updated; Vita budgets and tooling moved to PLAN.md's "Future: PS Vita port" section, and portability rules were added.
+- Next: Bbm meshes from `graphics.big`, shown textured in the viewer.
+
 ## 2026-10-10 (later): sea plane
 
 - The viewer draws a translucent sea plane at height 3.0 for regions that have an stb sea bank and whose ground dips below 3.0.

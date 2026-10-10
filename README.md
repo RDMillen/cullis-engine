@@ -1,6 +1,6 @@
 # CullisEngine
 
-An open-source, clean-room engine for **Fable: The Lost Chapters**, written in Rust. It targets desktop first and a modded PS Vita second.
+An open-source, clean-room reimplementation of the **Fable: The Lost Chapters** engine for desktop PCs, written in Rust. A PS Vita port is planned as a separate project that will build on this one.
 
 **Requires the original game.** CullisEngine ships no game data. It reads files from your own legally owned PC install.
 
@@ -12,6 +12,7 @@ Early. Nothing is playable yet. The desktop viewer draws any region's terrain fr
 - the world layout (`.wld`): 398 maps and 141 regions
 - LZO1X-compressed data
 - Lev heightmaps
+- textures (DXT1/3/5 and uncompressed), exportable to PNG
 
 See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 

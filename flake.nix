@@ -31,12 +31,6 @@
 
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
         VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
-
-        # VitaSDK is installed outside Nix with vdpm.
-        shellHook = ''
-          export VITASDK=/usr/local/vitasdk
-          export PATH=$VITASDK/bin:$PATH
-        '';
       };
     };
 }
