@@ -97,16 +97,14 @@ impl Lev {
             wanted: count * CELL_LEN,
         })?;
         let mut cells = Vec::with_capacity(count);
-        for (i, chunk) in grid.chunks_exact(CELL_LEN).enumerate() {
+        for (i, chunk) in grid.as_chunks::<CELL_LEN>().0.iter().enumerate() {
             if chunk[..5] != CELL_PREFIX {
                 return Err(Error::Invalid {
                     offset: start + i * CELL_LEN,
                     reason: format!("grid cell {i} starts {:02x?}", &chunk[..5]),
                 });
             }
-            cells.push(Cell {
-                raw: chunk.try_into().unwrap(),
-            });
+            cells.push(Cell { raw: *chunk });
         }
         Ok(Self {
             width,
