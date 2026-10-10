@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/fable-data"]
+members = ["crates/fable-data", "apps/viewer"]
 
 [workspace.package]
 edition = "2024"

@@ -6,11 +6,12 @@ An open-source, clean-room engine for **Fable: The Lost Chapters**, written in R
 
 ## Status
 
-Early. Nothing is playable or drawn on screen yet. So far the `fable-data` crate reads:
+Early. Nothing is playable yet. The desktop viewer draws any region's terrain from the original heightmaps (placeholder colours, no textures or objects). The `fable-data` crate reads:
 
 - the bank and archive containers (`.wad`, `.stb`, `.big`) and their indexes
 - the world layout (`.wld`): 398 maps and 141 regions
 - LZO1X-compressed data
+- Lev heightmaps
 
 See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 
@@ -28,6 +29,14 @@ Tests that need the game data are ignored by default. Point `FABLE_DIR` at your 
 ```sh
 FABLE_DIR=/path/to/Fable cargo test --release -- --ignored
 ```
+
+To open the viewer (drag to orbit, right-drag to pan, scroll to zoom, pick a region on the left):
+
+```sh
+FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --region StartOakVale
+```
+
+Add `--screenshot out.png --size 1280x800` to render one frame to a file without opening a window.
 
 To print a survey of your install's banks and regions:
 

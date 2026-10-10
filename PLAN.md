@@ -242,7 +242,8 @@ By the end of week two: one Fable mesh, textured, in a desktop window; a Rust he
 - [x] Decode the Stb common header, map tile tables and LZO1X tile compression (`docs/formats/stb.md`)
 - [x] Decode the Lev heightmap and confirm it against the Stb tiles (`docs/formats/lev.md`)
 - [ ] Decode the rest of the Stb tile vertex records and the section after the tiles
-- [ ] Draw the Lev heightmap of `StartOakVale` as terrain in the viewer
+- [x] Draw the Lev heightmap of `StartOakVale` as terrain in the viewer (`apps/viewer`, any region selectable)
+- [ ] Check the viewer's orientation against the game (the map's y axis may be mirrored)
 - [ ] Decode a DXT texture to PNG; check it by eye
 - [ ] Load one Bbm mesh into the egui viewer with wgpu
 - [x] Write `docs/formats/big.md` and `docs/formats/wld.md` (also `bbbb.md`, `bank-index.md`)
