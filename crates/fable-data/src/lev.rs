@@ -144,6 +144,105 @@ impl Lev {
     }
 }
 
+/// Everything after the heightmap grid that is decoded so far.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LevTail {
+    /// One block per 4x4 world units, row by row (`width / 4` per row).
+    pub sound_map: Vec<SoundBlock>,
+    /// A block of 33,801 bytes in every map seen (starting with 1, then mostly
+    /// zeros). Not decoded.
+    pub fixed_block: Vec<u8>,
+    /// Named sections: `NULL`, then one per quest state that changes the map
+    /// (e.g. `Q_NewOakValeIntro_PreAttack`). Their data looks like navigation.
+    pub sections: Vec<LevSection>,
+}
+
+/// An 11-byte sound map record: `u32` 11, then these 7 bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundBlock {
+    pub raw: [u8; 7],
+}
+
+impl SoundBlock {
+    /// Last byte: a few values per map (9, 21 and 37 in StartOakValeWest; 33 all
+    /// over the Arena). Probably an index into the sound themes.
+    pub fn value(&self) -> u8 {
+        self.raw[6]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LevSection {
+    pub name: String,
+    /// Absolute offset of the section in the Lev.
+    pub offset: u32,
+    /// 8 in every section seen; probably subdivision levels.
+    pub levels: u32,
+    /// The map's width and height, as floats.
+    pub size: [f32; 2],
+    /// The section from its start to its end, header included. Not decoded.
+    pub data: Vec<u8>,
+}
+
+const SOUND_RECORD_LEN: u32 = 11;
+
+impl Lev {
+    /// Parses what follows the grid. `data` is the whole Lev that `self` came from.
+    pub fn parse_tail(&self, data: &[u8]) -> Result<LevTail> {
+        let mut r = Reader::new(data.get(self.grid_end..).unwrap_or_default());
+        let blocks = (self.width / 4) as usize * (self.height / 4) as usize;
+        let mut sound_map = Vec::with_capacity(blocks);
+        for _ in 0..blocks {
+            let at = self.grid_end + r.pos();
+            let len = r.u32()?;
+            if len != SOUND_RECORD_LEN {
+                return Err(Error::Invalid {
+                    offset: at,
+                    reason: format!("sound map record length {len}"),
+                });
+            }
+            sound_map.push(SoundBlock { raw: r.array()? });
+        }
+        let fixed_len = r.u32()? as usize;
+        let fixed_block = r.bytes(fixed_len)?.to_vec();
+        let count = r.u32()?;
+        let mut table = Vec::new();
+        for _ in 0..count {
+            let name = r.len_string()?;
+            table.push((name, r.u32()?));
+        }
+        let mut sections = Vec::with_capacity(table.len());
+        for (i, (name, offset)) in table.iter().enumerate() {
+            let start = *offset as usize;
+            let mut h = Reader::new(data.get(start..).unwrap_or_default());
+            let end = h.u32()? as usize;
+            let expected = table.get(i + 1).map_or(data.len(), |(_, o)| *o as usize);
+            if end != expected {
+                return Err(Error::Invalid {
+                    offset: start,
+                    reason: format!(
+                        "section {name} ends at {end:#x}, the next starts at {expected:#x}"
+                    ),
+                });
+            }
+            let levels = h.u32()?;
+            let size = [f32::from_bits(h.u32()?), f32::from_bits(h.u32()?)];
+            sections.push(LevSection {
+                name: name.clone(),
+                offset: *offset,
+                levels,
+                size,
+                data: data[start..end].to_vec(),
+            });
+        }
+        Ok(LevTail {
+            sound_map,
+            fixed_block,
+            sections,
+        })
+    }
+}
+
 /// A `u32` length followed by that many printable ASCII bytes.
 fn looks_like_string(data: &[u8], offset: usize) -> bool {
     let Some(len) = data
@@ -206,6 +305,31 @@ mod tests {
             assert_eq!(lev.cell(0, 1).unwrap().height(), 2.0);
             assert!(lev.cell(2, 0).is_none());
         }
+    }
+
+    #[test]
+    fn parses_tail_sections() {
+        let mut data = sample(None);
+        let lev = Lev::parse(&data).unwrap();
+        // A 1x2 map has no 4x4 sound blocks.
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&[1, 0, 0]);
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes());
+        data.extend_from_slice(b"NULL");
+        let section = data.len() as u32 + 4;
+        data.extend_from_slice(&section.to_le_bytes());
+        let end = section + 16 + 3;
+        for v in [end, 8, 1.0f32.to_bits(), 2.0f32.to_bits()] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        data.extend_from_slice(&[9, 9, 9]);
+        let tail = lev.parse_tail(&data).unwrap();
+        assert_eq!(tail.fixed_block, [1, 0, 0]);
+        assert_eq!(tail.sections.len(), 1);
+        let s = &tail.sections[0];
+        assert_eq!((s.name.as_str(), s.levels, s.size), ("NULL", 8, [1.0, 2.0]));
+        assert_eq!(s.data.len(), 19);
     }
 
     #[test]

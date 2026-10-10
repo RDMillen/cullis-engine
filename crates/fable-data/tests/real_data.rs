@@ -584,3 +584,47 @@ fn every_used_lev_theme_has_textures() {
     assert!(missing.len() * 20 <= themes.len());
     assert_eq!(in_table, points);
 }
+
+#[test]
+#[ignore]
+fn every_lev_tail_parses_into_sections() {
+    use fable_data::lev::Lev;
+
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut maps, mut sections, mut fixed_sizes) = (0, 0, HashSet::new());
+    let mut without_null = Vec::new();
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".lev"))
+    {
+        let data = entry.read_data(&mut file).unwrap();
+        let lev = Lev::parse(&data).unwrap();
+        let tail = lev
+            .parse_tail(&data)
+            .unwrap_or_else(|e| panic!("{}: {e}", entry.name));
+        if tail.sections.first().map(|s| s.name.as_str()) != Some("NULL") {
+            without_null.push(entry.name.clone());
+        }
+        for s in &tail.sections {
+            assert_eq!(
+                s.size,
+                [lev.width as f32, lev.height as f32],
+                "{} {}",
+                entry.name,
+                s.name
+            );
+        }
+        fixed_sizes.insert(tail.fixed_block.len());
+        maps += 1;
+        sections += tail.sections.len();
+    }
+    let no_sections = without_null.len();
+    eprintln!(
+        "{maps} maps, {sections} sections, fixed block sizes {fixed_sizes:?}; {no_sections} maps have no NULL first section"
+    );
+    assert_eq!(fixed_sizes.len(), 1);
+}

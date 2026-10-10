@@ -15,7 +15,7 @@ The start of the file has a fixed layout in all 398 maps:
 | 0x8433 | `u32` sound entry count (see below) |
 | 0x10837 | Optional `u32` value, then `count - 1` length-prefixed sound theme names (`SOUND_THEME_COUNTRY`, …) |
 | after the names | Heightmap grid |
-| after the grid | Not decoded. It starts with a second per-point table of 11-byte records (`0b 00 00 00 01 00 00 00 ff 00 09` repeated in StartOakValeWest), followed by about 850 KB holding, among other things, quest names such as `Q_NewOakValeIntro_PreAttack` |
+| after the grid | Sound map, fixed block, sections (below) |
 
 The optional `u32` equals word 13 of the map's stb header. It is present in every map except `HauntedHouse_Filler_01`, whose stb header has 0 there and whose Lev starts the names directly at 0x10837. In both cases there are `count - 1` names. The parser tells the cases apart by whether 0x10837 holds a printable length-prefixed string.
 
@@ -34,3 +34,29 @@ The optional `u32` equals word 13 of the map's stb header. It is present in ever
 | 15–20 | Not decoded. Byte 15 is 0 or 1, byte 16 is always 1 |
 
 The 2048 scale is confirmed against the stb: across all 10,257 stb tiles, 10,253 tile bounding boxes contain all of the Lev heights under them, and 10,230 tile minimums equal the lowest Lev height exactly (within 0.01). The tiles whose maximum is higher than the terrain are mostly shorelines, where a water surface at about height 3 is part of the tile.
+
+## After the grid (`Lev::parse_tail`)
+
+All 398 maps parse this far (`tests/real_data.rs`).
+
+```
+sound map       (width / 4) x (height / 4) records, row by row: u32 11, then 7 bytes
+u32 length      33,801 in every map
+fixed block     that many bytes; starts with 1, then mostly zeros; not decoded
+u32 count
+count x { u32-length name, u32 offset }      sections, e.g. NULL, Q_NewOakValeIntro_PreAttack
+sections        each runs from its offset to the next section's offset (the last to the end of the file)
+```
+
+**Sound map records**: `u32` 11, then 7 bytes ending in a value with only a few distinct values per map (9, 21 and 37 in StartOakValeWest; 33 all over the Arena; 3 in the prison cells). Probably an index into the map's sound themes.
+
+**Sections**: one per map state. `NULL` is the default; others are named after quest states that change the map (StartOakValeWest has `Q_NewOakValeIntro_PreAttack` and `Q__OakValeIntro_PostAttack` for the Prologue raid; the Arena has `Q_Arena`). Filler and background maps have none: 233 sections over 398 maps. Each section starts:
+
+```
+u32 end offset    equals the next section's offset
+u32 levels        8 in every section
+f32 width, f32 height    the map's size
+u32, u32          counts? (StartOakValeWest: 10, 172; Arena: 4, 0)
+records           variable length, unaligned; ids with positions at half-size steps
+                  (8, 24), (12, 28), (14, 30), (15, 29.5), ...: a subdivision, probably navigation
+```
