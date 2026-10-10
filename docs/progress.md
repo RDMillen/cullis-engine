@@ -8,7 +8,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - The viewer textures terrain: a region-wide grid texture of (layer, layer, weight, weight), base and cliff texture arrays (512x512, box-filtered mips), bilinear blending between grid points in the shader, cliff texture by slope (projected sideways). StartOakVale reads as Oakvale: grass, mud paths, the stream bed (`LANDSCAPE_WATER`), ploughed fields, earthy cliffs.
 - Unnamed theme slots: a key-based lookup did not hold (the same key names different themes even within a region), so they get the map's first real named theme as a labelled stand-in.
 - Set by eye, to compare with the game: texture tiling (12 world units per repeat), the slope range for cliffs.
-- Next: compare StartOakVale against the game (Milestone A), then stream water surfaces and the rest of the grid bytes.
+- Ross saw water drawn on some paths. Water themes paint thin full-weight strips beside paths and on slopes; the viewer now draws them with their cliff texture (see defs.md). The grid's weight bytes are also not fully understood: where bytes 11 and 12 name the same theme, bytes 13 and 14 do not add to 255, so there may be three weights.
+- Next: compare StartOakVale against the game (Milestone A), then water surfaces (stb sea banks) and the rest of the grid bytes.
 
 ## 2026-10-10 (later): definitions and placed meshes
 

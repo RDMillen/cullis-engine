@@ -77,10 +77,20 @@ impl ThemeGrid {
             return i as u8;
         }
         let t = defs.get(name).map(|d| d.theme_textures());
+        let cliff = t.map_or(0, |t| t.cliff);
+        // Water themes (base texture LANDSCAPE_WATER and similar) paint thin strips
+        // beside paths and on slopes; in the game no water shows there (Ross,
+        // comparing). They probably mark ground meant to lie under a water surface,
+        // which is not drawn yet, so their flat ground uses the cliff texture.
+        let base = if name.starts_with("WATER_") {
+            cliff
+        } else {
+            t.map_or(0, |t| t.base)
+        };
         self.layers.push(ThemeLayer {
             name: name.to_owned(),
-            base: t.map_or(0, |t| t.base),
-            cliff: t.map_or(0, |t| t.cliff),
+            base,
+            cliff,
         });
         (self.layers.len() - 1).min(255) as u8
     }

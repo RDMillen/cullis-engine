@@ -54,3 +54,5 @@ Placed things whose definition has no `Graphic` field include animated birds, do
 | `CliffBumpMap` | e.g. `UNASSIGNED_CLIFF_LAYERED_01_BUMP` |
 
 Of the 344 theme names used by Lev files, 343 have a definition with a base texture; `SLIDING_BLOCK_ROCKS_ET` has no definition. `Def::theme_textures` reads these fields.
+
+Water themes (`WATER_GREYCLIFF_ET`, `WATER_BWLAKE_*`, …) have a water texture as their base (`LANDSCAPE_WATER`, opaque teal). In StartOakValeWest they cover thin strips beside paths and on slopes at full weight, where the game shows no water (Ross, comparing). They probably mark ground meant to lie under a water surface, likely described by the stb sea banks, which are not decoded. The viewer draws them with their cliff texture until then.
