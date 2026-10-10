@@ -20,4 +20,4 @@ The index format is in [bank-index.md](bank-index.md). Entry data sits between t
 ## Contents
 
 - **Wad**: one `.lev` and one `.tng` per map, named `Data\Levels\FinalAlbion\<Map>.lev|tng`. Every Lev has a Tng.
-- **Stb**: one entry per Lev with the same name as in the wad (398 entries; on average about 3.8 times the Lev's size), 25 entries named `__ENGINE_SEA_STATIC_MAP_BANK_FILE__<Region>`, and one `__STATIC_MAP_COMMON_HEADER__`. The entry contents are not yet decoded; the names suggest pre-built static map (level geometry) data.
+- **Stb**: one entry per Lev with the same name as in the wad (398 entries; on average about 3.8 times the Lev's size), 25 entries named `__ENGINE_SEA_STATIC_MAP_BANK_FILE__<Region>`, and one `__STATIC_MAP_COMMON_HEADER__`. See [stb.md](stb.md).

@@ -152,3 +152,58 @@ fn wld_maps_exist_in_wad_and_regions_reference_known_maps() {
         }
     }
 }
+
+#[test]
+#[ignore]
+fn stb_maps_match_wld_and_every_tile_decompresses() {
+    use fable_data::stb::{COMMON_HEADER_NAME, CommonHeader, StaticMap};
+
+    let path = data_dir().join("Levels/FinalAlbion_RT.stb");
+    let stb = BbbbFile::open(&path).unwrap();
+    let wld = Wld::open(data_dir().join("Levels/FinalAlbion.wld")).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+
+    let common = stb
+        .index
+        .by_name(COMMON_HEADER_NAME)
+        .unwrap()
+        .read_data(&mut file)
+        .unwrap();
+    let common = CommonHeader::parse(&common).unwrap();
+    assert_eq!(common.maps.len(), wld.maps.len());
+
+    let mut tile_count = 0;
+    for header in &common.maps {
+        let level = header.level_path.strip_prefix("Data\\Levels\\").unwrap();
+        let map = wld
+            .map(level)
+            .unwrap_or_else(|| panic!("{level} not in wld"));
+        assert_eq!(
+            (header.x as i32, header.y as i32),
+            (map.x, map.y),
+            "{level} position"
+        );
+
+        let entry = stb
+            .index
+            .by_name(&header.level_path)
+            .unwrap()
+            .read_data(&mut file)
+            .unwrap();
+        let stat = StaticMap::parse(&entry).unwrap();
+        let (x0, y0) = (header.x as f32, header.y as f32);
+        let (x1, y1) = (x0 + header.width as f32, y0 + header.height as f32);
+        for tile in &stat.tiles {
+            assert_eq!(tile.max[0] - tile.min[0], 16.0, "{level} tile width");
+            assert_eq!(tile.max[1] - tile.min[1], 16.0, "{level} tile height");
+            assert!(
+                tile.min[0] >= x0 && tile.max[0] <= x1 && tile.min[1] >= y0 && tile.max[1] <= y1,
+                "{level} tile outside map"
+            );
+            tile.decompress(&entry)
+                .unwrap_or_else(|e| panic!("{level}: {e}"));
+        }
+        tile_count += stat.tiles.len();
+    }
+    assert!(tile_count > 0);
+}

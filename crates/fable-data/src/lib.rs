@@ -6,7 +6,9 @@ pub mod bank;
 pub mod bbbb;
 pub mod big;
 mod error;
+pub mod lzo;
 mod reader;
+pub mod stb;
 pub mod wld;
 
 pub use error::{Error, Result};

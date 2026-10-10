@@ -2,6 +2,15 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): Stb tiles and LZO
+
+- Added `fable_data::lzo` (LZO1X decompression, written from the kernel's `lzo.rst` bitstream description) and `fable_data::stb` (common header, per-map headers, tile tables, tile decompression). Added `README.md`.
+- Learned:
+  - The stb's common header has one header per map giving its size and position (matching `.wld` for all 398 maps).
+  - Each map entry holds a grid of 16x16-unit tiles, LZO1X-compressed, with empty tiles left out. Every tile in the install decompresses; output matches the reference LZO library.
+  - After the tiles comes a section that looks like a spatial tree. Not decoded.
+- Next: decode the decompressed tile format (terrain vertices?) and compare it with the Lev heightmap for the same map; then the tree section.
+
 ## 2026-10-10: workspace and data survey
 
 - Created the Cargo workspace (`crates/fable-data`), pinned `nightly-2026-10-10`, added GPLv3 `LICENSE` and `CLAUDE.md`.

@@ -51,7 +51,7 @@ Observed in `$FABLE_DIR/data` (about 2.7 GB). This replaces guesswork about wher
 | --- | --- | --- |
 | `Levels/FinalAlbion.wld` | small, text | The world: 398 maps (world coordinates, Lev file, script name, `LoadedOnPlayerProximity` flag) and 141 regions, each listing the maps it contains and the maps it can see |
 | `Levels/FinalAlbion.wad` | 174 MB | `BBBB` bank holding every map's Lev and Tng files |
-| `Levels/FinalAlbion_RT.stb` | 598 MB | `BBBB` bank: one entry per Lev (566 MB, about 3.8 times the Levs), 25 sea static-map banks and a common header. Names suggest pre-built static map data; contents not yet decoded |
+| `Levels/FinalAlbion_RT.stb` | 598 MB | `BBBB` bank: one entry per Lev (566 MB, about 3.8 times the Levs), 25 sea static-map banks and a common header. Each map is a grid of LZO1X-compressed 16x16-unit tiles plus an undecoded tree section; tile contents not yet decoded |
 | `Levels/FinalAlbion.bwd`, `.gtg` | small | Binary per-map table (starts with Lev paths); text map/section data (`NEWMAP`, `XXXSectionStart`). Not yet known |
 | `Levels/FinalAlbion.qst`, `GlobalQuests.qst` | 23 KB total | Quest registration only: 187 `AddQuest`/`AddTestQuest` lines naming quests, start points and `.end` files. **No quest logic** |
 | `Misc/FinalAlbion_StartingRegionGraph.txt` | small, text | Which regions connect to which |
@@ -239,7 +239,8 @@ By the end of week two: one Fable mesh, textured, in a desktop window; a Rust he
 
 - [x] Open `graphics/graphics.big` and `graphics/pc/textures.big` and parse every bank index, with a test
 - [ ] Match mesh entries to names in `Defs/RetailHeaders/meshdata.h`; find out what each entry type number means
-- [ ] Decode one Stb per-map entry header
+- [x] Decode the Stb common header, map tile tables and LZO1X tile compression (`docs/formats/stb.md`)
+- [ ] Decode the decompressed Stb tile format and the section after the tiles
 - [ ] Decode a DXT texture to PNG; check it by eye
 - [ ] Load one Bbm mesh into the egui viewer with wgpu
 - [x] Write `docs/formats/big.md` and `docs/formats/wld.md` (also `bbbb.md`, `bank-index.md`)
