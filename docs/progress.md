@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): Tng placement
+
+- Added `fable_data::tng` (things, components, typed accessors for definition, position, orientation) on a shared `text` tokenizer (moved out of `wld`). All 398 Tng files parse: 21,800 things.
+- Confirmed the coordinate frame: buildings and objects sit at the Lev ground height (median gap 0.12 over 12,255 things); positions are map-relative, z up.
+- Found that `names.bin` maps JAMCRC hashes to definition names (13,593 names). `game.bin` does not reference names by hash; its layout (offset tables, records at odd byte offsets) needs its own session.
+- Next: decode `game.bin` enough to map a definition (e.g. `BUILDING_TOWN_WAREHOUSE_02`) to its mesh, then place meshes on the terrain for Milestone A.
+
 ## 2026-10-10 (later): static meshes
 
 - Added `fable_data::mesh`: info block, LOD blocks (materials, geometry chunks, sub-meshes with strips or lists, packed or float positions, packed normals, UVs, compressed or raw streams). 2,519 of 2,583 static meshes parse (10.1 million triangles); all their texture ids exist.

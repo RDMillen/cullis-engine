@@ -370,3 +370,109 @@ fn static_meshes_parse_and_reference_real_textures() {
     // Skinned meshes (with bones) are not supported yet.
     assert!(parsed * 100 >= (parsed + failed.len()) * 97);
 }
+
+#[test]
+#[ignore]
+fn every_tng_parses_and_places_its_buildings() {
+    use fable_data::tng::Tng;
+
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut files, mut things) = (0, 0);
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".tng"))
+    {
+        let bytes = entry.read_data(&mut file).unwrap();
+        let text: String = bytes.iter().map(|&b| b as char).collect();
+        let tng = Tng::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", entry.name));
+        let raw = text
+            .lines()
+            .filter(|l| l.trim_start().starts_with("NewThing "))
+            .count();
+        assert_eq!(tng.things.len(), raw, "{}", entry.name);
+        for t in tng
+            .things
+            .iter()
+            .filter(|t| t.kind == "Building" || t.kind == "Object")
+        {
+            assert!(
+                t.position().is_some(),
+                "{} {:?} has no position",
+                entry.name,
+                t.definition()
+            );
+            assert!(
+                t.definition().is_some(),
+                "{} thing without a definition",
+                entry.name
+            );
+        }
+        files += 1;
+        things += tng.things.len();
+    }
+    eprintln!("{files} tng files, {things} things");
+    assert!(files > 0);
+}
+
+#[test]
+#[ignore]
+fn placed_things_stand_on_the_lev_ground() {
+    use fable_data::lev::Lev;
+    use fable_data::tng::Tng;
+
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let mut diffs = Vec::new();
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".tng"))
+    {
+        let lev_name = entry.name.replace(".tng", ".lev");
+        let lev = wad
+            .index
+            .by_name(&lev_name)
+            .unwrap()
+            .read_data(&mut file)
+            .unwrap();
+        let lev = Lev::parse(&lev).unwrap();
+        let text: String = entry
+            .read_data(&mut file)
+            .unwrap()
+            .iter()
+            .map(|&b| b as char)
+            .collect();
+        for t in Tng::parse(&text).unwrap().things {
+            if t.kind != "Building" && t.kind != "Object" {
+                continue;
+            }
+            let [x, y, z] = t.position().unwrap();
+            let (cx, cy) = (x.round(), y.round());
+            if cx < 0.0 || cy < 0.0 {
+                continue;
+            }
+            if let Some(cell) = lev.cell(cx as u32, cy as u32) {
+                diffs.push((z - cell.height()).abs());
+            }
+        }
+    }
+    diffs.sort_by(f32::total_cmp);
+    let within = |d: f32| diffs.iter().filter(|&&v| v <= d).count() * 100 / diffs.len();
+    eprintln!(
+        "{} things: median |z - ground| {:.3}; within 0.5: {}%, within 2: {}%",
+        diffs.len(),
+        diffs[diffs.len() / 2],
+        within(0.5),
+        within(2.0)
+    );
+    assert!(
+        diffs[diffs.len() / 2] < 0.5,
+        "positions do not line up with the Lev ground"
+    );
+}

@@ -208,6 +208,8 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Parse `FinalAlbion.wld` into a table of maps: name, coordinates, script name, proximity flag, Lev size
 - [x] Group maps into regions (`.wld` defines them); list Oakvale's maps
 - [ ] Note what `.bwd` and `.gtg` contain
+- [x] Parse every Tng file and confirm thing positions against the terrain (`docs/formats/tng.md`)
+- [ ] Map definitions to meshes through `CompiledDefs/game.bin`
 
 **Week 2: first pixels**
 

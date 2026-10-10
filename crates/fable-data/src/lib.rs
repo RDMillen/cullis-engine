@@ -12,7 +12,9 @@ pub mod lzo;
 pub mod mesh;
 mod reader;
 pub mod stb;
+mod text;
 pub mod texture;
+pub mod tng;
 pub mod wld;
 
 pub use error::{Error, Result};

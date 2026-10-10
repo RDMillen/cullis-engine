@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use crate::text::statements;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -53,78 +54,6 @@ pub struct WldRegion {
 pub struct ExitTextOffset {
     pub region: String,
     pub offset: [f32; 2],
-}
-
-/// One `Key[arg] value;` statement.
-struct Statement<'a> {
-    line: usize,
-    key: &'a str,
-    arg: Option<&'a str>,
-    value: &'a str,
-}
-
-impl Statement<'_> {
-    fn err(&self, reason: impl Into<String>) -> Error {
-        Error::Text {
-            line: self.line,
-            reason: reason.into(),
-        }
-    }
-
-    fn string(&self) -> Result<String> {
-        self.value
-            .strip_prefix('"')
-            .and_then(|v| v.strip_suffix('"'))
-            .map(str::to_owned)
-            .ok_or_else(|| self.err(format!("{}: expected a quoted string", self.key)))
-    }
-
-    fn number<T: std::str::FromStr>(&self) -> Result<T> {
-        self.value
-            .parse()
-            .map_err(|_| self.err(format!("{}: bad number {:?}", self.key, self.value)))
-    }
-
-    fn bool(&self) -> Result<bool> {
-        match self.value {
-            "TRUE" => Ok(true),
-            "FALSE" => Ok(false),
-            v => Err(self.err(format!("{}: expected TRUE or FALSE, found {v:?}", self.key))),
-        }
-    }
-}
-
-fn statements(text: &str) -> Result<Vec<Statement<'_>>> {
-    let mut out = Vec::new();
-    for (i, raw) in text.lines().enumerate() {
-        let line = i + 1;
-        let body = raw.trim();
-        if body.is_empty() {
-            continue;
-        }
-        let body = body.strip_suffix(';').ok_or_else(|| Error::Text {
-            line,
-            reason: format!("missing ';' in {body:?}"),
-        })?;
-        let (head, value) = body.split_once(char::is_whitespace).unwrap_or((body, ""));
-        let (key, arg) = match head.split_once('[') {
-            Some((key, rest)) => {
-                let arg = rest.strip_suffix(']').ok_or_else(|| Error::Text {
-                    line,
-                    reason: format!("unclosed '[' in {head:?}"),
-                })?;
-                (key, Some(arg))
-            }
-            None => (head, None),
-        };
-        out.push(Statement {
-            line,
-            key,
-            arg,
-            value: value.trim(),
-        });
-    }
-    Ok(out)
 }
 
 impl Wld {
@@ -287,6 +216,13 @@ mod tests {
     fn rejects_unknown_key() {
         let err = Wld::parse("NewMap 1;\nMapZ 3;\nEndMap;\n").unwrap_err();
         assert!(matches!(err, Error::Text { line: 2, .. }), "{err}");
+    }
+
+    #[test]
+    fn brackets_inside_a_key_are_not_an_argument() {
+        let text = "NewMap 1;\nKeyCameras[0].Position 3;\nEndMap;\n";
+        let err = Wld::parse(text).unwrap_err();
+        assert!(err.to_string().contains("KeyCameras[0].Position"), "{err}");
     }
 
     #[test]
