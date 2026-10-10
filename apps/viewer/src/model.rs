@@ -47,90 +47,234 @@ pub struct ModelData {
     pub hi: Vec3,
 }
 
+type Error = Box<dyn std::error::Error>;
+
+/// A mesh placed in the world.
+#[derive(Debug, Clone, Copy)]
+pub struct Placement {
+    /// Mesh bank entry id.
+    pub mesh: u32,
+    pub position: Vec3,
+    pub forward: Vec3,
+    pub up: Vec3,
+}
+
+impl Placement {
+    /// Local x is right, y forward, z up (assumed; to be checked against the game).
+    /// Meshes are in hundredths of a world unit (a chair is 119 units tall, a
+    /// map 96 units wide), so placed meshes are scaled by [`MESH_SCALE`].
+    fn transform(&self) -> Mat4 {
+        let up = self.up.normalize_or(Vec3::Z);
+        let forward = self.forward.normalize_or(Vec3::Y);
+        let right = forward.cross(up).normalize_or(Vec3::X);
+        Mat4::from_cols(
+            (right * MESH_SCALE).extend(0.0),
+            (forward * MESH_SCALE).extend(0.0),
+            (up * MESH_SCALE).extend(0.0),
+            self.position.extend(1.0),
+        )
+    }
+}
+
+/// World units per mesh unit.
+pub const MESH_SCALE: f32 = 0.01;
+
+/// A mesh's most detailed level, in its own space, with image indices into the model.
+struct LocalMesh {
+    vertices: Vec<ModelVertex>,
+    indices: Vec<u32>,
+    draws: Vec<Draw>,
+}
+
+/// Accumulates meshes, placed or not, into one [`ModelData`], loading each mesh
+/// and texture once.
+pub struct ModelBuilder {
+    file: BufReader<File>,
+    entries: HashMap<u32, fable_data::bank::Entry>,
+    textures: TextureBank,
+    images: HashMap<u32, usize>,
+    meshes: HashMap<u32, Option<LocalMesh>>,
+    model: ModelData,
+}
+
+impl ModelBuilder {
+    pub fn open(data_dir: &Path, name: &str) -> Result<Self, Error> {
+        let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
+        let big = BigFile::read(&mut file)?;
+        let index = big
+            .bank("MBANK_ALLMESHES")
+            .ok_or("no MBANK_ALLMESHES")?
+            .read_index(&mut file)?;
+        let entries = index
+            .entries
+            .into_iter()
+            .filter(|e| e.entry_type == STATIC_MESH_TYPE)
+            .map(|e| (e.id, e))
+            .collect();
+        Ok(Self {
+            file,
+            entries,
+            textures: TextureBank::open(data_dir)?,
+            images: HashMap::new(),
+            meshes: HashMap::new(),
+            model: ModelData {
+                name: name.to_owned(),
+                vertices: Vec::new(),
+                indices: Vec::new(),
+                draws: Vec::new(),
+                images: vec![Image {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![255; 4],
+                }],
+                lo: Vec3::splat(f32::INFINITY),
+                hi: Vec3::splat(f32::NEG_INFINITY),
+            },
+        })
+    }
+
+    /// Id of the first static mesh named `needle`, or containing it (case-insensitive).
+    pub fn find(&self, needle: &str) -> Option<(u32, String)> {
+        let needle = needle.to_ascii_uppercase();
+        let mut entries: Vec<_> = self.entries.values().collect();
+        entries.sort_by_key(|e| e.id);
+        entries
+            .iter()
+            .find(|e| e.name.eq_ignore_ascii_case(&needle))
+            .or_else(|| entries.iter().find(|e| e.name.contains(&needle)))
+            .map(|e| (e.id, e.name.clone()))
+    }
+
+    /// Adds mesh `id` transformed by `transform`. Returns false if the mesh could
+    /// not be loaded (unknown id or an undecoded kind such as a skinned mesh).
+    pub fn add(&mut self, id: u32, transform: Mat4) -> bool {
+        if !self.meshes.contains_key(&id) {
+            let local = self.load(id).map_err(|e| eprintln!("mesh {id}: {e}")).ok();
+            self.meshes.insert(id, local);
+        }
+        let Some(Some(local)) = self.meshes.get(&id) else {
+            return false;
+        };
+        let base = self.model.vertices.len() as u32;
+        let first = self.model.indices.len() as u32;
+        self.model.vertices.extend(local.vertices.iter().map(|v| {
+            ModelVertex {
+                position: transform
+                    .transform_point3(Vec3::from_array(v.position))
+                    .to_array(),
+                normal: transform
+                    .transform_vector3(Vec3::from_array(v.normal))
+                    .normalize_or_zero()
+                    .to_array(),
+                uv: v.uv,
+            }
+        }));
+        self.model
+            .indices
+            .extend(local.indices.iter().map(|i| base + i));
+        self.model.draws.extend(local.draws.iter().map(|d| Draw {
+            first: first + d.first,
+            count: d.count,
+            image: d.image,
+        }));
+        true
+    }
+
+    fn load(&mut self, id: u32) -> Result<LocalMesh, Error> {
+        let entry = self.entries.get(&id).ok_or("not a static mesh")?;
+        let mesh = Mesh::parse(&entry.info, &entry.read_data(&mut self.file)?)?;
+        let lod = &mesh.lods[0];
+        let mut local = LocalMesh {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            draws: Vec::new(),
+        };
+        for chunk in &lod.chunks {
+            let base = local.vertices.len() as u32;
+            let (positions, normals, uvs) = (chunk.positions(), chunk.normals(), chunk.uvs());
+            local
+                .vertices
+                .extend((0..positions.len()).map(|i| ModelVertex {
+                    position: positions[i],
+                    normal: normals[i],
+                    uv: uvs[i],
+                }));
+            for sub in &chunk.sub_meshes {
+                let material = &lod.materials[sub.material as usize];
+                let image = self.image(material.texture, &material.name);
+                let first = local.indices.len() as u32;
+                for t in chunk.triangles(sub) {
+                    local.indices.extend(t.map(|i| base + u32::from(i)));
+                }
+                local.draws.push(Draw {
+                    first,
+                    count: local.indices.len() as u32 - first,
+                    image,
+                });
+            }
+        }
+        Ok(local)
+    }
+
+    /// Index of a texture in the model's images (0, plain white, for none).
+    fn image(&mut self, id: u32, material: &str) -> usize {
+        if id == 0 {
+            return 0;
+        }
+        if let Some(&i) = self.images.get(&id) {
+            return i;
+        }
+        let i = match self.textures.load(id) {
+            Ok(img) => {
+                self.model.images.push(img);
+                self.model.images.len() - 1
+            }
+            Err(e) => {
+                eprintln!("texture {id} for {material}: {e}");
+                0
+            }
+        };
+        self.images.insert(id, i);
+        i
+    }
+
+    pub fn finish(mut self) -> ModelData {
+        for v in &self.model.vertices {
+            self.model.lo = self.model.lo.min(Vec3::from_array(v.position));
+            self.model.hi = self.model.hi.max(Vec3::from_array(v.position));
+        }
+        self.model
+    }
+}
+
 /// Loads the most detailed level of the first static mesh whose name contains
 /// `needle` (case-insensitive), with its materials' main textures.
-pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Box<dyn std::error::Error>> {
-    let needle = needle.to_ascii_uppercase();
-    let path = data_dir.join("graphics/graphics.big");
-    let mut file = BufReader::new(File::open(&path)?);
-    let big = BigFile::read(&mut file)?;
-    let index = big
-        .bank("MBANK_ALLMESHES")
-        .ok_or("no MBANK_ALLMESHES")?
-        .read_index(&mut file)?;
-    let entry = index
-        .entries
-        .iter()
-        .filter(|e| e.entry_type == STATIC_MESH_TYPE)
-        .find(|e| e.name.eq_ignore_ascii_case(&needle))
-        .or_else(|| {
-            index
-                .entries
-                .iter()
-                .filter(|e| e.entry_type == STATIC_MESH_TYPE)
-                .find(|e| e.name.contains(&needle))
-        })
+pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Error> {
+    let probe = ModelBuilder::open(data_dir, needle)?;
+    let (id, name) = probe
+        .find(needle)
         .ok_or_else(|| format!("no static mesh matching {needle}"))?;
-    let mesh = Mesh::parse(&entry.info, &entry.read_data(&mut file)?)?;
-    let lod = &mesh.lods[0];
+    let mut builder = probe;
+    builder.model.name = name;
+    if !builder.add(id, Mat4::IDENTITY) {
+        return Err(format!("could not load mesh {id}").into());
+    }
+    Ok(builder.finish())
+}
 
-    let mut textures = TextureBank::open(data_dir)?;
-    let mut model = ModelData {
-        name: entry.name.clone(),
-        vertices: Vec::new(),
-        indices: Vec::new(),
-        draws: Vec::new(),
-        images: vec![Image {
-            width: 1,
-            height: 1,
-            rgba: vec![255; 4],
-        }],
-        lo: Vec3::splat(f32::INFINITY),
-        hi: Vec3::splat(f32::NEG_INFINITY),
-    };
-    let mut loaded: HashMap<u32, usize> = HashMap::new();
-    for chunk in &lod.chunks {
-        let base = model.vertices.len() as u32;
-        let (positions, normals, uvs) = (chunk.positions(), chunk.normals(), chunk.uvs());
-        model
-            .vertices
-            .extend((0..positions.len()).map(|i| ModelVertex {
-                position: positions[i],
-                normal: normals[i],
-                uv: uvs[i],
-            }));
-        for sub in &chunk.sub_meshes {
-            let material = &lod.materials[sub.material as usize];
-            let image = match material.texture {
-                0 => 0,
-                id => *loaded.entry(id).or_insert_with(|| match textures.load(id) {
-                    Ok(img) => {
-                        model.images.push(img);
-                        model.images.len() - 1
-                    }
-                    Err(e) => {
-                        eprintln!("texture {id} for {}: {e}", material.name);
-                        0
-                    }
-                }),
-            };
-            let first = model.indices.len() as u32;
-            for t in chunk.triangles(sub) {
-                model.indices.extend(t.map(|i| base + u32::from(i)));
-            }
-            model.draws.push(Draw {
-                first,
-                count: model.indices.len() as u32 - first,
-                image,
-            });
-        }
-    }
-    // Frame what is actually drawn; the info block's box is not always tight.
-    for v in &model.vertices {
-        model.lo = model.lo.min(Vec3::from_array(v.position));
-        model.hi = model.hi.max(Vec3::from_array(v.position));
-    }
-    Ok(model)
+/// Loads every placement into one model in world space.
+pub fn load_placements(
+    data_dir: &Path,
+    name: &str,
+    placements: &[Placement],
+) -> Result<ModelData, Error> {
+    let mut builder = ModelBuilder::open(data_dir, name)?;
+    let placed = placements
+        .iter()
+        .filter(|p| builder.add(p.mesh, p.transform()))
+        .count();
+    eprintln!("{name}: placed {placed} of {} meshes", placements.len());
+    Ok(builder.finish())
 }
 
 struct TextureBank {
@@ -139,7 +283,7 @@ struct TextureBank {
 }
 
 impl TextureBank {
-    fn open(data_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    fn open(data_dir: &Path) -> Result<Self, Error> {
         let mut file = BufReader::new(File::open(data_dir.join("graphics/pc/textures.big"))?);
         let big = BigFile::read(&mut file)?;
         let index = big
@@ -150,7 +294,7 @@ impl TextureBank {
         Ok(Self { file, entries })
     }
 
-    fn load(&mut self, id: u32) -> Result<Image, Box<dyn std::error::Error>> {
+    fn load(&mut self, id: u32) -> Result<Image, Error> {
         let entry = self
             .entries
             .get(&id)
@@ -364,12 +508,7 @@ impl ModelRenderer {
             self.target = Some(create_target(device, size));
         }
         let target = self.target.as_ref().unwrap();
-        let sun = Vec3::new(-0.4, -0.5, 0.75).normalize();
-        let uniforms = Uniforms {
-            view_proj: view_proj.to_cols_array_2d(),
-            sun: sun.extend(0.0).to_array(),
-        };
-        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        self.prepare(queue, view_proj);
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -393,16 +532,31 @@ impl ModelRenderer {
                 }),
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.uniform_group, &[]);
-            pass.set_vertex_buffer(0, self.vertices.slice(..));
-            pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-            for &(first, count, image) in &self.draws {
-                pass.set_bind_group(1, &self.texture_groups[image], &[]);
-                pass.draw_indexed(first..first + count, 0, 0..1);
-            }
+            self.draw(&mut pass);
         }
         queue.submit([encoder.finish()]);
         recreated
+    }
+
+    /// Writes the uniforms for this frame; call before [`ModelRenderer::draw`].
+    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4) {
+        let sun = Vec3::new(-0.4, -0.5, 0.75).normalize();
+        let uniforms = Uniforms {
+            view_proj: view_proj.to_cols_array_2d(),
+            sun: sun.extend(0.0).to_array(),
+        };
+        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+    }
+
+    /// Records the model's draws into a pass using the shared colour and depth formats.
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.uniform_group, &[]);
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        for &(first, count, image) in &self.draws {
+            pass.set_bind_group(1, &self.texture_groups[image], &[]);
+            pass.draw_indexed(first..first + count, 0, 0..1);
+        }
     }
 }

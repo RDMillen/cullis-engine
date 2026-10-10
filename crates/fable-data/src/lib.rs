@@ -5,6 +5,7 @@
 pub mod bank;
 pub mod bbbb;
 pub mod big;
+pub mod defs;
 pub mod dxt;
 mod error;
 pub mod lev;

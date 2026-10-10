@@ -6,7 +6,7 @@ An open-source, clean-room reimplementation of the **Fable: The Lost Chapters** 
 
 ## Status
 
-Early. Nothing is playable yet. The desktop viewer draws any region's terrain from the original heightmaps (placeholder colours) and any static mesh with its original textures. The `fable-data` crate reads:
+Early. Nothing is playable yet. The desktop viewer draws any region's terrain from the original heightmaps (placeholder colours) with its buildings and objects placed and textured, and any static mesh on its own. The `fable-data` crate reads:
 
 - the bank and archive containers (`.wad`, `.stb`, `.big`) and their indexes
 - the world layout (`.wld`): 398 maps and 141 regions
@@ -14,6 +14,7 @@ Early. Nothing is playable yet. The desktop viewer draws any region's terrain fr
 - Lev heightmaps
 - textures (DXT1/3/5 and uncompressed), exportable to PNG
 - static meshes (all levels of detail; skinned meshes not yet)
+- Tng thing placement and compiled game definitions (definition to mesh)
 
 See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 

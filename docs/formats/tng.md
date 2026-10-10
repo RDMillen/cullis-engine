@@ -42,4 +42,4 @@ Positions are relative to the map's origin (its `.wld` `MapX`, `MapY`), in the s
 
 ## Definitions
 
-`DefinitionType` names a definition in the compiled defs (`CompiledDefs/game.bin`). `CompiledDefs/names.bin` maps name hashes to names: a header of five `u32` (the third is the count, 13,593), then records of `u32` hash + NUL-terminated name. The hash is CRC-32 without the final inversion (JAMCRC). How `game.bin` links a definition to its mesh is not decoded yet; the definition names do not appear in it as hashes.
+`DefinitionType` names a definition in the compiled defs (`CompiledDefs/game.bin`). `CompiledDefs/names.bin` maps name hashes to names: a header of five `u32` (the third is the count, 13,593), then records of `u32` hash + NUL-terminated name. The hash is the reflected CRC-32 polynomial with initial value 0 and no final inversion (`fable_data::defs::name_hash`). See [defs.md](defs.md) for how definitions lead to meshes.

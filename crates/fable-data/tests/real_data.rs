@@ -476,3 +476,61 @@ fn placed_things_stand_on_the_lev_ground() {
         "positions do not line up with the Lev ground"
     );
 }
+
+#[test]
+#[ignore]
+fn game_defs_parse_and_resolve_placed_meshes() {
+    use fable_data::defs::{Defs, Names};
+    use fable_data::tng::Tng;
+
+    let names =
+        Names::parse(&std::fs::read(data_dir().join("CompiledDefs/names.bin")).unwrap()).unwrap();
+    assert!(
+        names.hashes_match(),
+        "a names.bin hash does not match its name"
+    );
+    let defs = Defs::parse(
+        &std::fs::read(data_dir().join("CompiledDefs/game.bin")).unwrap(),
+        &names,
+    )
+    .unwrap();
+    let tavern = defs
+        .get("BUILDING_OAKVALE_TAVERN")
+        .expect("tavern definition");
+    assert_eq!(defs.type_name(tavern), "BUILDING");
+
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut placed, mut resolved) = (0, 0);
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".tng"))
+    {
+        let text: String = entry
+            .read_data(&mut file)
+            .unwrap()
+            .iter()
+            .map(|&b| b as char)
+            .collect();
+        for t in Tng::parse(&text).unwrap().things {
+            if t.kind != "Building" && t.kind != "Object" {
+                continue;
+            }
+            placed += 1;
+            let def = defs
+                .get(t.definition().unwrap())
+                .unwrap_or_else(|| panic!("{} has no definition", t.definition().unwrap()));
+            resolved += usize::from(def.graphic().is_some());
+        }
+    }
+    eprintln!(
+        "{} types, {} definitions, {} names; {resolved} of {placed} placed buildings and objects have a Graphic",
+        defs.types.len(),
+        defs.defs.len(),
+        names.len()
+    );
+    assert!(resolved * 100 >= placed * 90);
+}

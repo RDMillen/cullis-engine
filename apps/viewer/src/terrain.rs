@@ -7,9 +7,13 @@ use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use fable_data::bbbb::BbbbFile;
+use fable_data::defs::Defs;
 use fable_data::lev::Lev;
+use fable_data::tng::Tng;
 use fable_data::wld::Wld;
 use glam::Vec3;
+
+use crate::model::Placement;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -97,7 +101,8 @@ pub fn load_region(
     data_dir: &Path,
     wld: &Wld,
     region: &str,
-) -> Result<TerrainMesh, Box<dyn std::error::Error>> {
+    defs: &Defs,
+) -> Result<(TerrainMesh, Vec<Placement>), Box<dyn std::error::Error>> {
     let region = wld
         .region(region)
         .ok_or_else(|| format!("no region named {region:?}"))?;
@@ -110,6 +115,7 @@ pub fn load_region(
     let wad = BbbbFile::open(&wad_path)?;
     let mut file = BufReader::new(File::open(&wad_path)?);
     let mut mesh = TerrainMesh::default();
+    let mut placements = Vec::new();
     for level in levels {
         let map = wld
             .map(level)
@@ -120,6 +126,8 @@ pub fn load_region(
             .ok_or_else(|| format!("{level} is not in the wad"))?;
         let lev = Lev::parse(&entry.read_data(&mut file)?)?;
         mesh.add_map(&lev, map.x as f32, map.y as f32);
+        let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
+        placements.extend(load_placements(&wad, &mut file, level, origin, defs)?);
     }
     let stb = BbbbFile::open(data_dir.join("Levels/FinalAlbion_RT.stb"))?;
     if stb
@@ -133,7 +141,37 @@ pub fn load_region(
             mesh.sea_level = Some(SEA_LEVEL);
         }
     }
-    Ok(mesh)
+    Ok((mesh, placements))
+}
+
+/// Buildings and objects on one map whose definition names a mesh.
+fn load_placements(
+    wad: &BbbbFile,
+    file: &mut BufReader<File>,
+    level: &str,
+    origin: Vec3,
+    defs: &Defs,
+) -> Result<Vec<Placement>, Box<dyn std::error::Error>> {
+    let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
+    let Some(entry) = wad.index.by_name(&tng_name) else {
+        return Ok(Vec::new());
+    };
+    let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
+    let tng = Tng::parse(&text)?;
+    Ok(tng
+        .things
+        .iter()
+        .filter(|t| t.kind == "Building" || t.kind == "Object")
+        .filter_map(|t| {
+            let mesh = defs.get(t.definition()?)?.graphic()?;
+            Some(Placement {
+                mesh,
+                position: origin + Vec3::from_array(t.position()?),
+                forward: Vec3::from_array(t.forward()?),
+                up: Vec3::from_array(t.up()?),
+            })
+        })
+        .collect())
 }
 
 #[cfg(test)]

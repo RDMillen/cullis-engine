@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use crate::text::statements;
 use crate::Result;
+use crate::text::statements;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Wld {

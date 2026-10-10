@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::{egui, egui_wgpu, wgpu};
 use fable_data::big::BigFile;
+use fable_data::defs::{Defs, Names};
 use fable_data::mesh::STATIC_MESH_TYPE;
 use fable_data::wld::Wld;
 use glam::Mat4;
@@ -34,6 +35,8 @@ enum Subject {
 
 struct Args {
     subject: Subject,
+    /// Screenshot camera override: target x, y, z, distance, yaw, pitch.
+    camera: Option<[f32; 6]>,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -42,6 +45,7 @@ fn parse_args() -> Result<Args, Error> {
     let mut args = Args {
         subject: Subject::Region("StartOakVale".into()),
         screenshot: None,
+        camera: None,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -51,6 +55,16 @@ fn parse_args() -> Result<Args, Error> {
             "--region" => args.subject = Subject::Region(value()?),
             "--mesh" => args.subject = Subject::Mesh(value()?),
             "--screenshot" => args.screenshot = Some(value()?.into()),
+            "--camera" => {
+                let v: Vec<f32> = value()?
+                    .split(',')
+                    .map(str::parse)
+                    .collect::<Result<_, _>>()?;
+                args.camera = Some(
+                    v.try_into()
+                        .map_err(|_| "--camera takes x,y,z,distance,yaw,pitch")?,
+                );
+            }
             "--size" => {
                 let v = value()?;
                 let (w, h) = v.split_once('x').ok_or("--size takes WxH")?;
@@ -64,7 +78,7 @@ fn parse_args() -> Result<Args, Error> {
 
 /// What is on screen: a region's terrain or a single mesh.
 enum Scene {
-    Terrain(TerrainRenderer),
+    Terrain(Box<TerrainRenderer>),
     Model(ModelRenderer),
 }
 
@@ -78,11 +92,27 @@ impl Scene {
     ) -> Result<(Self, OrbitCamera, String), Error> {
         match subject {
             Subject::Region(name) => {
-                let mesh = terrain::load_region(data_dir, wld, name)?;
+                let names = Names::parse(&std::fs::read(data_dir.join("CompiledDefs/names.bin"))?)?;
+                let defs = Defs::parse(
+                    &std::fs::read(data_dir.join("CompiledDefs/game.bin"))?,
+                    &names,
+                )?;
+                let (mesh, placements) = terrain::load_region(data_dir, wld, name, &defs)?;
                 let (lo, hi) = mesh.bounds();
-                let status = format!("{} maps, {} vertices", mesh.maps, mesh.vertices.len());
+                let mut renderer = TerrainRenderer::new(device, &mesh);
+                let things = model::load_placements(data_dir, name, &placements)?;
+                let status = format!(
+                    "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",
+                    mesh.maps,
+                    mesh.vertices.len(),
+                    placements.len(),
+                    things.indices.len() / 3
+                );
+                if !things.indices.is_empty() {
+                    renderer.things = Some(ModelRenderer::new(device, queue, &things));
+                }
                 Ok((
-                    Self::Terrain(TerrainRenderer::new(device, &mesh)),
+                    Self::Terrain(Box::new(renderer)),
                     OrbitCamera::framing(lo, hi),
                     status,
                 ))
@@ -133,24 +163,27 @@ fn main() -> Result<(), Error> {
             .join("data");
     let wld = Wld::open(data_dir.join("Levels/FinalAlbion.wld"))?;
     match &args.screenshot {
-        Some(path) => screenshot(&data_dir, &wld, &args.subject, args.size, path),
+        Some(path) => screenshot(&data_dir, &wld, &args, path),
         None => run_window(data_dir, wld, args.subject),
     }
 }
 
-fn screenshot(
-    data_dir: &Path,
-    wld: &Wld,
-    subject: &Subject,
-    size: [u32; 2],
-    path: &Path,
-) -> Result<(), Error> {
+fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<(), Error> {
+    let (subject, size) = (&args.subject, args.size);
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;
     eprintln!("adapter: {}", adapter.get_info().name);
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
-    let (mut scene, camera, status) = Scene::load(data_dir, wld, subject, &device, &queue)?;
+    let (mut scene, mut camera, status) = Scene::load(data_dir, wld, subject, &device, &queue)?;
+    if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
+        camera = OrbitCamera {
+            target: glam::Vec3::new(x, y, z),
+            distance,
+            yaw,
+            pitch,
+        };
+    }
     eprintln!("{subject:?}: {status}");
     scene.render(
         &device,

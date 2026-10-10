@@ -124,7 +124,7 @@ Six phases, each ending at a testable gate.
 | --- | --- | --- |
 | 0. Setup | Toolchains, workspace, CLAUDE.md, data survey | Workspace builds; install inventoried (**done**) |
 | 1. Assets and viewer | Containers, world, heightmaps, textures, meshes parse with tests; terrain in the viewer | Any region's terrain renders on desktop (**done**); every texture decodes (**done**); static meshes render textured (**done**; skinned meshes remain) |
-| 2. Rendering a region | Textured terrain (themes), water, Bbm meshes, Tng thing placement, materials matched by eye | **Milestone A:** `StartOakVale` rendered on desktop |
+| 2. Rendering a region | Textured terrain (themes), water, meshes, Tng thing placement, materials matched by eye | **Milestone A:** `StartOakVale` rendered on desktop (placement and water done; terrain textures remain) |
 | 3. Gameplay core | Hero movement, collision, camera, animation, NPCs, map streaming and region transitions; quest API design | Walk the Hero across three linked regions |
 | 4. Scripts and quests | Tng things, Def data, quest API, dialogue and text UI, video playback, cutscenes, saves; Prologue quests one by one | First Prologue quest complete; then **Milestone B:** Prologue playable on desktop |
 | 5. Full game | Remaining quests, combat, magic, Lost Chapters regions, polish | **Milestone C:** full playthrough on desktop |
@@ -209,7 +209,10 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Group maps into regions (`.wld` defines them); list Oakvale's maps
 - [ ] Note what `.bwd` and `.gtg` contain
 - [x] Parse every Tng file and confirm thing positions against the terrain (`docs/formats/tng.md`)
-- [ ] Map definitions to meshes through `CompiledDefs/game.bin`
+- [x] Map definitions to meshes through `CompiledDefs/game.bin` (`docs/formats/defs.md`)
+- [x] Place a region's buildings and objects on its terrain in the viewer
+- [ ] Check placed mesh orientation and scale against the game
+- [ ] Texture the terrain from the Lev themes
 
 **Week 2: first pixels**
 

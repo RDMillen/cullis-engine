@@ -6,6 +6,7 @@ use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use glam::{Mat4, Vec3};
 
+use crate::model::ModelRenderer;
 use crate::terrain::{TerrainMesh, Vertex};
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -66,6 +67,8 @@ pub struct TerrainRenderer {
     water_pipeline: wgpu::RenderPipeline,
     terrain: Geometry,
     sea: Option<Geometry>,
+    /// Meshes placed on the terrain, drawn after it and before the sea.
+    pub things: Option<ModelRenderer>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     pub target: Option<Target>,
@@ -160,6 +163,7 @@ impl TerrainRenderer {
             water_pipeline,
             terrain,
             sea,
+            things: None,
             uniforms,
             bind_group,
             target: None,
@@ -187,6 +191,9 @@ impl TerrainRenderer {
             sun: sun.extend(0.0).to_array(),
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        if let Some(things) = &self.things {
+            things.prepare(queue, view_proj);
+        }
 
         let mut encoder = device.create_command_encoder(&Default::default());
         {
@@ -214,6 +221,10 @@ impl TerrainRenderer {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_pipeline(&self.terrain_pipeline);
             self.terrain.draw(&mut pass);
+            if let Some(things) = &self.things {
+                things.draw(&mut pass);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+            }
             if let Some(sea) = &self.sea {
                 pass.set_pipeline(&self.water_pipeline);
                 sea.draw(&mut pass);

@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): definitions and placed meshes
+
+- Added `fable_data::defs`: `names.bin` and `game.bin` (type table, directory, zlib chunks, records), with `Def::graphic` finding the mesh id. 95% of placed buildings and objects resolve to a mesh.
+- The viewer now places every building and object of a region on its terrain (602 of 629 meshes in `StartOakVale`; the rest are skinned). Meshes are scaled by 0.01: mesh units are centimetres if world units are metres (a chair is 119 units tall, a map 96 wide). Fences and walls join up end to end, which suggests orientation (local x right, y forward, z up) is right.
+- `--camera x,y,z,distance,yaw,pitch` overrides the screenshot camera.
+- Not yet: check orientation and scale against the game; textured terrain; skinned meshes; definitions without a `Graphic`.
+- Next: terrain texturing from the Lev themes, then compare against the game for Milestone A.
+
 ## 2026-10-10 (later): Tng placement
 
 - Added `fable_data::tng` (things, components, typed accessors for definition, position, orientation) on a shared `text` tokenizer (moved out of `wld`). All 398 Tng files parse: 21,800 things.
