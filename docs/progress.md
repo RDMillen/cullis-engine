@@ -7,7 +7,9 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Added `fable_data::defs`: `names.bin` and `game.bin` (type table, directory, zlib chunks, records), with `Def::graphic` finding the mesh id. 95% of placed buildings and objects resolve to a mesh.
 - The viewer now places every building and object of a region on its terrain (602 of 629 meshes in `StartOakVale`; the rest are skinned). Meshes are scaled by 0.01: mesh units are centimetres if world units are metres (a chair is 119 units tall, a map 96 wide). Fences and walls join up end to end, which suggests orientation (local x right, y forward, z up) is right.
 - `--camera x,y,z,distance,yaw,pitch` overrides the screenshot camera.
-- Not yet: check orientation and scale against the game; textured terrain; skinned meshes; definitions without a `Graphic`.
+- Orientation fix after Ross compared with the game (tavern in the right place, but the bridge did not span its two high points and some house doors faced the cliffs): meshes face their local -y. The bridge test confirmed it from the terrain heights: only that way round do both ends rest on the 21 m plateaus.
+- Clean-room note: screenshots of the game as Ross plays it count as observed gameplay. They are fine to look at but are kept out of the repo.
+- Not yet: textured terrain; skinned meshes; definitions without a `Graphic`.
 - Next: terrain texturing from the Lev themes, then compare against the game for Milestone A.
 
 ## 2026-10-10 (later): Tng placement

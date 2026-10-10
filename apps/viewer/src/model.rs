@@ -60,7 +60,9 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// Local x is right, y forward, z up (assumed; to be checked against the game).
+    /// Meshes face their local -y: the Oakvale trader bridge only spans its two
+    /// plateaus this way round, and house doors then face the paths (checked against
+    /// the game). So local -y maps to `forward`, -x to `right` and z to `up`.
     /// Meshes are in hundredths of a world unit (a chair is 119 units tall, a
     /// map 96 units wide), so placed meshes are scaled by [`MESH_SCALE`].
     fn transform(&self) -> Mat4 {
@@ -68,8 +70,8 @@ impl Placement {
         let forward = self.forward.normalize_or(Vec3::Y);
         let right = forward.cross(up).normalize_or(Vec3::X);
         Mat4::from_cols(
-            (right * MESH_SCALE).extend(0.0),
-            (forward * MESH_SCALE).extend(0.0),
+            (-right * MESH_SCALE).extend(0.0),
+            (-forward * MESH_SCALE).extend(0.0),
             (up * MESH_SCALE).extend(0.0),
             self.position.extend(1.0),
         )

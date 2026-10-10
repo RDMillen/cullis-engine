@@ -211,7 +211,7 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Parse every Tng file and confirm thing positions against the terrain (`docs/formats/tng.md`)
 - [x] Map definitions to meshes through `CompiledDefs/game.bin` (`docs/formats/defs.md`)
 - [x] Place a region's buildings and objects on its terrain in the viewer
-- [ ] Check placed mesh orientation and scale against the game
+- [x] Check placed mesh orientation against the game (meshes face local -y; bridge and houses re-checked)
 - [ ] Texture the terrain from the Lev themes
 
 **Week 2: first pixels**
