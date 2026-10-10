@@ -6,7 +6,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Added `apps/viewer` (eframe + wgpu): loads every map a region contains or sees, builds one terrain mesh from the Lev heightmaps, draws it with placeholder height/slope colours into an offscreen texture shown in an egui window. A region list switches regions. `--screenshot` renders headlessly to a PNG.
 - `StartOakVale` (12 maps) and `OakBay` (16 maps) both render as one seamless coastline; the two are the same place remodelled, which is a good sanity check.
-- Not checked: orientation against the game (y may be mirrored); no water plane (the sea floor shows at height 0); in the VM, rendering uses llvmpipe (software OpenGL), fine for correctness only.
+- Ross confirmed the window opens and the terrain matches the game's orientation (world x and y as stored, z up).
+- Not yet: no water plane (the sea floor shows at height 0); in the VM, rendering uses llvmpipe (software OpenGL), fine for correctness only.
 - Next: water plane at the sea height, texture themes per grid point (Lev bytes 10–20 probably), then meshes and textures from `graphics.big` and `textures.big`.
 
 ## 2026-10-10 (later): Lev heightmap matches the Stb
