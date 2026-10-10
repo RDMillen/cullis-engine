@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::text::statements;
-use crate::{Error, Result};
+use crate::Result;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Wld {
@@ -172,6 +172,7 @@ impl Wld {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
 
     const SAMPLE: &str = "START_INITIAL_QUESTS;\r\nQ_One;\r\nEND_INITIAL_QUESTS;\r\n\r\n\
         MapUIDCount 3;\r\nThingManagerUIDCount 1;\r\n\r\n\
