@@ -20,6 +20,7 @@ Clean-room Rust engine for Fable: The Lost Chapters (requires the original game)
 
 - Rust comes from rustup in `~/.cargo/bin` (add it to `PATH` in non-interactive shells); `rust-toolchain.toml` pins the nightly.
 - Desktop: `cargo build`, `cargo test`, `cargo clippy --all-targets`.
+- Before committing, run the tests as a debug build (`cargo test`), not only `--release`: debug builds catch integer overflow, which release builds silently wrap.
 - Survey of the install: `cargo run --release -p fable-data --example survey > docs/survey.md`.
 
 ## Code rules

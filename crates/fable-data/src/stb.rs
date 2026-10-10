@@ -54,9 +54,9 @@ impl CommonHeader {
             let start = offset as usize;
             let i = starts.partition_point(|&s| s <= offset);
             let end = starts.get(i).map_or(data.len(), |&s| s as usize);
-            let raw = data.get(start..end).ok_or(Error::UnexpectedEof {
+            let raw = data.get(start..end).ok_or_else(|| Error::UnexpectedEof {
                 offset: start,
-                wanted: end - start,
+                wanted: end.saturating_sub(start),
             })?;
             let mut h = Reader::new(raw);
             maps.push(MapHeader {
@@ -106,10 +106,12 @@ pub struct Tile {
 impl StaticMap {
     pub fn parse(entry: &[u8]) -> Result<Self> {
         let unknown_0 = Reader::new(entry).u32()?;
-        let table = entry.get(TILE_TABLE_OFFSET..).ok_or(Error::UnexpectedEof {
-            offset: entry.len(),
-            wanted: TILE_TABLE_OFFSET - entry.len(),
-        })?;
+        let table = entry
+            .get(TILE_TABLE_OFFSET..)
+            .ok_or_else(|| Error::UnexpectedEof {
+                offset: entry.len(),
+                wanted: TILE_TABLE_OFFSET.saturating_sub(entry.len()),
+            })?;
         let mut r = Reader::new(table);
         let mut tiles = Vec::new();
         // The table ends at an all-zero record, or where the first tile's data starts.
