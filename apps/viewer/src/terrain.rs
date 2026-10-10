@@ -9,6 +9,7 @@ use bytemuck::{Pod, Zeroable};
 use fable_data::bbbb::BbbbFile;
 use fable_data::defs::Defs;
 use fable_data::lev::Lev;
+use fable_data::nav::Navigation;
 use fable_data::tng::Tng;
 use fable_data::wld::Wld;
 use glam::Vec3;
@@ -41,6 +42,9 @@ pub struct TerrainMesh {
     pub sea_level: Option<f32>,
     /// Which themes cover the ground, if loaded.
     pub themes: Option<ThemeGrid>,
+    /// Navigation leaves as coloured quads; `normal` holds the colour.
+    pub nav_vertices: Vec<Vertex>,
+    pub nav_indices: Vec<u32>,
 }
 
 /// Terrain themes across a region: per grid point, two palette layers and weights.
@@ -174,6 +178,55 @@ impl TerrainMesh {
         ))
     }
 
+    /// Adds the map's default navigation (the `NULL` section, else the first) as
+    /// quads just above the ground: red on paths, green on other walkable ground,
+    /// yellow on further layers (bridge decks, raised floors).
+    fn add_navigation(&mut self, lev: &Lev, data: &[u8], x: f32, y: f32) {
+        let Ok(tail) = lev.parse_tail(data) else {
+            return;
+        };
+        let Some(section) = tail
+            .sections
+            .iter()
+            .find(|s| s.name == "NULL")
+            .or(tail.sections.first())
+        else {
+            return;
+        };
+        let Ok(nav) = Navigation::parse(&section.data, lev.width, lev.height) else {
+            return;
+        };
+        for (layer, node, leaf) in nav.leaves() {
+            let colour = match (layer, leaf.kind) {
+                (0, 0) => [0.85, 0.15, 0.15],
+                (0, _) => [0.2, 0.85, 0.2],
+                _ => [1.0, 0.85, 0.0],
+            };
+            let half = node.size() / 2.0 * 0.9;
+            let [cx, cy] = node.centre;
+            let ground = |gx: f32, gy: f32| {
+                lev.cell(gx.round().max(0.0) as u32, gy.round().max(0.0) as u32)
+                    .map_or(0.0, |c| c.height())
+            };
+            let base = self.nav_vertices.len() as u32;
+            for (dx, dy) in [(-half, -half), (half, -half), (half, half), (-half, half)] {
+                let (px, py) = (cx + dx, cy + dy);
+                self.nav_vertices.push(Vertex {
+                    position: [x + px, y + py, ground(px, py) + 0.15],
+                    normal: colour,
+                });
+            }
+            self.nav_indices.extend_from_slice(&[
+                base,
+                base + 1,
+                base + 2,
+                base,
+                base + 2,
+                base + 3,
+            ]);
+        }
+    }
+
     pub fn bounds(&self) -> (Vec3, Vec3) {
         self.vertices.iter().fold(
             (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
@@ -214,8 +267,10 @@ pub fn load_region(
             .index
             .by_name(&format!("Data\\Levels\\{level}"))
             .ok_or_else(|| format!("{level} is not in the wad"))?;
-        let lev = Lev::parse(&entry.read_data(&mut file)?)?;
+        let data = entry.read_data(&mut file)?;
+        let lev = Lev::parse(&data)?;
         mesh.add_map(&lev, map.x as f32, map.y as f32);
+        mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
         placements.extend(load_placements(&wad, &mut file, level, origin, defs)?);

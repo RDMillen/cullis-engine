@@ -2,7 +2,7 @@
 //! static mesh with its textures.
 //!
 //! ```text
-//! FABLE_DIR=... viewer [--region NAME | --mesh NAME] [--screenshot OUT.png] [--size WxH]
+//! FABLE_DIR=... viewer [--region NAME | --mesh NAME] [--nav] [--screenshot OUT.png] [--size WxH] [--camera x,y,z,distance,yaw,pitch]
 //! ```
 
 mod camera;
@@ -38,6 +38,8 @@ struct Args {
     subject: Subject,
     /// Screenshot camera override: target x, y, z, distance, yaw, pitch.
     camera: Option<[f32; 6]>,
+    /// Draw the navigation overlay.
+    nav: bool,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -47,6 +49,7 @@ fn parse_args() -> Result<Args, Error> {
         subject: Subject::Region("StartOakVale".into()),
         screenshot: None,
         camera: None,
+        nav: false,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -56,6 +59,7 @@ fn parse_args() -> Result<Args, Error> {
             "--region" => args.subject = Subject::Region(value()?),
             "--mesh" => args.subject = Subject::Mesh(value()?),
             "--screenshot" => args.screenshot = Some(value()?.into()),
+            "--nav" => args.nav = true,
             "--camera" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -181,6 +185,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     eprintln!("adapter: {}", adapter.get_info().name);
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
     let (mut scene, mut camera, status) = Scene::load(data_dir, wld, subject, &device, &queue)?;
+    if let Scene::Terrain(renderer) = &mut scene {
+        renderer.show_nav = args.nav;
+    }
     if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
         camera = OrbitCamera {
             target: glam::Vec3::new(x, y, z),
@@ -321,6 +328,9 @@ impl ViewerApp {
         ui.heading(title);
         ui.label(&self.status);
         ui.label("Drag: orbit · Right-drag: pan · Scroll: zoom");
+        if let Scene::Terrain(renderer) = &mut self.scene {
+            ui.checkbox(&mut renderer.show_nav, "Show navigation");
+        }
         ui.separator();
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.list, ListMode::Regions, "Regions");

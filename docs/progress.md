@@ -16,6 +16,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Ross chose to move on from water. Added `Lev::parse_tail`: sound map (one record per 4x4 units), a fixed 33,801-byte block, and named sections, one per map state (`NULL`, quest states like `Q_NewOakValeIntro_PreAttack`). All 398 maps parse; filler maps have no sections.
 - The section records look like a navigation subdivision (8 levels, node positions at half-size steps). Decoding them is the next step for walking and collision (Phase 3).
+- Decoded them: `fable_data::nav` parses every section exactly (outline points, then layers of 32-unit root quadtrees down to 0.5 units; leaves carry a kind, a value, neighbour ids). Drawn in the viewer (`--nav`, or the "Show navigation" checkbox), StartOakValeWest's leaves follow the village paths and walkable ground, with holes at buildings; layer 1 is the bridge deck and raised floors.
+- Next: Phase 3 proper, a walkable Hero: movement constrained to navigation leaves, ground height from the Lev, a follow camera.
 
 ## 2026-10-10 (later): definitions and placed meshes
 

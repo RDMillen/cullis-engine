@@ -74,6 +74,10 @@ impl Geometry {
 pub struct TerrainRenderer {
     terrain_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
+    nav: Option<Geometry>,
+    /// Draw the navigation overlay.
+    pub show_nav: bool,
     terrain: Geometry,
     sea: Option<Geometry>,
     /// Meshes placed on the terrain, drawn after it and before the sea.
@@ -324,6 +328,14 @@ impl TerrainRenderer {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             false,
         );
+        let overlay_pipeline = make_pipeline(
+            "overlay",
+            "fs_overlay",
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+        );
+        let nav = (!mesh.nav_indices.is_empty())
+            .then(|| Geometry::new(device, "navigation", &mesh.nav_vertices, &mesh.nav_indices));
         let terrain = Geometry::new(device, "terrain", &mesh.vertices, &mesh.indices);
         let sea = mesh
             .sea_quad()
@@ -331,6 +343,9 @@ impl TerrainRenderer {
         Self {
             terrain_pipeline,
             water_pipeline,
+            overlay_pipeline,
+            nav,
+            show_nav: false,
             terrain,
             sea,
             things: None,
@@ -397,6 +412,10 @@ impl TerrainRenderer {
             if let Some(things) = &self.things {
                 things.draw(&mut pass);
                 pass.set_bind_group(0, &self.bind_group, &[]);
+            }
+            if let (true, Some(nav)) = (self.show_nav, &self.nav) {
+                pass.set_pipeline(&self.overlay_pipeline);
+                nav.draw(&mut pass);
             }
             if let Some(sea) = &self.sea {
                 pass.set_pipeline(&self.water_pipeline);

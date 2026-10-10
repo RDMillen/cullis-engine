@@ -15,6 +15,7 @@ Early. Nothing is playable yet. The desktop viewer draws any region from the ori
 - textures (DXT1/3/5 and uncompressed), exportable to PNG
 - static meshes (all levels of detail; skinned meshes not yet)
 - Tng thing placement and compiled game definitions (definition to mesh)
+- terrain themes, the sound map and navigation (walkable areas, shown with `--nav`)
 
 See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 

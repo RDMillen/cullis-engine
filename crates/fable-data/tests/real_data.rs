@@ -628,3 +628,33 @@ fn every_lev_tail_parses_into_sections() {
     );
     assert_eq!(fixed_sizes.len(), 1);
 }
+
+#[test]
+#[ignore]
+fn every_navigation_section_parses_exactly() {
+    use fable_data::lev::Lev;
+    use fable_data::nav::Navigation;
+
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut sections, mut leaves, mut layers) = (0, 0, 0);
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".lev"))
+    {
+        let data = entry.read_data(&mut file).unwrap();
+        let lev = Lev::parse(&data).unwrap();
+        for s in lev.parse_tail(&data).unwrap().sections {
+            let nav = Navigation::parse(&s.data, lev.width, lev.height)
+                .unwrap_or_else(|e| panic!("{} {}: {e}", entry.name, s.name));
+            sections += 1;
+            layers += nav.layers.len();
+            leaves += nav.leaves().count();
+        }
+    }
+    eprintln!("{sections} navigation sections, {layers} layers, {leaves} leaves");
+    assert!(sections > 0);
+}
