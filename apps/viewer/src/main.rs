@@ -10,6 +10,7 @@ mod model;
 mod render;
 mod terrain;
 mod themes;
+mod walk;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -40,6 +41,8 @@ struct Args {
     camera: Option<[f32; 6]>,
     /// Draw the navigation overlay.
     nav: bool,
+    /// Place the placeholder Hero near the camera target (screenshots).
+    walk: bool,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -50,6 +53,7 @@ fn parse_args() -> Result<Args, Error> {
         screenshot: None,
         camera: None,
         nav: false,
+        walk: false,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -60,6 +64,7 @@ fn parse_args() -> Result<Args, Error> {
             "--mesh" => args.subject = Subject::Mesh(value()?),
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--nav" => args.nav = true,
+            "--walk" => args.walk = true,
             "--camera" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -196,6 +201,18 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             pitch,
         };
     }
+    if let (true, Scene::Terrain(renderer)) = (args.walk, &mut scene)
+        && let Some(hero) = spawn_hero(
+            renderer,
+            data_dir,
+            &device,
+            &queue,
+            camera.target.truncate(),
+        )?
+    {
+        follow(&mut camera, &hero);
+        eprintln!("hero at {}", hero.position);
+    }
     eprintln!("{subject:?}: {status}");
     scene.render(
         &device,
@@ -213,6 +230,40 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     )?;
     eprintln!("wrote {}", path.display());
     Ok(())
+}
+
+/// Places the placeholder Hero on the walkable cell nearest `near`.
+fn spawn_hero(
+    renderer: &mut TerrainRenderer,
+    data_dir: &Path,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    near: glam::Vec2,
+) -> Result<Option<walk::Hero>, Error> {
+    let (Some(walk), Some(heights)) = (&renderer.walk, &renderer.heights) else {
+        return Ok(None);
+    };
+    let Some(at) = walk.nearest_walkable(near) else {
+        return Ok(None);
+    };
+    let hero = walk::Hero::new(at, heights);
+    let model = model::hero_placeholder(data_dir)?;
+    renderer.hero = Some((
+        ModelRenderer::new(device, queue, &model),
+        hero_transform(&hero),
+    ));
+    Ok(Some(hero))
+}
+
+fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
+    glam::Mat4::from_translation(hero.position) * glam::Mat4::from_rotation_z(hero.heading)
+}
+
+/// Points the camera at the Hero's chest from a third-person distance.
+fn follow(camera: &mut OrbitCamera, hero: &walk::Hero) {
+    camera.target = hero.position + glam::Vec3::Z;
+    camera.distance = camera.distance.clamp(3.0, 12.0);
+    camera.pitch = camera.pitch.clamp(0.15, 0.8);
 }
 
 fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error> {
@@ -262,12 +313,27 @@ fn static_mesh_names(data_dir: &Path) -> Result<Vec<String>, Error> {
 enum ListMode {
     Regions,
     Meshes,
+    Textures,
+}
+
+/// A texture shown in place of the 3D view.
+struct TextureView {
+    id: u32,
+    name: String,
+    handle: egui::TextureHandle,
+    size: [usize; 2],
 }
 
 struct ViewerApp {
     data_dir: PathBuf,
     wld: Wld,
     mesh_names: Vec<String>,
+    textures: model::TextureBank,
+    texture_names: Vec<(u32, String)>,
+    texture_view: Option<TextureView>,
+    /// The walking placeholder Hero, when walk mode is on.
+    walker: Option<walk::Hero>,
+    want_walk: bool,
     list: ListMode,
     filter: String,
     subject: Subject,
@@ -291,10 +357,17 @@ impl ViewerApp {
             Subject::Region(_) => ListMode::Regions,
             Subject::Mesh(_) => ListMode::Meshes,
         };
+        let textures = model::TextureBank::open(&data_dir)?;
+        let texture_names = textures.names();
         Ok(Self {
             data_dir,
             wld,
             mesh_names,
+            texture_names,
+            texture_view: None,
+            walker: None,
+            want_walk: false,
+            textures,
             list,
             filter: String::new(),
             subject,
@@ -315,13 +388,17 @@ impl ViewerApp {
                     rs.renderer.write().free_texture(&id);
                 }
                 self.subject = subject;
+                self.walker = None;
+                self.want_walk = false;
             }
             Err(e) => self.status = format!("{subject:?}: {e}"),
         }
     }
 
-    fn side_panel(&mut self, ui: &mut egui::Ui) -> Option<Subject> {
+    /// Returns a chosen region or mesh, and a chosen texture id.
+    fn side_panel(&mut self, ui: &mut egui::Ui) -> (Option<Subject>, Option<u32>) {
         let mut chosen = None;
+        let mut chosen_texture = None;
         let title = match &self.subject {
             Subject::Region(n) | Subject::Mesh(n) => n.clone(),
         };
@@ -330,11 +407,13 @@ impl ViewerApp {
         ui.label("Drag: orbit · Right-drag: pan · Scroll: zoom");
         if let Scene::Terrain(renderer) = &mut self.scene {
             ui.checkbox(&mut renderer.show_nav, "Show navigation");
+            ui.checkbox(&mut self.want_walk, "Walk (WASD, Shift runs)");
         }
         ui.separator();
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.list, ListMode::Regions, "Regions");
             ui.selectable_value(&mut self.list, ListMode::Meshes, "Meshes");
+            ui.selectable_value(&mut self.list, ListMode::Textures, "Textures");
         });
         ui.text_edit_singleline(&mut self.filter);
         let filter = self.filter.to_ascii_uppercase();
@@ -350,6 +429,18 @@ impl ViewerApp {
                     }
                 }
             }
+            ListMode::Textures => {
+                for (id, name) in self
+                    .texture_names
+                    .iter()
+                    .filter(|(_, n)| n.contains(&filter))
+                {
+                    let current = self.texture_view.as_ref().is_some_and(|t| t.id == *id);
+                    if ui.selectable_label(current, name).clicked() {
+                        chosen_texture = Some(*id);
+                    }
+                }
+            }
             ListMode::Meshes => {
                 for name in self.mesh_names.iter().filter(|n| n.contains(&filter)) {
                     let current = self.subject == Subject::Mesh(name.clone());
@@ -359,7 +450,105 @@ impl ViewerApp {
                 }
             }
         });
-        chosen
+        (chosen, chosen_texture)
+    }
+}
+
+impl ViewerApp {
+    /// Spawns or removes the Hero when the walk checkbox changes.
+    fn update_walk_mode(&mut self, rs: &egui_wgpu::RenderState) {
+        let Scene::Terrain(renderer) = &mut self.scene else {
+            return;
+        };
+        match (self.want_walk, self.walker.is_some()) {
+            (true, false) => {
+                match spawn_hero(
+                    renderer,
+                    &self.data_dir,
+                    &rs.device,
+                    &rs.queue,
+                    self.camera.target.truncate(),
+                ) {
+                    Ok(Some(hero)) => {
+                        follow(&mut self.camera, &hero);
+                        self.walker = Some(hero);
+                    }
+                    Ok(None) => {
+                        self.status = "nowhere walkable in this region".into();
+                        self.want_walk = false;
+                    }
+                    Err(e) => {
+                        self.status = format!("hero: {e}");
+                        self.want_walk = false;
+                    }
+                }
+            }
+            (false, true) => {
+                renderer.hero = None;
+                self.walker = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Moves the Hero from the keyboard, relative to the camera, and follows it.
+    fn walk(&mut self, ui: &egui::Ui) {
+        let (Some(hero), Scene::Terrain(renderer)) = (&mut self.walker, &mut self.scene) else {
+            return;
+        };
+        let (Some(walk), Some(heights)) = (&renderer.walk, &renderer.heights) else {
+            return;
+        };
+        let (forward, right, run, dt) = ui.input(|i| {
+            let axis = |pos: egui::Key, neg: egui::Key| {
+                f32::from(u8::from(i.key_down(pos))) - f32::from(u8::from(i.key_down(neg)))
+            };
+            (
+                axis(egui::Key::W, egui::Key::S),
+                axis(egui::Key::D, egui::Key::A),
+                i.modifiers.shift,
+                i.stable_dt.min(0.1),
+            )
+        });
+        let view = (self.camera.target - self.camera.eye())
+            .truncate()
+            .normalize_or_zero();
+        let side = glam::Vec2::new(view.y, -view.x);
+        let direction = view * forward + side * right;
+        let speed = if run {
+            walk::RUN_SPEED
+        } else {
+            walk::WALK_SPEED
+        };
+        hero.step(direction, speed, dt, walk, heights);
+        if let Some((_, transform)) = &mut renderer.hero {
+            *transform = hero_transform(hero);
+        }
+        self.camera.target = hero.position + glam::Vec3::Z;
+    }
+
+    /// Decodes texture `id` and shows it in place of the 3D view.
+    fn show_texture(&mut self, ctx: &egui::Context, id: u32) {
+        let name = self
+            .texture_names
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map_or_else(|| id.to_string(), |(_, n)| n.clone());
+        match self.textures.load(id) {
+            Ok(img) => {
+                let size = [img.width as usize, img.height as usize];
+                let image = egui::ColorImage::from_rgba_unmultiplied(size, &img.rgba);
+                let handle = ctx.load_texture(&name, image, egui::TextureOptions::LINEAR);
+                self.status = format!("texture {id}: {name}, {}x{}", size[0], size[1]);
+                self.texture_view = Some(TextureView {
+                    id,
+                    name,
+                    handle,
+                    size,
+                });
+            }
+            Err(e) => self.status = format!("texture {id}: {e}"),
+        }
     }
 }
 
@@ -369,12 +558,35 @@ impl eframe::App for ViewerApp {
             return;
         };
 
-        let chosen = egui::Panel::left("list")
+        let (chosen, chosen_texture) = egui::Panel::left("list")
             .resizable(true)
             .show(ui, |ui| self.side_panel(ui))
             .inner;
         if let Some(subject) = chosen.filter(|s| *s != self.subject) {
             self.load(&rs, subject);
+        }
+        if let Some(id) = chosen_texture {
+            self.show_texture(ui.ctx(), id);
+        }
+        self.update_walk_mode(&rs);
+        if self.list == ListMode::Textures
+            && let Some(view) = &self.texture_view
+        {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.label(format!(
+                    "{} (id {}): {}x{}",
+                    view.name, view.id, view.size[0], view.size[1]
+                ));
+                let avail = ui.available_size();
+                let scale = (avail.x / view.size[0] as f32)
+                    .min(avail.y / view.size[1] as f32)
+                    .min(4.0);
+                let size = egui::vec2(view.size[0] as f32 * scale, view.size[1] as f32 * scale);
+                ui.centered_and_justified(|ui| {
+                    ui.add(egui::Image::new((view.handle.id(), size)));
+                });
+            });
+            return;
         }
 
         egui::CentralPanel::default()
@@ -392,6 +604,7 @@ impl eframe::App for ViewerApp {
                 if response.hovered() {
                     self.camera.zoom(ui.input(|i| i.smooth_scroll_delta.y));
                 }
+                self.walk(ui);
 
                 let ppp = ui.ctx().pixels_per_point();
                 let size = [(rect.width() * ppp) as u32, (rect.height() * ppp) as u32];

@@ -264,6 +264,161 @@ pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Error> {
     Ok(builder.finish())
 }
 
+/// Mesh whose info block lists the Prologue Hero's textures (face, hair, torso, mouth).
+const YOUNG_HERO_MESH: &str = "MESH_YOUNGHERO_02";
+
+/// A blocky placeholder for the young Hero, about 1.3 m tall, feet at the origin,
+/// facing +y, textured with the real Hero textures: trousers and shirt from the
+/// torso atlas, the face on the head. Replaced once skinned meshes are decoded.
+pub fn hero_placeholder(data_dir: &Path) -> Result<ModelData, Error> {
+    let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
+    let big = BigFile::read(&mut file)?;
+    let index = big
+        .bank("MBANK_ALLMESHES")
+        .ok_or("no MBANK_ALLMESHES")?
+        .read_index(&mut file)?;
+    let entry = index
+        .entries
+        .iter()
+        .find(|e| e.name == YOUNG_HERO_MESH)
+        .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
+    let ids = fable_data::mesh::MeshInfo::parse(&entry.info)?.texture_ids;
+    let mut textures = TextureBank::open(data_dir)?;
+    let mut model = ModelData {
+        name: "Hero (placeholder)".into(),
+        vertices: Vec::new(),
+        indices: Vec::new(),
+        draws: Vec::new(),
+        images: vec![Image {
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4],
+        }],
+        lo: Vec3::ZERO,
+        hi: Vec3::new(0.4, 0.3, 1.3),
+    };
+    let mut image = |id: Option<&u32>| -> usize {
+        match id.map(|&id| textures.load(id)) {
+            Some(Ok(img)) => {
+                model.images.push(img);
+                model.images.len() - 1
+            }
+            _ => 0,
+        }
+    };
+    let (face, torso) = (image(ids.first()), image(ids.get(2)));
+    // UV rectangles (u0, v0, u1, v1) picked by eye from the torso atlas and face.
+    let parts = [
+        (
+            Vec3::new(-0.12, -0.09, 0.0),
+            Vec3::new(0.12, 0.09, 0.62),
+            torso,
+            [0.0, 0.32, 0.72, 0.66],
+        ),
+        (
+            Vec3::new(-0.18, -0.11, 0.62),
+            Vec3::new(0.18, 0.11, 1.05),
+            torso,
+            [0.0, 0.0, 0.48, 0.3],
+        ),
+        (
+            Vec3::new(-0.11, -0.11, 1.05),
+            Vec3::new(0.11, 0.11, 1.32),
+            face,
+            [0.2, 0.15, 0.8, 0.75],
+        ),
+    ];
+    for (lo, hi, img, uv) in parts {
+        add_box(&mut model, lo, hi, img, uv);
+    }
+    Ok(model)
+}
+
+/// Appends an axis-aligned box whose every face shows the `uv` rectangle of `image`.
+fn add_box(model: &mut ModelData, lo: Vec3, hi: Vec3, image: usize, uv: [f32; 4]) {
+    let first = model.indices.len() as u32;
+    let faces: [(Vec3, [Vec3; 4]); 6] = [
+        (
+            Vec3::Y,
+            [
+                Vec3::new(lo.x, hi.y, hi.z),
+                Vec3::new(hi.x, hi.y, hi.z),
+                Vec3::new(hi.x, hi.y, lo.z),
+                Vec3::new(lo.x, hi.y, lo.z),
+            ],
+        ),
+        (
+            Vec3::NEG_Y,
+            [
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::new(lo.x, lo.y, hi.z),
+                Vec3::new(lo.x, lo.y, lo.z),
+                Vec3::new(hi.x, lo.y, lo.z),
+            ],
+        ),
+        (
+            Vec3::X,
+            [
+                Vec3::new(hi.x, hi.y, hi.z),
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::new(hi.x, lo.y, lo.z),
+                Vec3::new(hi.x, hi.y, lo.z),
+            ],
+        ),
+        (
+            Vec3::NEG_X,
+            [
+                Vec3::new(lo.x, lo.y, hi.z),
+                Vec3::new(lo.x, hi.y, hi.z),
+                Vec3::new(lo.x, hi.y, lo.z),
+                Vec3::new(lo.x, lo.y, lo.z),
+            ],
+        ),
+        (
+            Vec3::Z,
+            [
+                Vec3::new(lo.x, lo.y, hi.z),
+                Vec3::new(hi.x, lo.y, hi.z),
+                Vec3::new(hi.x, hi.y, hi.z),
+                Vec3::new(lo.x, hi.y, hi.z),
+            ],
+        ),
+        (
+            Vec3::NEG_Z,
+            [
+                Vec3::new(lo.x, hi.y, lo.z),
+                Vec3::new(hi.x, hi.y, lo.z),
+                Vec3::new(hi.x, lo.y, lo.z),
+                Vec3::new(lo.x, lo.y, lo.z),
+            ],
+        ),
+    ];
+    let corners = [
+        [uv[0], uv[1]],
+        [uv[2], uv[1]],
+        [uv[2], uv[3]],
+        [uv[0], uv[3]],
+    ];
+    for (normal, quad) in faces {
+        let base = model.vertices.len() as u32;
+        for (p, t) in quad.iter().zip(corners) {
+            model.vertices.push(ModelVertex {
+                position: p.to_array(),
+                normal: normal.to_array(),
+                uv: t,
+            });
+        }
+        model
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    model.draws.push(Draw {
+        first,
+        count: model.indices.len() as u32 - first,
+        image,
+    });
+}
+
 /// Loads every placement into one model in world space.
 pub fn load_placements(
     data_dir: &Path,
@@ -294,6 +449,20 @@ impl TextureBank {
             .read_index(&mut file)?;
         let entries = index.entries.into_iter().map(|e| (e.id, e)).collect();
         Ok(Self { file, entries })
+    }
+
+    /// Every texture's id and short name (the source file name, without its path).
+    pub(crate) fn names(&self) -> Vec<(u32, String)> {
+        let mut names: Vec<(u32, String)> = self
+            .entries
+            .values()
+            .map(|e| {
+                let short = e.name.rsplit('\\').next().unwrap_or(&e.name);
+                (e.id, short.trim_end_matches(']').to_owned())
+            })
+            .collect();
+        names.sort_by(|a, b| a.1.cmp(&b.1));
+        names
     }
 
     pub(crate) fn load(&mut self, id: u32) -> Result<Image, Error> {

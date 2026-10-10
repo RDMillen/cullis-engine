@@ -9,6 +9,7 @@ use glam::{Mat4, Vec3};
 use crate::model::ModelRenderer;
 use crate::terrain::{TerrainMesh, Vertex};
 use crate::themes::{LAYER_SIZE, Mips, ThemeTextures};
+use crate::walk::{HeightGrid, WalkGrid};
 
 /// World units covered by one repeat of a theme texture. Set by eye; to be
 /// compared with the game.
@@ -82,6 +83,11 @@ pub struct TerrainRenderer {
     sea: Option<Geometry>,
     /// Meshes placed on the terrain, drawn after it and before the sea.
     pub things: Option<ModelRenderer>,
+    /// The walking Hero and its model-to-world transform.
+    pub hero: Option<(ModelRenderer, Mat4)>,
+    /// Where the Hero can walk and the ground height, if the region has them.
+    pub walk: Option<WalkGrid>,
+    pub heights: Option<HeightGrid>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     grid: [f32; 4],
@@ -349,6 +355,9 @@ impl TerrainRenderer {
             terrain,
             sea,
             things: None,
+            hero: None,
+            walk: mesh.walk.clone(),
+            heights: mesh.heights.clone(),
             uniforms,
             bind_group,
             grid,
@@ -382,6 +391,9 @@ impl TerrainRenderer {
         if let Some(things) = &self.things {
             things.prepare(queue, view_proj);
         }
+        if let Some((hero, transform)) = &self.hero {
+            hero.prepare(queue, view_proj * *transform);
+        }
 
         let mut encoder = device.create_command_encoder(&Default::default());
         {
@@ -411,6 +423,10 @@ impl TerrainRenderer {
             self.terrain.draw(&mut pass);
             if let Some(things) = &self.things {
                 things.draw(&mut pass);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+            }
+            if let Some((hero, _)) = &self.hero {
+                hero.draw(&mut pass);
                 pass.set_bind_group(0, &self.bind_group, &[]);
             }
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {

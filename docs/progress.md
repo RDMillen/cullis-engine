@@ -12,6 +12,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-10 (later): placeholder Hero and Hero textures
+
+- Hero textures: the Prologue Hero is `MESH_YOUNGHERO_02` (mesh id 4300, type 5, skinned); its info block lists `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO` (outfit atlas) and `HERO_SKIN_MOUTH`; all decode correctly (checked by eye). Type-5 meshes (504, the character parts) share the static-mesh info layout. Creature definitions (`CREATURE_HERO_CHILD`, …) do not reference meshes through `Graphic`; how they pick body parts is not decoded.
+- Viewer: a Textures tab lists every texture by name and shows the selected one.
+- Viewer walk mode ("Walk" checkbox, or `--walk` for screenshots): a blocky placeholder Hero textured with the young Hero's textures, on a 0.5 m walkability grid from the ground-layer navigation leaves, height from the heightmaps, WASD relative to the camera, Shift to run, sliding along blocked edges, follow camera.
+- Not yet: camera collision (the camera can end up inside houses), walking on upper navigation layers (bridge decks), skinned meshes and animation.
+
 ## 2026-10-10 (later): the rest of the Lev
 
 - Ross chose to move on from water. Added `Lev::parse_tail`: sound map (one record per 4x4 units), a fixed 33,801-byte block, and named sections, one per map state (`NULL`, quest states like `Q_NewOakValeIntro_PreAttack`). All 398 maps parse; filler maps have no sections.

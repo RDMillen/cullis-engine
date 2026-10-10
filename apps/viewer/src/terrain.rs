@@ -12,9 +12,10 @@ use fable_data::lev::Lev;
 use fable_data::nav::Navigation;
 use fable_data::tng::Tng;
 use fable_data::wld::Wld;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use crate::model::Placement;
+use crate::walk::{HeightGrid, WalkGrid};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -45,6 +46,11 @@ pub struct TerrainMesh {
     /// Navigation leaves as coloured quads; `normal` holds the colour.
     pub nav_vertices: Vec<Vertex>,
     pub nav_indices: Vec<u32>,
+    /// Ground-layer navigation leaves: world centre and side.
+    pub nav_cells: Vec<(Vec2, f32)>,
+    /// Where a Hero can walk, and the ground height, once the region is loaded.
+    pub walk: Option<WalkGrid>,
+    pub heights: Option<HeightGrid>,
 }
 
 /// Terrain themes across a region: per grid point, two palette layers and weights.
@@ -208,6 +214,12 @@ impl TerrainMesh {
                 lev.cell(gx.round().max(0.0) as u32, gy.round().max(0.0) as u32)
                     .map_or(0.0, |c| c.height())
             };
+            if layer == 0 {
+                self.nav_cells.push((
+                    Vec2::new(x + node.centre[0], y + node.centre[1]),
+                    node.size(),
+                ));
+            }
             let base = self.nav_vertices.len() as u32;
             for (dx, dy) in [(-half, -half), (half, -half), (half, half), (-half, half)] {
                 let (px, py) = (cx + dx, cy + dy);
@@ -282,6 +294,23 @@ pub fn load_region(
         for (lev, x, y) in &maps {
             grid.add_map(lev, *x, *y, defs);
         }
+        let mut heights = HeightGrid::new(Vec2::new(lo.x, lo.y), size);
+        for (lev, x, y) in &maps {
+            let (ox, oy) = ((x - lo.x) as u32, (y - lo.y) as u32);
+            for j in 0..=lev.height {
+                for i in 0..=lev.width {
+                    if let Some(c) = lev.cell(i, j) {
+                        heights.set(ox + i, oy + j, c.height());
+                    }
+                }
+            }
+        }
+        let mut walk = WalkGrid::new(Vec2::new(lo.x, lo.y), Vec2::new(hi.x, hi.y));
+        for (centre, side) in &mesh.nav_cells {
+            walk.mark(*centre, *side);
+        }
+        mesh.walk = Some(walk);
+        mesh.heights = Some(heights);
         mesh.themes = Some(grid);
     }
     let stb = BbbbFile::open(data_dir.join("Levels/FinalAlbion_RT.stb"))?;
