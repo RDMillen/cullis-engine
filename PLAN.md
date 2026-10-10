@@ -28,18 +28,18 @@ Build a clean-room engine, in Rust, that runs Fable: The Lost Chapters from the 
 
 **Success criteria**
 
-- Milestone A: the Oakvale map set (`OakValeEast_v2`, `OakValeWest_v2`, `OakvaleMemorialGarden_v2` and their fillers) renders at a stable 30 fps on a Vita at 960x544.
+- Milestone A: the Prologue's Oakvale region (`StartOakVale`: three maps plus the nine it sees) renders at a stable 30 fps on a Vita at 960x544.
 - Milestone B: the Prologue is playable start to finish on desktop, with its quests reimplemented by hand.
 - Milestone C: the Prologue is playable on a Vita within the memory actually available to a homebrew app, measured in Phase 0.
 
 ## Development environment
 
-- Dev VM: Debian 13. Nix and Rust are not installed yet. Use a project `flake.nix` that pins Rust nightly, VitaSDK and wgpu dependencies.
+- Dev VM: Debian 13 with Nix. `nix develop` gives the desktop dependencies (Vulkan loader, lavapipe, windowing libraries, pkg-config, ffmpeg) and sets `VITASDK`. Rust comes from rustup, pinned by `rust-toolchain.toml`; VitaSDK is installed with vdpm at `/usr/local/vitasdk`.
 - Claude Code CLI runs in the VM inside tmux; code review happens from the host over SSH.
 - VM networking is bridged, so the Vita can reach the VM for cargo-vita uploads and PrincessLog output.
 - Original game is installed and played on the host (Proton on Linux). Its install folder is shared into the VM read-only and exposed as `$FABLE_DIR` (currently `/home/ross/fable_data`).
 - The install in use is a European retail DVD copy of The Lost Chapters (multilingual readmes, `banks_dvd.ini`). The Steam release may differ, so tests must not hard-code file sizes or offsets.
-- Reference clones live in `/home/ross/`: `cargo-vita`, `vita-rust-examples` and `vitaGL`. These are fine to read. `openalbion` is also there but must not be read further (see Landscape); delete it or move it off the dev machine.
+- Reference clones live in `/home/ross/`: `cargo-vita`, `vita-rust-examples` and `vitaGL`. The openalbion clone was removed (see Landscape).
 - Desktop rendering in the VM may use software Vulkan (lavapipe): fine for correctness, never for performance numbers. Performance is measured on real Vita hardware only.
 - The VM has no `xxd`; use `od -A x -t x1z` for hex dumps.
 
@@ -49,9 +49,9 @@ Observed in `$FABLE_DIR/data` (about 2.7 GB). This replaces guesswork about wher
 
 | Path | Size | What it is |
 | --- | --- | --- |
-| `Levels/FinalAlbion.wld` | small, text | The world: 398 maps, each with world coordinates (`MapX`, `MapY`), a Lev file, a script name and a `LoadedOnPlayerProximity` flag (TRUE for 151 maps) |
+| `Levels/FinalAlbion.wld` | small, text | The world: 398 maps (world coordinates, Lev file, script name, `LoadedOnPlayerProximity` flag) and 141 regions, each listing the maps it contains and the maps it can see |
 | `Levels/FinalAlbion.wad` | 174 MB | `BBBB` bank holding every map's Lev and Tng files |
-| `Levels/FinalAlbion_RT.stb` | 598 MB | `BBBB` bank, the largest file in the install. Contents not yet known; possibly precomputed level data |
+| `Levels/FinalAlbion_RT.stb` | 598 MB | `BBBB` bank: one entry per Lev (566 MB, about 3.8 times the Levs), 25 sea static-map banks and a common header. Names suggest pre-built static map data; contents not yet decoded |
 | `Levels/FinalAlbion.bwd`, `.gtg` | small | Binary per-map table (starts with Lev paths); text map/section data (`NEWMAP`, `XXXSectionStart`). Not yet known |
 | `Levels/FinalAlbion.qst`, `GlobalQuests.qst` | 23 KB total | Quest registration only: 187 `AddQuest`/`AddTestQuest` lines naming quests, start points and `.end` files. **No quest logic** |
 | `Misc/FinalAlbion_StartingRegionGraph.txt` | small, text | Which regions connect to which |
@@ -67,7 +67,7 @@ Observed in `$FABLE_DIR/data` (about 2.7 GB). This replaces guesswork about wher
 | `Video/` | 47 files | `.wmv` cinematics, including `intro_comp.wmv` and `1_raid_on_oak_vale_comp.wmv` (Prologue) |
 | `banks_dvd.ini` | text | Maps each bank name to its `.big` file |
 
-**A region is a set of maps, not one Lev file.** Oakvale alone is about 26 Lev files (East and West, MemorialGarden, fillers, six sea maps) plus the separate `StartOakVale*` set used in the Prologue. Maps load and unload by player proximity within one world, so loading, memory budgets and Milestone A are all measured per *loaded map set*.
+**A region is a set of maps, not one Lev file.** Each `.wld` region lists the maps it contains (`ContainsMap`) and the maps visible from it (`SeesMap`). The Prologue's Oakvale is region `StartOakVale` (3 maps, sees 9 more); the adult Oakvale is `OakBay` (2 maps, sees 14). Loading, memory budgets and Milestone A are all measured per region: its contained plus seen maps. Per-region sizes are in `docs/survey.md`.
 
 ## Landscape
 
@@ -96,7 +96,7 @@ The figures below are working targets to test against, not measured figures. The
 | Draw calls | No hard limit | Under 500 per frame | Static batching per map; instancing for repeated props |
 | Storage | Memory card or SD2Vita | Converted pack well under the 2.7 GB original | One language only; re-encode dialogue audio; convert video |
 
-Open question: how much is loaded at once in the busiest place (Bowerstone or the Arena), counting every proximity-loaded map? Measure on desktop in Phase 1 before committing to the Vita budget.
+Open question: how much memory does the busiest region need once loaded? By raw map data (Lev + Tng + Stb for contained and seen maps), the heaviest is `ExecutionTree` at about 83 MB and `StartOakVale` is about 33 MB (`docs/survey.md`). Still to add: meshes, textures, creatures and the decoded (not file) sizes. Measure on desktop in Phase 1 before committing to the Vita budget.
 
 ## Architecture
 
@@ -127,7 +127,7 @@ Engine (one codebase for both targets)
 - **Own parsers.** fable-data is written in this repo from community docs and file observation, not forked.
 - **Renderer trait, not an API translation.** engine-render defines meshes, materials, passes and draw lists. The wgpu backend serves desktop; the vitaGL backend serves the Vita. Design the trait around what the Vita does well: static batches, baked lighting, DXT textures.
 - **Materials are rewritten.** The original D3D9 shaders in `shaders.big` are not read. Water, foliage, skin, terrain blending and lightmaps are matched by eye against the original game.
-- **Map streaming.** engine-core loads and frees maps from `.wld` by player proximity, as the original does, rather than loading whole regions.
+- **Map streaming.** engine-core loads a region's contained and seen maps from `.wld` and frees them on leaving, keeping maps shared with the next region.
 - **Fixed 30 Hz simulation**, decoupled from rendering, so game logic behaves the same on both targets.
 - **Data-driven from Def files.** Read creature, item and object definitions from the original DefBin rather than hardcoding them.
 - **Quests are new code.** The game data only names quests; their logic is not in the data. Each quest is written by hand against a quest API, from playthroughs of the original. Choose in Phase 3 whether quests are Rust or an embedded scripting language (Lua or Rhai), so quest work can become content rather than engine work.
@@ -205,7 +205,7 @@ The biggest risk is the quests, not the renderer: the data contains none of thei
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Quest logic is not in the game data | Every quest (187 registered) is written from scratch; quests break or soft-lock | Quest API designed in Phase 3; implement quest by quest, starting with the Prologue; write expected behaviour from playthroughs into `docs/quests/`; estimate from the first quest |
-| Level rendering may depend on the unknown Stb bank | "Render any region" stalls | Survey Stb in Phase 0; in Phase 1 decide whether its data is needed or can be rebuilt from Lev and Tng |
+| Level rendering likely depends on the undecoded Stb per-map entries | "Render any region" stalls | Decode one Stb entry early in Phase 1, from bytes and by comparing against the game on screen; decide whether it is needed or can be rebuilt from Lev and Tng |
 | Vita CPU too slow for busy areas | Frame rate drops below 30 | Profile on device from Phase 2; move AI to a second core; cap active NPCs per map |
 | Loaded map set exceeds the memory budget | Crashes on load | Measure real app memory in Phase 0 and the busiest map set in Phase 1; tighten proximity radius if needed |
 | Rust Vita target is tier 3 | Toolchain breaks after a nightly update | Pin the nightly in `rust-toolchain.toml` (or the Nix flake); CI builds the Vita package on every push |
@@ -220,28 +220,31 @@ By the end of week two: one Fable mesh, textured, in a desktop window; a Rust he
 
 **Week 1: foundations**
 
-- [ ] Install Nix, VitaSDK, nightly Rust and cargo-vita; set up vitacompanion and PrincessLog on the Vita
+- [x] Install Nix, VitaSDK, nightly Rust and cargo-vita
+- [ ] Set up vitacompanion and PrincessLog on the Vita
 - [ ] Build and run a vita-rust example on device
 - [ ] On the Vita, find the largest main-RAM and CDRAM allocations a homebrew app can make; record them in `docs/progress.md`
-- [ ] Create the workspace and write CLAUDE.md with the clean-room rule
-- [ ] Remove the `openalbion` clone from `/home/ross/`
-- [ ] Set `$FABLE_DIR` to the install; list its `data/` tree into `docs/inventory.md`, including the install version
+- [x] Create the workspace and write CLAUDE.md with the clean-room rule
+- [x] Remove the `openalbion` clone from `/home/ross/`
+- [x] Set `$FABLE_DIR` to the install; list its `data/` tree into `docs/inventory.md`, including the install version
 
 **Week 1–2: data survey**
 
-- [ ] List the entries of `FinalAlbion.wad` and `FinalAlbion_RT.stb` (both `BBBB` banks), with a test
-- [ ] Parse `FinalAlbion.wld` into a table of maps: name, coordinates, script name, proximity flag, Lev size
-- [ ] Group maps into regions using the script names and `FinalAlbion_StartingRegionGraph.txt`; list Oakvale's maps
+- [x] List the entries of `FinalAlbion.wad` and `FinalAlbion_RT.stb` (both `BBBB` banks), with a test
+- [x] Parse `FinalAlbion.wld` into a table of maps: name, coordinates, script name, proximity flag, Lev size
+- [x] Group maps into regions (`.wld` defines them); list Oakvale's maps
 - [ ] Note what `.bwd` and `.gtg` contain
 
 **Week 2: first pixels**
 
-- [ ] Open `graphics/graphics.big` and list every mesh entry, with names from `Defs/RetailHeaders/meshdata.h`, with a test
-- [ ] Open `graphics/pc/textures.big` and list every texture entry, with a test
+- [x] Open `graphics/graphics.big` and `graphics/pc/textures.big` and parse every bank index, with a test
+- [ ] Match mesh entries to names in `Defs/RetailHeaders/meshdata.h`; find out what each entry type number means
+- [ ] Decode one Stb per-map entry header
 - [ ] Decode a DXT texture to PNG; check it by eye
 - [ ] Load one Bbm mesh into the egui viewer with wgpu
-- [ ] Write `docs/formats/big.md`, `docs/formats/bbm.md` and `docs/formats/wld.md` from what was learned
-- [ ] Note the size of the largest texture bank and mesh bank for the budget
+- [x] Write `docs/formats/big.md` and `docs/formats/wld.md` (also `bbbb.md`, `bank-index.md`)
+- [ ] Write `docs/formats/bbm.md`
+- [x] Note the size of the largest texture bank and mesh bank for the budget (`GBANK_MAIN_PC` 501 MB, `MBANK_ALLMESHES` 223 MB; `docs/survey.md`)
 
 ## Sources
 

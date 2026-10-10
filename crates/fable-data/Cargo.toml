@@ -1,0 +1,7 @@
+[package]
+name = "fable-data"
+version = "0.1.0"
+description = "Clean-room parsers for Fable: The Lost Chapters data files"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
