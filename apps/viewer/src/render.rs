@@ -8,6 +8,11 @@ use glam::{Mat4, Vec3};
 
 use crate::model::ModelRenderer;
 use crate::terrain::{TerrainMesh, Vertex};
+use crate::themes::{LAYER_SIZE, Mips, ThemeTextures};
+
+/// World units covered by one repeat of a theme texture. Set by eye; to be
+/// compared with the game.
+pub const THEME_TILE: f32 = 12.0;
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -23,6 +28,10 @@ pub const SKY: wgpu::Color = wgpu::Color {
 struct Uniforms {
     view_proj: [[f32; 4]; 4],
     sun: [f32; 4],
+    /// Theme grid origin (x, y) and size (w, h) in world units.
+    grid: [f32; 4],
+    /// x: world units per texture repeat.
+    params: [f32; 4],
 }
 
 pub struct Target {
@@ -71,11 +80,73 @@ pub struct TerrainRenderer {
     pub things: Option<ModelRenderer>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    grid: [f32; 4],
     pub target: Option<Target>,
 }
 
+/// Creates a 2D array texture from per-layer mip chains of `LAYER_SIZE` images.
+fn layer_array(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &str,
+    layers: &[Mips],
+) -> wgpu::TextureView {
+    let mip_count = layers[0].len() as u32;
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: LAYER_SIZE,
+            height: LAYER_SIZE,
+            depth_or_array_layers: layers.len() as u32,
+        },
+        mip_level_count: mip_count,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (layer, mips) in layers.iter().enumerate() {
+        for (level, data) in mips.iter().enumerate() {
+            let side = (LAYER_SIZE >> level).max(1);
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: level as u32,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(side * 4),
+                    rows_per_image: Some(side),
+                },
+                wgpu::Extent3d {
+                    width: side,
+                    height: side,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+    }
+    texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    })
+}
+
 impl TerrainRenderer {
-    pub fn new(device: &wgpu::Device, mesh: &TerrainMesh) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mesh: &TerrainMesh,
+        themes: Option<&ThemeTextures>,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("terrain.wgsl"));
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("terrain uniforms"),
@@ -83,27 +154,126 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let texture_entry = |binding, sample_type, view_dimension| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type,
+                view_dimension,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let filterable = wgpu::TextureSampleType::Float { filterable: true };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                texture_entry(
+                    1,
+                    wgpu::TextureSampleType::Uint,
+                    wgpu::TextureViewDimension::D2,
+                ),
+                texture_entry(2, filterable, wgpu::TextureViewDimension::D2Array),
+                texture_entry(3, filterable, wgpu::TextureViewDimension::D2Array),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        // Theme grid: one texel per grid point, [layer, layer, weight, weight].
+        let (grid_size, grid_origin, cells) = match &mesh.themes {
+            Some(g) => (g.size, g.origin, g.cells.clone()),
+            None => ([1, 1], [0.0, 0.0], vec![[0; 4]]),
+        };
+        let grid_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("theme grid"),
+                size: wgpu::Extent3d {
+                    width: grid_size[0],
+                    height: grid_size[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Uint,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            bytemuck::cast_slice(&cells),
+        );
+        let grey: Vec<Mips> = vec![vec![
+            [128u8, 128, 128, 255].repeat((LAYER_SIZE * LAYER_SIZE) as usize),
+        ]];
+        let (base, cliff) = match themes {
+            Some(t) if !t.base.is_empty() => (
+                layer_array(device, queue, "theme base", &t.base),
+                layer_array(device, queue, "theme cliff", &t.cliff),
+            ),
+            _ => (
+                layer_array(device, queue, "theme base", &grey),
+                layer_array(device, queue, "theme cliff", &grey),
+            ),
+        };
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 4,
+            ..Default::default()
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("terrain"),
             layout: &layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniforms.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &grid_texture.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&base),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&cliff),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
         });
+        let grid = [
+            grid_origin[0],
+            grid_origin[1],
+            grid_size[0] as f32,
+            grid_size[1] as f32,
+        ];
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain"),
             bind_group_layouts: &[Some(&layout)],
@@ -166,6 +336,7 @@ impl TerrainRenderer {
             things: None,
             uniforms,
             bind_group,
+            grid,
             target: None,
         }
     }
@@ -189,6 +360,8 @@ impl TerrainRenderer {
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             sun: sun.extend(0.0).to_array(),
+            grid: self.grid,
+            params: [THEME_TILE, 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
         if let Some(things) = &self.things {

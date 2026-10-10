@@ -92,6 +92,22 @@ pub struct Def {
     pub record: Vec<u8>,
 }
 
+/// Field of `ENGINE_THEME` records holding the cliff (steep slope) texture, e.g.
+/// `UNASSIGNED_CLIFF_LAYERED_01`. Its name is not known; another field
+/// (`0x99b491a3`) holds the same id in every theme seen.
+const CLIFF_TEXTURE_FIELD: u32 = 0x7a1c_6732;
+
+/// Texture bank (`GBANK_MAIN_PC`) ids used by a terrain theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThemeTextures {
+    /// Flat ground, e.g. `UNASSIGNED_GRASS_PLAIN`.
+    pub base: u32,
+    /// Steep slopes, e.g. `UNASSIGNED_CLIFF_LAYERED_01`.
+    pub cliff: u32,
+    pub base_bump: u32,
+    pub cliff_bump: u32,
+}
+
 /// Value type tag that precedes graphic (mesh) references in records.
 const GRAPHIC_VALUE_TAG: u32 = 5;
 
@@ -104,6 +120,28 @@ impl Def {
         let at = self.record.windows(8).position(|w| w == pattern)?;
         let v = self.record.get(at + 8..at + 12)?;
         Some(u32::from_le_bytes(v.try_into().unwrap()))
+    }
+
+    /// The `u32` right after the first occurrence of a field hash. Theme records are a
+    /// 5-byte header then (field hash, `u32` value) pairs.
+    pub fn value_after(&self, field_hash: u32) -> Option<u32> {
+        let at = self
+            .record
+            .windows(4)
+            .position(|w| w == field_hash.to_le_bytes())?;
+        let v = self.record.get(at + 4..at + 8)?;
+        Some(u32::from_le_bytes(v.try_into().unwrap()))
+    }
+
+    /// Texture ids of an `ENGINE_THEME` definition (0 where unset).
+    pub fn theme_textures(&self) -> ThemeTextures {
+        let get = |h: u32| self.value_after(h).unwrap_or(0);
+        ThemeTextures {
+            base: get(name_hash("BaseTexture")),
+            cliff: get(CLIFF_TEXTURE_FIELD),
+            base_bump: get(name_hash("BaseBumpMap")),
+            cliff_bump: get(name_hash("CliffBumpMap")),
+        }
     }
 
     /// Mesh bank entry id from the `Graphic` field, if the definition has one.

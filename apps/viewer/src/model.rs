@@ -279,13 +279,13 @@ pub fn load_placements(
     Ok(builder.finish())
 }
 
-struct TextureBank {
+pub(crate) struct TextureBank {
     file: BufReader<File>,
     entries: HashMap<u32, fable_data::bank::Entry>,
 }
 
 impl TextureBank {
-    fn open(data_dir: &Path) -> Result<Self, Error> {
+    pub(crate) fn open(data_dir: &Path) -> Result<Self, Error> {
         let mut file = BufReader::new(File::open(data_dir.join("graphics/pc/textures.big"))?);
         let big = BigFile::read(&mut file)?;
         let index = big
@@ -296,7 +296,7 @@ impl TextureBank {
         Ok(Self { file, entries })
     }
 
-    fn load(&mut self, id: u32) -> Result<Image, Error> {
+    pub(crate) fn load(&mut self, id: u32) -> Result<Image, Error> {
         let entry = self
             .entries
             .get(&id)

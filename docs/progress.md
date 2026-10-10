@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): textured terrain
+
+- Grid point bytes 10–14 are two theme slots and their weights (plus a third slot); themes are `ENGINE_THEME` definitions naming a base (flat) and a cliff texture (`Def::theme_textures`). Every grid point uses a listed slot; 343 of 344 themes have textures.
+- The viewer textures terrain: a region-wide grid texture of (layer, layer, weight, weight), base and cliff texture arrays (512x512, box-filtered mips), bilinear blending between grid points in the shader, cliff texture by slope (projected sideways). StartOakVale reads as Oakvale: grass, mud paths, the stream bed (`LANDSCAPE_WATER`), ploughed fields, earthy cliffs.
+- Unnamed theme slots: a key-based lookup did not hold (the same key names different themes even within a region), so they get the map's first real named theme as a labelled stand-in.
+- Set by eye, to compare with the game: texture tiling (12 world units per repeat), the slope range for cliffs.
+- Next: compare StartOakVale against the game (Milestone A), then stream water surfaces and the rest of the grid bytes.
+
 ## 2026-10-10 (later): definitions and placed meshes
 
 - Added `fable_data::defs`: `names.bin` and `game.bin` (type table, directory, zlib chunks, records), with `Def::graphic` finding the mesh id. 95% of placed buildings and objects resolve to a mesh.

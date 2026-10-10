@@ -24,7 +24,7 @@ pub struct Lev {
     /// Map size in world units; the grid has `(width + 1) * (height + 1)` points.
     pub width: u32,
     pub height: u32,
-    /// Texture themes, by slot id. Empty slots are left out.
+    /// Texture theme slots that have a name or are used; unused empty slots are left out.
     pub themes: Vec<Theme>,
     /// A per-map value that the stb common header repeats. Absent (and zero in the
     /// stb) in one map, `HauntedHouse_Filler_01`.
@@ -38,7 +38,14 @@ pub struct Lev {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
-    pub id: u32,
+    /// Position in the slot table; grid points refer to themes by this.
+    pub slot: u8,
+    /// The slot's first word; meaning unknown. It is not a usage count, and not a
+    /// theme id either: the same value names different themes in different maps,
+    /// even within one region.
+    pub key: u32,
+    /// An `ENGINE_THEME` definition name, e.g. `GROUND_GRASS_GREEN`. Can be empty
+    /// for a used slot (the prison cells use an unnamed slot 2).
     pub name: String,
 }
 
@@ -53,6 +60,16 @@ impl Cell {
     pub fn height(&self) -> f32 {
         f32::from_le_bytes(self.raw[5..9].try_into().unwrap()) * HEIGHT_SCALE
     }
+
+    /// Theme slots (bytes 10–12) and the weights of the first two (bytes 13–14).
+    /// The two weights add up to 255 at 99.5% of grid points; the third slot's role
+    /// is not known yet.
+    pub fn themes(&self) -> ([u8; 3], [u8; 2]) {
+        (
+            [self.raw[10], self.raw[11], self.raw[12]],
+            [self.raw[13], self.raw[14]],
+        )
+    }
 }
 
 impl Lev {
@@ -64,13 +81,14 @@ impl Lev {
 
         let mut themes = Vec::new();
         let mut r = at(THEMES_OFFSET);
-        for _ in 0..THEME_SLOTS {
-            let id = r.u32()?;
+        for slot in 0..THEME_SLOTS as u8 {
+            let key = r.u32()?;
             let name = r.bytes(THEME_NAME_LEN)?;
             let len = name.iter().position(|&b| b == 0).unwrap_or(name.len());
-            if len > 0 {
+            if len > 0 || key > 0 {
                 themes.push(Theme {
-                    id,
+                    slot,
+                    key,
                     name: latin1(&name[..len]),
                 });
             }
@@ -176,7 +194,8 @@ mod tests {
             assert_eq!(
                 lev.themes,
                 [Theme {
-                    id: 7,
+                    slot: 1,
+                    key: 7,
                     name: "GROUND_GRASS".into()
                 }]
             );

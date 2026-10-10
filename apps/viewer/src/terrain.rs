@@ -39,6 +39,85 @@ pub struct TerrainMesh {
     pub maps: usize,
     /// Height of a sea plane covering the terrain bounds, if the region has sea.
     pub sea_level: Option<f32>,
+    /// Which themes cover the ground, if loaded.
+    pub themes: Option<ThemeGrid>,
+}
+
+/// Terrain themes across a region: per grid point, two palette layers and weights.
+#[derive(Debug, Default)]
+pub struct ThemeGrid {
+    /// World position of grid point (0, 0).
+    pub origin: [f32; 2],
+    pub size: [u32; 2],
+    /// Row-major: [first layer, second layer, first weight, second weight].
+    pub cells: Vec<[u8; 4]>,
+    /// Layer 0 is "no theme"; the rest are named themes with their texture ids.
+    pub layers: Vec<ThemeLayer>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThemeLayer {
+    pub name: String,
+    pub base: u32,
+    pub cliff: u32,
+}
+
+impl ThemeGrid {
+    fn new(origin: [f32; 2], size: [u32; 2]) -> Self {
+        Self {
+            origin,
+            size,
+            cells: vec![[0; 4]; size[0] as usize * size[1] as usize],
+            layers: vec![ThemeLayer::default()],
+        }
+    }
+
+    fn layer(&mut self, name: &str, defs: &Defs) -> u8 {
+        if let Some(i) = self.layers.iter().position(|l| l.name == name) {
+            return i as u8;
+        }
+        let t = defs.get(name).map(|d| d.theme_textures());
+        self.layers.push(ThemeLayer {
+            name: name.to_owned(),
+            base: t.map_or(0, |t| t.base),
+            cliff: t.map_or(0, |t| t.cliff),
+        });
+        (self.layers.len() - 1).min(255) as u8
+    }
+
+    /// Writes one map's theme points at world position (`x`, `y`).
+    ///
+    /// Some used slots have no name (all of StartOakVale_Filler_05's points use one).
+    /// How the game resolves them is not known; as a visual stand-in they get the
+    /// map's first real named theme.
+    fn add_map(&mut self, lev: &Lev, x: f32, y: f32, defs: &Defs) {
+        let stand_in = lev
+            .themes
+            .iter()
+            .map(|t| t.name.as_str())
+            .find(|n| !n.is_empty() && *n != "INVALID_THEME_STANDIN");
+        let mut slot_layer = [0u8; 256];
+        for t in &lev.themes {
+            let name = match (t.name.as_str(), stand_in) {
+                ("", Some(s)) => s,
+                ("", None) => continue,
+                (n, _) => n,
+            };
+            slot_layer[t.slot as usize] = self.layer(name, defs);
+        }
+        let (ox, oy) = ((x - self.origin[0]) as u32, (y - self.origin[1]) as u32);
+        for j in 0..=lev.height {
+            for i in 0..=lev.width {
+                let Some(cell) = lev.cell(i, j) else { continue };
+                let ([t0, t1, _], [w0, w1]) = cell.themes();
+                let (gx, gy) = (ox + i, oy + j);
+                if gx < self.size[0] && gy < self.size[1] {
+                    self.cells[(gy * self.size[0] + gx) as usize] =
+                        [slot_layer[t0 as usize], slot_layer[t1 as usize], w0, w1];
+                }
+            }
+        }
+    }
 }
 
 impl TerrainMesh {
@@ -116,6 +195,7 @@ pub fn load_region(
     let mut file = BufReader::new(File::open(&wad_path)?);
     let mut mesh = TerrainMesh::default();
     let mut placements = Vec::new();
+    let mut maps = Vec::new();
     for level in levels {
         let map = wld
             .map(level)
@@ -126,8 +206,18 @@ pub fn load_region(
             .ok_or_else(|| format!("{level} is not in the wad"))?;
         let lev = Lev::parse(&entry.read_data(&mut file)?)?;
         mesh.add_map(&lev, map.x as f32, map.y as f32);
+        maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
         placements.extend(load_placements(&wad, &mut file, level, origin, defs)?);
+    }
+    if !maps.is_empty() {
+        let (lo, hi) = mesh.bounds();
+        let size = [(hi.x - lo.x) as u32 + 1, (hi.y - lo.y) as u32 + 1];
+        let mut grid = ThemeGrid::new([lo.x, lo.y], size);
+        for (lev, x, y) in &maps {
+            grid.add_map(lev, *x, *y, defs);
+        }
+        mesh.themes = Some(grid);
     }
     let stb = BbbbFile::open(data_dir.join("Levels/FinalAlbion_RT.stb"))?;
     if stb

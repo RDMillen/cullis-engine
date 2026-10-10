@@ -39,3 +39,18 @@ Name fields are `names.bin` offsets. The type table ends where a row's third wor
 Not decoded in general. Records hold fields as a name hash, a value type tag and a value. A mesh reference is `Graphic` (hash `0x2e6b63c8`), tag 5, then the `u32` mesh bank entry id (`MBANK_ALLMESHES`, numbered as in `Defs/RetailHeaders/meshdata.h`). `Def::graphic` searches a record for that pattern.
 
 Placed things whose definition has no `Graphic` field include animated birds, doors and beds; their graphics are probably elsewhere (another field or an inherited definition).
+
+## Terrain themes
+
+`ENGINE_THEME` records are a 5-byte header (`01 00 01 00 00`) then pairs of (`u32` field hash, `u32` value). Texture fields hold `GBANK_MAIN_PC` ids:
+
+| Field | Example (`GROUND_GRASS_GREEN`) |
+| --- | --- |
+| `BaseTexture` | `UNASSIGNED_GRASS_PLAIN` (flat ground) |
+| `0xf6ff82d3` (name unknown) | same id as `BaseTexture` in the themes seen |
+| `0x7a1c6732` (name unknown) | `UNASSIGNED_CLIFF_LAYERED_01` (steep slopes) |
+| `0x99b491a3` (name unknown) | same id as the cliff texture in the themes seen |
+| `BaseBumpMap` | 0, or e.g. `UNASSIGNED_SAND_FINE_BUMP` |
+| `CliffBumpMap` | e.g. `UNASSIGNED_CLIFF_LAYERED_01_BUMP` |
+
+Of the 344 theme names used by Lev files, 343 have a definition with a base texture; `SLIDING_BLOCK_ROCKS_ET` has no definition. `Def::theme_textures` reads these fields.

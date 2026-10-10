@@ -534,3 +534,53 @@ fn game_defs_parse_and_resolve_placed_meshes() {
     );
     assert!(resolved * 100 >= placed * 90);
 }
+
+#[test]
+#[ignore]
+fn every_used_lev_theme_has_textures() {
+    use fable_data::defs::{Defs, Names};
+    use fable_data::lev::Lev;
+
+    let names =
+        Names::parse(&std::fs::read(data_dir().join("CompiledDefs/names.bin")).unwrap()).unwrap();
+    let defs = Defs::parse(
+        &std::fs::read(data_dir().join("CompiledDefs/game.bin")).unwrap(),
+        &names,
+    )
+    .unwrap();
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut themes, mut textured, mut points, mut in_table) = (HashSet::new(), 0, 0, 0);
+    let mut missing = Vec::new();
+    for entry in wad
+        .index
+        .entries
+        .iter()
+        .filter(|e| e.name.ends_with(".lev"))
+    {
+        let lev = Lev::parse(&entry.read_data(&mut file).unwrap()).unwrap();
+        let slots: HashSet<u8> = lev.themes.iter().map(|t| t.slot).collect();
+        for cell in &lev.cells {
+            let ([t0, t1, _], [_, w1]) = cell.themes();
+            points += 1;
+            in_table += usize::from(slots.contains(&t0) && (w1 == 0 || slots.contains(&t1)));
+        }
+        for t in lev.themes.iter().filter(|t| !t.name.is_empty()) {
+            if themes.insert(t.name.clone()) {
+                let Some(def) = defs.get(&t.name) else {
+                    missing.push(t.name.clone());
+                    continue;
+                };
+                assert_eq!(defs.type_name(def), "ENGINE_THEME", "{}", t.name);
+                textured += usize::from(def.theme_textures().base != 0);
+            }
+        }
+    }
+    eprintln!(
+        "{} themes, {textured} with a base texture, no definition for {missing:?}; {in_table} of {points} grid points use listed slots",
+        themes.len()
+    );
+    assert!(missing.len() * 20 <= themes.len());
+    assert_eq!(in_table, points);
+}

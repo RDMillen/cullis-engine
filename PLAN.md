@@ -124,7 +124,7 @@ Six phases, each ending at a testable gate.
 | --- | --- | --- |
 | 0. Setup | Toolchains, workspace, CLAUDE.md, data survey | Workspace builds; install inventoried (**done**) |
 | 1. Assets and viewer | Containers, world, heightmaps, textures, meshes parse with tests; terrain in the viewer | Any region's terrain renders on desktop (**done**); every texture decodes (**done**); static meshes render textured (**done**; skinned meshes remain) |
-| 2. Rendering a region | Textured terrain (themes), water, meshes, Tng thing placement, materials matched by eye | **Milestone A:** `StartOakVale` rendered on desktop (placement and water done; terrain textures remain) |
+| 2. Rendering a region | Textured terrain (themes), water, meshes, Tng thing placement, materials matched by eye | **Milestone A:** `StartOakVale` rendered on desktop (terrain textures, placement and sea done; to compare with the game) |
 | 3. Gameplay core | Hero movement, collision, camera, animation, NPCs, map streaming and region transitions; quest API design | Walk the Hero across three linked regions |
 | 4. Scripts and quests | Tng things, Def data, quest API, dialogue and text UI, video playback, cutscenes, saves; Prologue quests one by one | First Prologue quest complete; then **Milestone B:** Prologue playable on desktop |
 | 5. Full game | Remaining quests, combat, magic, Lost Chapters regions, polish | **Milestone C:** full playthrough on desktop |
@@ -212,7 +212,7 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Map definitions to meshes through `CompiledDefs/game.bin` (`docs/formats/defs.md`)
 - [x] Place a region's buildings and objects on its terrain in the viewer
 - [x] Check placed mesh orientation against the game (meshes face local -y; bridge and houses re-checked)
-- [ ] Texture the terrain from the Lev themes
+- [x] Texture the terrain from the Lev themes (tiling and cliff blend set by eye; compare with the game)
 
 **Week 2: first pixels**
 

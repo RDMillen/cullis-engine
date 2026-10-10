@@ -9,6 +9,7 @@ mod camera;
 mod model;
 mod render;
 mod terrain;
+mod themes;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -99,7 +100,11 @@ impl Scene {
                 )?;
                 let (mesh, placements) = terrain::load_region(data_dir, wld, name, &defs)?;
                 let (lo, hi) = mesh.bounds();
-                let mut renderer = TerrainRenderer::new(device, &mesh);
+                let themes = match &mesh.themes {
+                    Some(grid) => Some(themes::load(data_dir, &grid.layers)?),
+                    None => None,
+                };
+                let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
                 let things = model::load_placements(data_dir, name, &placements)?;
                 let status = format!(
                     "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",
