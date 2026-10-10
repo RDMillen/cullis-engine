@@ -5,11 +5,13 @@
 pub mod bank;
 pub mod bbbb;
 pub mod big;
+pub mod dxt;
 mod error;
 pub mod lev;
 pub mod lzo;
 mod reader;
 pub mod stb;
+pub mod texture;
 pub mod wld;
 
 pub use error::{Error, Result};

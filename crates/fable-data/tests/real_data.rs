@@ -278,3 +278,34 @@ fn lev_heightmaps_match_stb_tiles() {
         "only {min_matches} of {tiles} tile minimums match"
     );
 }
+
+#[test]
+#[ignore]
+fn every_texture_unpacks_exactly() {
+    use fable_data::texture::{Texture, TextureFormat, TextureInfo};
+
+    let (mut unpacked, mut skipped) = (0, 0);
+    for name in ["graphics/pc/textures.big", "graphics/pc/frontend.big"] {
+        let path = data_dir().join(name);
+        let mut file = BufReader::new(File::open(&path).unwrap());
+        let big = BigFile::read(&mut file).unwrap();
+        for bank in &big.banks {
+            for entry in bank.read_index(&mut file).unwrap().entries {
+                let info = TextureInfo::parse(&entry.info)
+                    .unwrap_or_else(|e| panic!("{}: {e}", entry.name));
+                if let TextureFormat::Other(_) = info.format {
+                    skipped += 1;
+                    continue;
+                }
+                let data = entry.read_data(&mut file).unwrap();
+                let texture = Texture::unpack(&info, entry.entry_type, &data).unwrap_or_else(|e| {
+                    panic!("{} type {} {info:?}: {e}", entry.name, entry.entry_type)
+                });
+                texture.to_rgba(0, 0).unwrap();
+                unpacked += 1;
+            }
+        }
+    }
+    eprintln!("{unpacked} textures unpacked, {skipped} in unsupported formats");
+    assert!(skipped <= 1);
+}
