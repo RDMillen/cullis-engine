@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): sea plane
+
+- The viewer draws a translucent sea plane at height 3.0 for regions that have an stb sea bank and whose ground dips below 3.0.
+- Learned: sea level is 3.0 (731 raised stb tiles top out there); the `.wld` `IsSea` flag does not mean "has sea"; the 25 stb sea banks are per region and compressed in an unidentified format; inland lakes have their own heights (10.5 to 78).
+- Next: lake water heights (probably from the sea banks), texture themes per grid point, then `textures.big` and `graphics.big`.
+
 ## 2026-10-10 (later): first terrain in the viewer
 
 - Added `apps/viewer` (eframe + wgpu): loads every map a region contains or sees, builds one terrain mesh from the Lev heightmaps, draws it with placeholder height/slope colours into an offscreen texture shown in an egui window. A region list switches regions. `--screenshot` renders headlessly to a PNG.

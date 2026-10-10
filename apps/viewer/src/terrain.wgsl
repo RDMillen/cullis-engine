@@ -34,3 +34,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let light = 0.35 + 0.65 * max(dot(n, normalize(u.sun.xyz)), 0.0);
     return vec4<f32>(albedo * light, 1.0);
 }
+
+// Flat placeholder sea: translucent, slightly lit so it reads as a surface.
+@fragment
+fn fs_water(in: VsOut) -> @location(0) vec4<f32> {
+    let light = 0.6 + 0.4 * max(dot(normalize(in.normal), normalize(u.sun.xyz)), 0.0);
+    return vec4<f32>(vec3<f32>(0.10, 0.32, 0.45) * light, 0.8);
+}

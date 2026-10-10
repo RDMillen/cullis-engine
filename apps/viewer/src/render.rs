@@ -1,5 +1,5 @@
-//! Draws a terrain mesh into an offscreen colour texture, shown by the window and
-//! read back for screenshots.
+//! Draws a terrain mesh and its sea into an offscreen colour texture, shown by the
+//! window and read back for screenshots.
 
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
@@ -31,11 +31,41 @@ pub struct Target {
     depth_view: wgpu::TextureView,
 }
 
-pub struct TerrainRenderer {
-    pipeline: wgpu::RenderPipeline,
+/// Vertex and index buffers for one indexed draw.
+struct Geometry {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
-    index_count: u32,
+    count: u32,
+}
+
+impl Geometry {
+    fn new(device: &wgpu::Device, label: &str, vertices: &[Vertex], indices: &[u32]) -> Self {
+        let buffer = |contents, usage| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents,
+                usage,
+            })
+        };
+        Self {
+            vertices: buffer(bytemuck::cast_slice(vertices), wgpu::BufferUsages::VERTEX),
+            indices: buffer(bytemuck::cast_slice(indices), wgpu::BufferUsages::INDEX),
+            count: indices.len() as u32,
+        }
+    }
+
+    fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.count, 0, 0..1);
+    }
+}
+
+pub struct TerrainRenderer {
+    terrain_pipeline: wgpu::RenderPipeline,
+    water_pipeline: wgpu::RenderPipeline,
+    terrain: Geometry,
+    sea: Option<Geometry>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     pub target: Option<Target>,
@@ -76,52 +106,60 @@ impl TerrainRenderer {
             bind_group_layouts: &[Some(&layout)],
             ..Default::default()
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("terrain"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(COLOR_FORMAT.into())],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("terrain vertices"),
-            contents: bytemuck::cast_slice(&mesh.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("terrain indices"),
-            contents: bytemuck::cast_slice(&mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        // Terrain is opaque; water blends over it, depth-tested but not written.
+        let make_pipeline = |label, fs_entry, blend, depth_write| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                    })],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fs_entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR_FORMAT,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(depth_write),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let terrain_pipeline = make_pipeline("terrain", "fs_main", None, true);
+        let water_pipeline = make_pipeline(
+            "water",
+            "fs_water",
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+        );
+        let terrain = Geometry::new(device, "terrain", &mesh.vertices, &mesh.indices);
+        let sea = mesh
+            .sea_quad()
+            .map(|(vertices, indices)| Geometry::new(device, "sea", &vertices, &indices));
         Self {
-            pipeline,
-            vertices,
-            indices,
-            index_count: mesh.indices.len() as u32,
+            terrain_pipeline,
+            water_pipeline,
+            terrain,
+            sea,
             uniforms,
             bind_group,
             target: None,
@@ -173,11 +211,13 @@ impl TerrainRenderer {
                 }),
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.vertices.slice(..));
-            pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..self.index_count, 0, 0..1);
+            pass.set_pipeline(&self.terrain_pipeline);
+            self.terrain.draw(&mut pass);
+            if let Some(sea) = &self.sea {
+                pass.set_pipeline(&self.water_pipeline);
+                sea.draw(&mut pass);
+            }
         }
         queue.submit([encoder.finish()]);
         recreated

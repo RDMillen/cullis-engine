@@ -6,7 +6,7 @@ Entries:
 
 - `__STATIC_MAP_COMMON_HEADER__`: one header per map (below).
 - One entry per map, named like its Lev (`Data\Levels\FinalAlbion\<Map>.lev`).
-- 25 `__ENGINE_SEA_STATIC_MAP_BANK_FILE__<Region>` entries. Not yet examined.
+- 25 `__ENGINE_SEA_STATIC_MAP_BANK_FILE__<Region>` entries, one per region with water (see below).
 
 ## Common header
 
@@ -69,3 +69,13 @@ The decompressed format is not fully decoded. It begins with a short header, the
 ### Section after the tiles
 
 Starts `u32 0, u16 width, u16 height` (96 and 128 for StartOakValeEast), then what looks like a tree of nodes. Each node seems to have a bounding box, the value 16 (the tile size) and offsets. Not decoded.
+
+## Sea banks
+
+`__ENGINE_SEA_STATIC_MAP_BANK_FILE__<Region>`: 25 entries, each named after a `.wld` region. They include coastal regions (`StartOakVale`, `OakBay`, `HookCoast`, `LostBay`) and inland water regions (`Witchwood1`–`4`, `DarkwoodChapel`). Each is about 125–130 KB and starts with three `u32` values (StartOakVale: `0x1cc3`, `0xace3`, `0xe2a6`), followed by compressed data that is not plain LZO1X. Not decoded.
+
+### Sea level
+
+The sea surface is at height 3.0. Across all maps, of the stb tiles whose top is more than 0.5 above the Lev terrain under them, 731 top out at exactly 3.0 and 22 at 3.1. The others (about 90 tiles in 25 maps) are inland water or structures at other heights: 10.5 in KrakenChamber, 48 in Greatwood_3, 50 and 78 in Witchwood fillers, 13–24 in Bowerstone and the Guild.
+
+The `.wld` `IsSea` flag does not mark sea maps: it is FALSE for every Oakvale map, including those named `_Sea_`.

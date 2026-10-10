@@ -18,12 +18,23 @@ pub struct Vertex {
     pub normal: [f32; 3],
 }
 
+/// Sea surface height in world units. Across all maps, 731 stb tiles that rise above
+/// their terrain top out at exactly this height (`docs/formats/stb.md`).
+pub const SEA_LEVEL: f32 = 3.0;
+
+/// Regions with water have an stb entry with this prefix followed by the region name.
+/// Its contents (compressed, format unknown) may hold per-region water heights; until
+/// then such regions get a plane at [`SEA_LEVEL`] if their ground dips below it.
+const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
+
 /// World units: x and y as in the `.wld`, z is height.
 #[derive(Debug, Default)]
 pub struct TerrainMesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub maps: usize,
+    /// Height of a sea plane covering the terrain bounds, if the region has sea.
+    pub sea_level: Option<f32>,
 }
 
 impl TerrainMesh {
@@ -54,6 +65,20 @@ impl TerrainMesh {
             }
         }
         self.maps += 1;
+    }
+
+    /// A quad at sea level over the terrain's x/y bounds, as 4 vertices and 6 indices.
+    pub fn sea_quad(&self) -> Option<([Vertex; 4], [u32; 6])> {
+        let z = self.sea_level?;
+        let (lo, hi) = self.bounds();
+        let v = |x: f32, y: f32| Vertex {
+            position: [x, y, z],
+            normal: [0.0, 0.0, 1.0],
+        };
+        Some((
+            [v(lo.x, lo.y), v(hi.x, lo.y), v(hi.x, hi.y), v(lo.x, hi.y)],
+            [0, 1, 2, 0, 2, 3],
+        ))
     }
 
     pub fn bounds(&self) -> (Vec3, Vec3) {
@@ -95,6 +120,18 @@ pub fn load_region(
             .ok_or_else(|| format!("{level} is not in the wad"))?;
         let lev = Lev::parse(&entry.read_data(&mut file)?)?;
         mesh.add_map(&lev, map.x as f32, map.y as f32);
+    }
+    let stb = BbbbFile::open(data_dir.join("Levels/FinalAlbion_RT.stb"))?;
+    if stb
+        .index
+        .by_name(&format!("{SEA_BANK_PREFIX}{}", region.name))
+        .is_some()
+    {
+        // Inland water regions sit far above sea level; a plane there would only
+        // show as a skirt under the terrain edges.
+        if mesh.bounds().0.z < SEA_LEVEL {
+            mesh.sea_level = Some(SEA_LEVEL);
+        }
     }
     Ok(mesh)
 }
@@ -148,6 +185,17 @@ mod tests {
             (n - Vec3::new(-1.0, 0.0, 1.0).normalize()).length() < 1e-6,
             "{n}"
         );
+    }
+
+    #[test]
+    fn sea_quad_covers_bounds_at_sea_level() {
+        let mut mesh = TerrainMesh::default();
+        mesh.add_map(&flat_lev(2, 3, |_, _| 1.0), 10.0, 20.0);
+        assert!(mesh.sea_quad().is_none());
+        mesh.sea_level = Some(SEA_LEVEL);
+        let (vertices, _) = mesh.sea_quad().unwrap();
+        assert_eq!(vertices[0].position, [10.0, 20.0, SEA_LEVEL]);
+        assert_eq!(vertices[2].position, [12.0, 23.0, SEA_LEVEL]);
     }
 
     #[test]
