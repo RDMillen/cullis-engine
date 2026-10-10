@@ -2,6 +2,16 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): Lev heightmap matches the Stb
+
+- Added `fable_data::lev`: map size, texture theme slots, sound themes and the heightmap grid. Tested on all 398 maps against the stb (size, per-map value, tile heights).
+- Learned:
+  - The Lev heightmap is `(w+1)*(h+1)` 21-byte points with an unaligned `f32` height at byte 5; world height = value * 2048.
+  - Stb tile bounds contain the Lev terrain in 10,253 of 10,257 tiles; the stb tile vertices carry the same heights, so stb tiles are pre-built terrain meshes from the Lev.
+  - One map (`HauntedHouse_Filler_01`) leaves out an optional per-map value before its sound themes.
+  - EgoCore is MIT and Windows-only, but its README cites reverse engineering, it installs Fable Script Extender, and its Def compiler is jamen/fable-defs. Black-box use only; recorded in PLAN.md and CLAUDE.md.
+- Next: render the Lev heightmap in the viewer as the first terrain (it needs only the grid), then decode the rest of the stb vertex record and the grid point bytes 10–20.
+
 ## 2026-10-10 (later): Stb tiles and LZO
 
 - Added `fable_data::lzo` (LZO1X decompression, written from the kernel's `lzo.rst` bitstream description) and `fable_data::stb` (common header, per-map headers, tile tables, tile decompression). Added `README.md`.

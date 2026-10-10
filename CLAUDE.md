@@ -7,6 +7,7 @@ Clean-room Rust engine for Fable: The Lost Chapters (requires the original game)
 - Never paste, request, reproduce or translate decompiled, disassembled or leaked Fable code or symbols. Never run a decompiler or disassembler on game binaries.
 - Work only from published format docs, community tool behaviour, the bytes of data files, and observed gameplay.
 - Never read openalbion's source or docs, and never use knowledge from any project built on decompiled or leaked material. Check where a reference project's knowledge came from before using it.
+- EgoCore, Fable Script Extender and jamen/fable-defs: never read their source. EgoCore may be run as a black box on our own files to check our decoders' output.
 - No game assets in the repo. `tests/fixtures/` holds synthetic files only.
 
 ## Game data

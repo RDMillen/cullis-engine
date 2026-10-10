@@ -6,6 +6,7 @@ pub mod bank;
 pub mod bbbb;
 pub mod big;
 mod error;
+pub mod lev;
 pub mod lzo;
 mod reader;
 pub mod stb;

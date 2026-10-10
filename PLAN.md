@@ -75,7 +75,7 @@ Observed in `$FABLE_DIR/data` (about 2.7 GB). This replaces guesswork about wher
 | --- | --- | --- |
 | [openalbion](https://github.com/jamen/openalbion) | A Rust Fable engine that already renders levels | **Off-limits.** Its AGENTS.md says it is "ported from oracles": Ghidra decompilation, symbols from leaked debug builds and a shader disassembly. Do not fork it, read its source or docs, or copy facts from it. |
 | [fable_data 0.1.1](https://crates.io/crates/fable_data) | An early (April 2020) Rust parser crate, Zlib | Provenance unverified and long out of date. Do not depend on it until its sources are confirmed clean; by default write our own parsers. |
-| [EgoCore](https://www.nexusmods.com/fablethelostchapters/mods/592) | C++ modding framework: DXT1/3/5 and ARGB textures, glTF export of meshes and animations, audio format work | Black-box reference for format behaviour only. Do not copy its code. Check its sources before relying on it. |
+| [EgoCore](https://github.com/eeeeeAeoN/EgoCore) | Windows asset bank editor (MIT): bank editing for `.big`/`.lut`/`.lug`, glTF mesh export, Def editor and compiler, `.wad` extraction, Fable Script Extender integration | **Black-box only.** Its README cites "hundreds of hours of reverse engineering" without saying of what, it installs Fable Script Extender (which hooks the game executable), and its Def compiler is jamen/fable-defs (openalbion's author). Do not read its source. Running it on our own files (under Wine or on the host) and comparing its exports with our decoders is allowed, as a test oracle. |
 | ChocolateBox, Fable Explorer, fabletlcmod.com wiki | Legacy modding tools and format notes, including Wad, Lev, Tng and Big | The main clean source of format knowledge. Windows tools; run under Wine if needed. |
 | [cargo-vita](https://github.com/vita-rust/cargo-vita) + [Rust Vita target](https://doc.rust-lang.org/rustc/platform-support/armv7-sony-vita-newlibeabihf.html) | Builds Rust to a .vpk, uploads and runs it, streams logs | Tier 3 target, needs nightly and build-std. `std` mostly works; `std::process` does not. |
 | [vitaGL](https://github.com/Rinnegatamante/vitaGL) | OpenGL-style API over GXM, GLSL-to-Cg translation | Actively maintained. Runtime shader compiling needs `libshacccg.suprx` extracted on the console. |
@@ -240,7 +240,9 @@ By the end of week two: one Fable mesh, textured, in a desktop window; a Rust he
 - [x] Open `graphics/graphics.big` and `graphics/pc/textures.big` and parse every bank index, with a test
 - [ ] Match mesh entries to names in `Defs/RetailHeaders/meshdata.h`; find out what each entry type number means
 - [x] Decode the Stb common header, map tile tables and LZO1X tile compression (`docs/formats/stb.md`)
-- [ ] Decode the decompressed Stb tile format and the section after the tiles
+- [x] Decode the Lev heightmap and confirm it against the Stb tiles (`docs/formats/lev.md`)
+- [ ] Decode the rest of the Stb tile vertex records and the section after the tiles
+- [ ] Draw the Lev heightmap of `StartOakVale` as terrain in the viewer
 - [ ] Decode a DXT texture to PNG; check it by eye
 - [ ] Load one Bbm mesh into the egui viewer with wgpu
 - [x] Write `docs/formats/big.md` and `docs/formats/wld.md` (also `bbbb.md`, `bank-index.md`)

@@ -27,6 +27,7 @@ Each per-map header runs from its offset to the next one, and is 174 bytes or mo
 | 7 | 0 so far |
 | 8, 9 | Offsets inside the common header, pointing a little further into this same header |
 | 10, 11 | Unknown |
+| 13 | Per-map value, equal to the optional value in the map's Lev before its sound themes ([lev.md](lev.md)); 0 for `HauntedHouse_Filler_01` |
 
 The rest is not decoded. Further in, StartOakValeEast's header contains `0x800` and `0x6d800`, the offsets of the tile table and of the section after the tiles in its map entry.
 
@@ -63,7 +64,7 @@ LZO1X stream            ends with the standard end-of-stream marker
 
 Every tile in every map decompresses to exactly `decompressed_len` bytes (`tests/real_data.rs`). `fable_data::lzo` was checked against the reference LZO library on all of StartOakValeEast's tiles, with identical output.
 
-The decompressed format is not decoded. It begins with a short header and then repeats a record of about 15 bytes that contains small grid indexes and an `f32` within the tile's height range. These may be terrain vertices.
+The decompressed format is not fully decoded. It begins with a short header, then 15-byte vertex records. Each record holds small grid indexes and an `f32` height that equals the Lev heightmap height at that point ([lev.md](lev.md)) to about 0.004, slightly rounded. In StartOakValeEast's first tile the first four vertices are grid points (0,0), (1,0), (1,1), (0,1). So the tiles are pre-built terrain meshes made from the Lev heightmap; the rest of each record (probably normal and colour) is not decoded.
 
 ### Section after the tiles
 

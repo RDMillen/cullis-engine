@@ -207,3 +207,74 @@ fn stb_maps_match_wld_and_every_tile_decompresses() {
     }
     assert!(tile_count > 0);
 }
+
+#[test]
+#[ignore]
+fn lev_heightmaps_match_stb_tiles() {
+    use fable_data::lev::Lev;
+    use fable_data::stb::{COMMON_HEADER_NAME, CommonHeader, StaticMap};
+
+    let wad_path = data_dir().join("Levels/FinalAlbion.wad");
+    let stb_path = data_dir().join("Levels/FinalAlbion_RT.stb");
+    let wad = BbbbFile::open(&wad_path).unwrap();
+    let stb = BbbbFile::open(&stb_path).unwrap();
+    let mut wad_file = BufReader::new(File::open(&wad_path).unwrap());
+    let mut stb_file = BufReader::new(File::open(&stb_path).unwrap());
+    let common = stb
+        .index
+        .by_name(COMMON_HEADER_NAME)
+        .unwrap()
+        .read_data(&mut stb_file)
+        .unwrap();
+    let common = CommonHeader::parse(&common).unwrap();
+
+    let (mut tiles, mut min_matches, mut contained) = (0, 0, 0);
+    for header in &common.maps {
+        let name = &header.level_path;
+        let lev = wad
+            .index
+            .by_name(name)
+            .unwrap()
+            .read_data(&mut wad_file)
+            .unwrap();
+        let lev = Lev::parse(&lev).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(
+            (lev.width, lev.height),
+            (header.width, header.height),
+            "{name} size"
+        );
+        let stb_value = u32::from_le_bytes(header.raw[0x34..0x38].try_into().unwrap());
+        assert_eq!(
+            lev.sound_value.unwrap_or(0),
+            stb_value,
+            "{name} sound value"
+        );
+
+        let entry = stb
+            .index
+            .by_name(name)
+            .unwrap()
+            .read_data(&mut stb_file)
+            .unwrap();
+        for tile in StaticMap::parse(&entry).unwrap().tiles {
+            let x0 = tile.min[0] as u32 - header.x;
+            let y0 = tile.min[1] as u32 - header.y;
+            let heights: Vec<f32> = (0..=16)
+                .flat_map(|j| (0..=16).map(move |i| (x0 + i, y0 + j)))
+                .map(|(x, y)| lev.cell(x, y).unwrap().height())
+                .collect();
+            let lo = heights.iter().copied().fold(f32::INFINITY, f32::min);
+            let hi = heights.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            tiles += 1;
+            min_matches += usize::from((lo - tile.min[2]).abs() < 0.01);
+            contained += usize::from(lo >= tile.min[2] - 0.01 && hi <= tile.max[2] + 0.01);
+        }
+    }
+    eprintln!(
+        "{tiles} tiles: {min_matches} minimum heights match, {contained} contain their terrain"
+    );
+    assert!(
+        min_matches * 100 >= tiles * 99,
+        "only {min_matches} of {tiles} tile minimums match"
+    );
+}
