@@ -9,7 +9,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Unnamed theme slots: a key-based lookup did not hold (the same key names different themes even within a region), so they get the map's first real named theme as a labelled stand-in.
 - Set by eye, to compare with the game: texture tiling (12 world units per repeat), the slope range for cliffs.
 - Ross saw water drawn on some paths. Water themes paint thin full-weight strips beside paths and on slopes; the viewer now draws them with their cliff texture (see defs.md). The grid's weight bytes are also not fully understood: where bytes 11 and 12 name the same theme, bytes 13 and 14 do not add to 255, so there may be three weights.
-- Next: compare StartOakVale against the game (Milestone A), then water surfaces (stb sea banks) and the rest of the grid bytes.
+- Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
+- Next: decide with Ross between decoding water surfaces now or moving on.
 
 ## 2026-10-10 (later): definitions and placed meshes
 

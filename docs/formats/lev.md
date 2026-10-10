@@ -15,7 +15,7 @@ The start of the file has a fixed layout in all 398 maps:
 | 0x8433 | `u32` sound entry count (see below) |
 | 0x10837 | Optional `u32` value, then `count - 1` length-prefixed sound theme names (`SOUND_THEME_COUNTRY`, …) |
 | after the names | Heightmap grid |
-| after the grid | Not decoded (probably navigation and more) |
+| after the grid | Not decoded. It starts with a second per-point table of 11-byte records (`0b 00 00 00 01 00 00 00 ff 00 09` repeated in StartOakValeWest), followed by about 850 KB holding, among other things, quest names such as `Q_NewOakValeIntro_PreAttack` |
 
 The optional `u32` equals word 13 of the map's stb header. It is present in every map except `HauntedHouse_Filler_01`, whose stb header has 0 there and whose Lev starts the names directly at 0x10837. In both cases there are `count - 1` names. The parser tells the cases apart by whether 0x10837 holds a printable length-prefixed string.
 
