@@ -123,7 +123,7 @@ Six phases, each ending at a testable gate.
 | Phase | Work | Gate |
 | --- | --- | --- |
 | 0. Setup | Toolchains, workspace, CLAUDE.md, data survey | Workspace builds; install inventoried (**done**) |
-| 1. Assets and viewer | Containers, world, heightmaps, textures, meshes parse with tests; terrain in the viewer | Any region's terrain renders on desktop (**terrain done**); every texture decodes (**done**) |
+| 1. Assets and viewer | Containers, world, heightmaps, textures, meshes parse with tests; terrain in the viewer | Any region's terrain renders on desktop (**done**); every texture decodes (**done**); static meshes render textured (**done**; skinned meshes remain) |
 | 2. Rendering a region | Textured terrain (themes), water, Bbm meshes, Tng thing placement, materials matched by eye | **Milestone A:** `StartOakVale` rendered on desktop |
 | 3. Gameplay core | Hero movement, collision, camera, animation, NPCs, map streaming and region transitions; quest API design | Walk the Hero across three linked regions |
 | 4. Scripts and quests | Tng things, Def data, quest API, dialogue and text UI, video playback, cutscenes, saves; Prologue quests one by one | First Prologue quest complete; then **Milestone B:** Prologue playable on desktop |
@@ -193,7 +193,7 @@ The biggest risk is the quests, not the renderer: the data contains none of thei
 
 ## First two weeks
 
-By the end of week two: one Fable mesh, textured, in a desktop window, and a map of what the data contains.
+By the end of week two: one Fable mesh, textured, in a desktop window, and a map of what the data contains. (Done 2026-10-10.)
 
 **Week 1: foundations**
 
@@ -220,9 +220,9 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Check the viewer's orientation against the game (confirmed by Ross: correct, not mirrored)
 - [x] Sea plane at sea level (3.0) in the viewer
 - [x] Decode every texture (DXT1/3/5, BGRA) and export to PNG; checked by eye (`docs/formats/texture.md`)
-- [ ] Load one Bbm mesh into the egui viewer with wgpu
+- [x] Load a static mesh into the egui viewer with wgpu, textured (`--mesh`, mesh list in the side panel)
 - [x] Write `docs/formats/big.md` and `docs/formats/wld.md` (also `bbbb.md`, `bank-index.md`)
-- [ ] Write `docs/formats/bbm.md`
+- [x] Write `docs/formats/mesh.md`
 - [x] Note the size of the largest texture bank and mesh bank (`GBANK_MAIN_PC` 501 MB, `MBANK_ALLMESHES` 223 MB; `docs/survey.md`)
 
 ## Future: PS Vita port

@@ -309,3 +309,64 @@ fn every_texture_unpacks_exactly() {
     eprintln!("{unpacked} textures unpacked, {skipped} in unsupported formats");
     assert!(skipped <= 1);
 }
+
+#[test]
+#[ignore]
+fn static_meshes_parse_and_reference_real_textures() {
+    use fable_data::mesh::{Mesh, STATIC_MESH_TYPE};
+
+    let textures = {
+        let path = data_dir().join("graphics/pc/textures.big");
+        let mut file = BufReader::new(File::open(&path).unwrap());
+        let big = BigFile::read(&mut file).unwrap();
+        let bank = big.bank("GBANK_MAIN_PC").unwrap();
+        let index = bank.read_index(&mut file).unwrap();
+        index.entries.iter().map(|e| e.id).collect::<HashSet<u32>>()
+    };
+    let path = data_dir().join("graphics/graphics.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let index = big
+        .bank("MBANK_ALLMESHES")
+        .unwrap()
+        .read_index(&mut file)
+        .unwrap();
+    let (mut parsed, mut failed, mut triangles) = (0, Vec::new(), 0usize);
+    for entry in index
+        .entries
+        .iter()
+        .filter(|e| e.entry_type == STATIC_MESH_TYPE)
+    {
+        let data = entry.read_data(&mut file).unwrap();
+        match Mesh::parse(&entry.info, &data) {
+            Ok(mesh) => {
+                for lod in &mesh.lods {
+                    for m in &lod.materials {
+                        for t in [m.texture, m.second_texture] {
+                            assert!(
+                                t == 0 || textures.contains(&t),
+                                "{} material {} texture {t}",
+                                entry.name,
+                                m.name
+                            );
+                        }
+                    }
+                    triangles += lod
+                        .chunks
+                        .iter()
+                        .flat_map(|c| c.sub_meshes.iter().map(|s| c.triangles(s).len()))
+                        .sum::<usize>();
+                }
+                parsed += 1;
+            }
+            Err(e) => failed.push(format!("{}: {e}", entry.name)),
+        }
+    }
+    eprintln!(
+        "{parsed} static meshes parsed ({triangles} triangles), {} failed, e.g. {:?}",
+        failed.len(),
+        &failed[..failed.len().min(3)]
+    );
+    // Skinned meshes (with bones) are not supported yet.
+    assert!(parsed * 100 >= (parsed + failed.len()) * 97);
+}

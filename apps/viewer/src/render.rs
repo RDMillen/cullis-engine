@@ -9,8 +9,8 @@ use glam::{Mat4, Vec3};
 use crate::terrain::{TerrainMesh, Vertex};
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-const SKY: wgpu::Color = wgpu::Color {
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub const SKY: wgpu::Color = wgpu::Color {
     r: 0.45,
     g: 0.62,
     b: 0.85,
@@ -28,7 +28,7 @@ pub struct Target {
     pub size: [u32; 2],
     pub color: wgpu::Texture,
     pub color_view: wgpu::TextureView,
-    depth_view: wgpu::TextureView,
+    pub depth_view: wgpu::TextureView,
 }
 
 /// Vertex and index buffers for one indexed draw.
@@ -222,10 +222,11 @@ impl TerrainRenderer {
         queue.submit([encoder.finish()]);
         recreated
     }
+}
 
-    /// Reads the target back as tightly packed RGBA8 rows.
-    pub fn read_rgba(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
-        let target = self.target.as_ref().expect("render before reading");
+/// Reads a target back as tightly packed RGBA8 rows.
+pub fn read_rgba(target: &Target, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
+    {
         let [w, h] = target.size;
         let padded = (w * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -270,7 +271,7 @@ impl TerrainRenderer {
     }
 }
 
-fn create_target(device: &wgpu::Device, size: [u32; 2]) -> Target {
+pub fn create_target(device: &wgpu::Device, size: [u32; 2]) -> Target {
     let extent = wgpu::Extent3d {
         width: size[0],
         height: size[1],

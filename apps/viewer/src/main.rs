@@ -1,33 +1,46 @@
-//! CullisEngine desktop viewer. Shows a region's terrain from the Lev heightmaps.
+//! CullisEngine desktop viewer: a region's terrain from the Lev heightmaps, or a
+//! static mesh with its textures.
 //!
 //! ```text
-//! FABLE_DIR=... viewer [--region NAME] [--screenshot OUT.png] [--size WxH]
+//! FABLE_DIR=... viewer [--region NAME | --mesh NAME] [--screenshot OUT.png] [--size WxH]
 //! ```
 
 mod camera;
+mod model;
 mod render;
 mod terrain;
 
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use eframe::{egui, egui_wgpu, wgpu};
+use fable_data::big::BigFile;
+use fable_data::mesh::STATIC_MESH_TYPE;
 use fable_data::wld::Wld;
+use glam::Mat4;
 
 use camera::OrbitCamera;
-use render::TerrainRenderer;
-use terrain::TerrainMesh;
+use model::ModelRenderer;
+use render::{Target, TerrainRenderer};
 
 type Error = Box<dyn std::error::Error>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Subject {
+    Region(String),
+    Mesh(String),
+}
+
 struct Args {
-    region: String,
+    subject: Subject,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
 
 fn parse_args() -> Result<Args, Error> {
     let mut args = Args {
-        region: "StartOakVale".into(),
+        subject: Subject::Region("StartOakVale".into()),
         screenshot: None,
         size: [1280, 800],
     };
@@ -35,7 +48,8 @@ fn parse_args() -> Result<Args, Error> {
     while let Some(arg) = it.next() {
         let mut value = || it.next().ok_or_else(|| format!("{arg} needs a value"));
         match arg.as_str() {
-            "--region" => args.region = value()?,
+            "--region" => args.subject = Subject::Region(value()?),
+            "--mesh" => args.subject = Subject::Mesh(value()?),
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--size" => {
                 let v = value()?;
@@ -48,42 +62,103 @@ fn parse_args() -> Result<Args, Error> {
     Ok(args)
 }
 
+/// What is on screen: a region's terrain or a single mesh.
+enum Scene {
+    Terrain(TerrainRenderer),
+    Model(ModelRenderer),
+}
+
+impl Scene {
+    fn load(
+        data_dir: &Path,
+        wld: &Wld,
+        subject: &Subject,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(Self, OrbitCamera, String), Error> {
+        match subject {
+            Subject::Region(name) => {
+                let mesh = terrain::load_region(data_dir, wld, name)?;
+                let (lo, hi) = mesh.bounds();
+                let status = format!("{} maps, {} vertices", mesh.maps, mesh.vertices.len());
+                Ok((
+                    Self::Terrain(TerrainRenderer::new(device, &mesh)),
+                    OrbitCamera::framing(lo, hi),
+                    status,
+                ))
+            }
+            Subject::Mesh(name) => {
+                let model = model::load_mesh(data_dir, name)?;
+                let status = format!(
+                    "{}: {} vertices, {} triangles, {} textures",
+                    model.name,
+                    model.vertices.len(),
+                    model.indices.len() / 3,
+                    model.images.len() - 1
+                );
+                Ok((
+                    Self::Model(ModelRenderer::new(device, queue, &model)),
+                    OrbitCamera::framing(model.lo, model.hi),
+                    status,
+                ))
+            }
+        }
+    }
+
+    fn render(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: [u32; 2],
+        view_proj: Mat4,
+    ) -> bool {
+        match self {
+            Self::Terrain(r) => r.render(device, queue, size, view_proj),
+            Self::Model(r) => r.render(device, queue, size, view_proj),
+        }
+    }
+
+    fn target(&self) -> Option<&Target> {
+        match self {
+            Self::Terrain(r) => r.target.as_ref(),
+            Self::Model(r) => r.target.as_ref(),
+        }
+    }
+}
+
 fn main() -> Result<(), Error> {
     let args = parse_args()?;
     let data_dir =
         PathBuf::from(std::env::var_os("FABLE_DIR").ok_or("set FABLE_DIR to the game install")?)
             .join("data");
     let wld = Wld::open(data_dir.join("Levels/FinalAlbion.wld"))?;
-    let mesh = terrain::load_region(&data_dir, &wld, &args.region)?;
-    eprintln!(
-        "{}: {} maps, {} vertices, {} triangles",
-        args.region,
-        mesh.maps,
-        mesh.vertices.len(),
-        mesh.indices.len() / 3
-    );
     match &args.screenshot {
-        Some(path) => screenshot(&mesh, args.size, path),
-        None => run_window(data_dir, wld, args.region, mesh),
+        Some(path) => screenshot(&data_dir, &wld, &args.subject, args.size, path),
+        None => run_window(data_dir, wld, args.subject),
     }
 }
 
-fn screenshot(mesh: &TerrainMesh, size: [u32; 2], path: &Path) -> Result<(), Error> {
+fn screenshot(
+    data_dir: &Path,
+    wld: &Wld,
+    subject: &Subject,
+    size: [u32; 2],
+    path: &Path,
+) -> Result<(), Error> {
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;
     eprintln!("adapter: {}", adapter.get_info().name);
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
-    let mut renderer = TerrainRenderer::new(&device, mesh);
-    let (lo, hi) = mesh.bounds();
-    let camera = OrbitCamera::framing(lo, hi);
-    renderer.render(
+    let (mut scene, camera, status) = Scene::load(data_dir, wld, subject, &device, &queue)?;
+    eprintln!("{subject:?}: {status}");
+    scene.render(
         &device,
         &queue,
         size,
         camera.view_proj(size[0] as f32 / size[1] as f32),
     );
-    let pixels = renderer.read_rgba(&device, &queue);
+    let pixels = render::read_rgba(scene.target().unwrap(), &device, &queue);
     image::save_buffer(
         path,
         &pixels,
@@ -95,7 +170,8 @@ fn screenshot(mesh: &TerrainMesh, size: [u32; 2], path: &Path) -> Result<(), Err
     Ok(())
 }
 
-fn run_window(data_dir: PathBuf, wld: Wld, region: String, mesh: TerrainMesh) -> Result<(), Error> {
+fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error> {
+    let mesh_names = static_mesh_names(&data_dir)?;
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -111,18 +187,47 @@ fn run_window(data_dir: PathBuf, wld: Wld, region: String, mesh: TerrainMesh) ->
                 .wgpu_render_state
                 .as_ref()
                 .ok_or("the wgpu renderer is not available")?;
-            Ok(Box::new(ViewerApp::new(rs, data_dir, wld, region, &mesh)))
+            Ok(Box::new(
+                ViewerApp::new(rs, data_dir, wld, mesh_names, subject)
+                    .map_err(|e| e.to_string())?,
+            ))
         }),
     )?;
     Ok(())
 }
 
+fn static_mesh_names(data_dir: &Path) -> Result<Vec<String>, Error> {
+    let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
+    let big = BigFile::read(&mut file)?;
+    let index = big
+        .bank("MBANK_ALLMESHES")
+        .ok_or("no MBANK_ALLMESHES")?
+        .read_index(&mut file)?;
+    let mut names: Vec<String> = index
+        .entries
+        .into_iter()
+        .filter(|e| e.entry_type == STATIC_MESH_TYPE)
+        .map(|e| e.name)
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+#[derive(PartialEq, Eq)]
+enum ListMode {
+    Regions,
+    Meshes,
+}
+
 struct ViewerApp {
     data_dir: PathBuf,
     wld: Wld,
-    region: String,
+    mesh_names: Vec<String>,
+    list: ListMode,
+    filter: String,
+    subject: Subject,
     status: String,
-    renderer: TerrainRenderer,
+    scene: Scene,
     camera: OrbitCamera,
     texture: Option<egui::TextureId>,
 }
@@ -132,40 +237,82 @@ impl ViewerApp {
         rs: &egui_wgpu::RenderState,
         data_dir: PathBuf,
         wld: Wld,
-        region: String,
-        mesh: &TerrainMesh,
-    ) -> Self {
-        let (lo, hi) = mesh.bounds();
-        Self {
-            status: describe(mesh),
-            renderer: TerrainRenderer::new(&rs.device, mesh),
-            camera: OrbitCamera::framing(lo, hi),
-            texture: None,
+        mesh_names: Vec<String>,
+        subject: Subject,
+    ) -> Result<Self, Error> {
+        let (scene, camera, status) =
+            Scene::load(&data_dir, &wld, &subject, &rs.device, &rs.queue)?;
+        let list = match subject {
+            Subject::Region(_) => ListMode::Regions,
+            Subject::Mesh(_) => ListMode::Meshes,
+        };
+        Ok(Self {
             data_dir,
             wld,
-            region,
-        }
+            mesh_names,
+            list,
+            filter: String::new(),
+            subject,
+            status,
+            scene,
+            camera,
+            texture: None,
+        })
     }
 
-    fn load(&mut self, rs: &egui_wgpu::RenderState, region: String) {
-        match terrain::load_region(&self.data_dir, &self.wld, &region) {
-            Ok(mesh) => {
-                let (lo, hi) = mesh.bounds();
-                self.renderer = TerrainRenderer::new(&rs.device, &mesh);
-                self.camera = OrbitCamera::framing(lo, hi);
-                self.status = describe(&mesh);
+    fn load(&mut self, rs: &egui_wgpu::RenderState, subject: Subject) {
+        match Scene::load(&self.data_dir, &self.wld, &subject, &rs.device, &rs.queue) {
+            Ok((scene, camera, status)) => {
+                self.scene = scene;
+                self.camera = camera;
+                self.status = status;
                 if let Some(id) = self.texture.take() {
                     rs.renderer.write().free_texture(&id);
                 }
-                self.region = region;
+                self.subject = subject;
             }
-            Err(e) => self.status = format!("{region}: {e}"),
+            Err(e) => self.status = format!("{subject:?}: {e}"),
         }
     }
-}
 
-fn describe(mesh: &TerrainMesh) -> String {
-    format!("{} maps, {} vertices", mesh.maps, mesh.vertices.len())
+    fn side_panel(&mut self, ui: &mut egui::Ui) -> Option<Subject> {
+        let mut chosen = None;
+        let title = match &self.subject {
+            Subject::Region(n) | Subject::Mesh(n) => n.clone(),
+        };
+        ui.heading(title);
+        ui.label(&self.status);
+        ui.label("Drag: orbit · Right-drag: pan · Scroll: zoom");
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.list, ListMode::Regions, "Regions");
+            ui.selectable_value(&mut self.list, ListMode::Meshes, "Meshes");
+        });
+        ui.text_edit_singleline(&mut self.filter);
+        let filter = self.filter.to_ascii_uppercase();
+        egui::ScrollArea::vertical().show(ui, |ui| match self.list {
+            ListMode::Regions => {
+                for r in &self.wld.regions {
+                    if !r.name.to_ascii_uppercase().contains(&filter) {
+                        continue;
+                    }
+                    let current = self.subject == Subject::Region(r.name.clone());
+                    if ui.selectable_label(current, &r.name).clicked() {
+                        chosen = Some(Subject::Region(r.name.clone()));
+                    }
+                }
+            }
+            ListMode::Meshes => {
+                for name in self.mesh_names.iter().filter(|n| n.contains(&filter)) {
+                    let current = self.subject == Subject::Mesh(name.clone());
+                    if ui.selectable_label(current, name).clicked() {
+                        chosen = Some(Subject::Mesh(name.clone()));
+                    }
+                }
+            }
+        });
+        chosen
+    }
 }
 
 impl eframe::App for ViewerApp {
@@ -174,25 +321,12 @@ impl eframe::App for ViewerApp {
             return;
         };
 
-        let mut chosen = None;
-        egui::Panel::left("regions").resizable(true).show(ui, |ui| {
-            ui.heading(&self.region);
-            ui.label(&self.status);
-            ui.label("Drag: orbit · Right-drag: pan · Scroll: zoom");
-            ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for r in &self.wld.regions {
-                    if ui
-                        .selectable_label(r.name == self.region, &r.name)
-                        .clicked()
-                    {
-                        chosen = Some(r.name.clone());
-                    }
-                }
-            });
-        });
-        if let Some(region) = chosen.filter(|r| *r != self.region) {
-            self.load(&rs, region);
+        let chosen = egui::Panel::left("list")
+            .resizable(true)
+            .show(ui, |ui| self.side_panel(ui))
+            .inner;
+        if let Some(subject) = chosen.filter(|s| *s != self.subject) {
+            self.load(&rs, subject);
         }
 
         egui::CentralPanel::default()
@@ -214,8 +348,8 @@ impl eframe::App for ViewerApp {
                 let ppp = ui.ctx().pixels_per_point();
                 let size = [(rect.width() * ppp) as u32, (rect.height() * ppp) as u32];
                 let view_proj = self.camera.view_proj(rect.width() / rect.height().max(1.0));
-                let recreated = self.renderer.render(&rs.device, &rs.queue, size, view_proj);
-                let view = &self.renderer.target.as_ref().unwrap().color_view;
+                let recreated = self.scene.render(&rs.device, &rs.queue, size, view_proj);
+                let view = &self.scene.target().unwrap().color_view;
                 let mut egui_renderer = rs.renderer.write();
                 let id = match self.texture {
                     Some(id) if recreated => {

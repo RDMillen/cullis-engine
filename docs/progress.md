@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-10 (later): static meshes
+
+- Added `fable_data::mesh`: info block, LOD blocks (materials, geometry chunks, sub-meshes with strips or lists, packed or float positions, packed normals, UVs, compressed or raw streams). 2,519 of 2,583 static meshes parse (10.1 million triangles); all their texture ids exist.
+- The viewer gained `--mesh NAME` and a searchable mesh list. Checked by eye: chalk circle (alpha), quest card (UVs), stump chair, Oakvale house and tavern (multi-chunk, 5 textures) all render with their original textures.
+- Learned: LOD blocks fill the end of the entry, so the header can be skipped; a LOD can hold up to 6 geometry chunks; vertex format flag 16 means float positions; meshes use the same compressed-stream scheme as textures.
+- Not yet: skinned meshes (bones), the mesh header (helpers, bones), the 8 extra bytes in formats 6 and 22, triangle winding (drawn double-sided for now).
+- Next: place meshes in a region from the Tng files (Milestone A needs Oakvale's buildings standing on its terrain).
+
 ## 2026-10-10 (later): textures, and desktop-only scope
 
 - Added `fable_data::dxt` (DXT1/3/5 decoding) and `fable_data::texture`. All 6,717 textures in `textures.big` and `frontend.big` unpack exactly (one 16-bit texture unsupported). PNG export via the `texture_png` example; DXT1, DXT3 and DXT5 samples checked by eye.

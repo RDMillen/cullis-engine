@@ -13,7 +13,7 @@ pub struct OrbitCamera {
 impl OrbitCamera {
     /// Frames a bounding box from the south-west, looking down at 40 degrees.
     pub fn framing(lo: Vec3, hi: Vec3) -> Self {
-        let size = (hi - lo).truncate().length().max(16.0);
+        let size = (hi - lo).length().max(16.0);
         Self {
             target: (lo + hi) * 0.5,
             yaw: -2.2,

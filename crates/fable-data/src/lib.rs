@@ -9,6 +9,7 @@ pub mod dxt;
 mod error;
 pub mod lev;
 pub mod lzo;
+pub mod mesh;
 mod reader;
 pub mod stb;
 pub mod texture;
