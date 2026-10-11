@@ -13,10 +13,14 @@ pub struct Colliders {
     size: [u32; 2],
     cells: Vec<Vec<u32>>,
     triangles: Vec<[Vec3; 3]>,
+    /// Per triangle, whether its vertex normals point up: a floor or deck top
+    /// rather than an underside.
+    up: Vec<bool>,
 }
 
 impl Colliders {
-    pub fn new(triangles: Vec<[Vec3; 3]>) -> Self {
+    /// `normals` holds each triangle's average vertex normal.
+    pub fn new(triangles: Vec<[Vec3; 3]>, normals: &[Vec3]) -> Self {
         let (mut lo, mut hi) = (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY));
         for p in triangles.iter().flatten() {
             lo = lo.min(p.truncate());
@@ -34,6 +38,10 @@ impl Colliders {
             size,
             cells: vec![Vec::new(); size[0] as usize * size[1] as usize],
             triangles: Vec::new(),
+            up: normals
+                .iter()
+                .map(|n| n.normalize_or_zero().z > 0.7)
+                .collect(),
         };
         for (i, t) in triangles.iter().enumerate() {
             let tlo = t[0].truncate().min(t[1].truncate()).min(t[2].truncate());
@@ -80,6 +88,26 @@ impl Colliders {
             }
         }
         best
+    }
+}
+
+impl Colliders {
+    /// Heights of the upward-facing triangles above or below `p` (floors, decks,
+    /// but also roofs and table tops), lowest first.
+    pub fn surfaces(&self, p: Vec2) -> Vec<f32> {
+        let c = self.cell(p);
+        let mut found: Vec<f32> = self.cells[(c[1] * self.size[0] + c[0]) as usize]
+            .iter()
+            .filter(|&&i| self.up.get(i as usize).copied().unwrap_or(false))
+            .map(|&i| &self.triangles[i as usize])
+            .filter_map(|t| {
+                let below = Vec3::new(p.x, p.y, -1.0e4);
+                hit_triangle(below, Vec3::Z, t).map(|d| below.z + d)
+            })
+            .collect();
+        found.sort_by(f32::total_cmp);
+        found.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        found
     }
 }
 
@@ -142,7 +170,10 @@ mod tests {
                 ],
             ]
         };
-        let colliders = Colliders::new(wall(3.0).into_iter().chain(wall(6.0)).collect());
+        let colliders = Colliders::new(
+            wall(3.0).into_iter().chain(wall(6.0)).collect(),
+            &[Vec3::X; 4],
+        );
         let d = colliders.ray(Vec3::ZERO, Vec3::X, 10.0).unwrap();
         assert!((d - 3.0).abs() < 1e-5, "{d}");
         let back = colliders
@@ -151,6 +182,30 @@ mod tests {
         assert!((back - 4.0).abs() < 1e-5, "{back}");
         assert_eq!(colliders.ray(Vec3::ZERO, Vec3::X, 2.0), None, "beyond max");
         assert_eq!(colliders.ray(Vec3::ZERO, Vec3::Y, 10.0), None, "parallel");
+    }
+
+    #[test]
+    fn surfaces_are_the_upward_facing_triangles() {
+        // A slab: top at 2 (normal up) over its underside at 1.5 (normal down).
+        let quad = |z: f32| {
+            [
+                [
+                    Vec3::new(0.0, 0.0, z),
+                    Vec3::new(4.0, 0.0, z),
+                    Vec3::new(0.0, 4.0, z),
+                ],
+                [
+                    Vec3::new(4.0, 0.0, z),
+                    Vec3::new(4.0, 4.0, z),
+                    Vec3::new(0.0, 4.0, z),
+                ],
+            ]
+        };
+        let colliders = Colliders::new(
+            quad(2.0).into_iter().chain(quad(1.5)).collect(),
+            &[Vec3::Z, Vec3::Z, Vec3::NEG_Z, Vec3::NEG_Z],
+        );
+        assert_eq!(colliders.surfaces(Vec2::new(1.0, 1.0)), [2.0]);
     }
 
     #[test]

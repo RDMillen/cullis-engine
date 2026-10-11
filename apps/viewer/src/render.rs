@@ -89,7 +89,7 @@ pub struct TerrainRenderer {
     /// Placed meshes as triangles, for camera collision.
     pub colliders: Option<Colliders>,
     /// Where the Hero can walk and the ground height, if the region has them.
-    pub walk: Option<WalkGrid>,
+    pub walk: Vec<WalkGrid>,
     pub heights: Option<HeightGrid>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -154,6 +154,12 @@ fn layer_array(
 }
 
 impl TerrainRenderer {
+    /// Replaces the navigation overlay.
+    pub fn set_navigation(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u32]) {
+        self.nav =
+            (!indices.is_empty()).then(|| Geometry::new(device, "navigation", vertices, indices));
+    }
+
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

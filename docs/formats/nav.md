@@ -42,6 +42,8 @@ Interior nodes then have four `u32` child ids (0 = no child in that quadrant). L
 
 ## What it shows
 
-Drawn over the terrain (viewer `--nav`), StartOakValeWest's leaves cover exactly the village paths (kind 0) and the walkable ground around them (kind 128), with holes at houses, the well and fenced areas; hillsides, cliffs and the sea have no leaves. Its second layer covers the bridge deck across the ravine and raised parts of houses, so layers are walking levels. The navigation data holds no heights; the viewer places leaves on the terrain.
+Drawn over the terrain (viewer `--nav`), StartOakValeWest's leaves cover exactly the village paths (kind 0) and the walkable ground around them (kind 128), with holes at houses, the well and fenced areas; hillsides, cliffs and the sea have no leaves. Its second layer covers the bridge deck across the ravine and raised parts of houses, so layers are walking levels. The navigation data holds no heights.
+
+The viewer gives cells their heights from the terrain and the placed meshes' upward-facing triangles (`walk::assign_surfaces`), growing out from known heights one 0.6-unit step at a time and preferring the highest surface within a step. In StartOakVale this puts the whole second-layer bridge deck (342 cells) on the planks at 21.81, reached up a ramp on the first layer from the plateau at 21.0, and the Hero can walk across it. Three other second-layer patches (about 880 cells, under or inside buildings, e.g. around (3544–3563, 823–836)) have no upward surface within a step of the first layer, so what they are is not known; they stay unwalkable.
 
 Not decoded: leaf `value`, the extras, the outline points and the `unknown` count.

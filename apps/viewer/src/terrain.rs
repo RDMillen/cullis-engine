@@ -46,10 +46,12 @@ pub struct TerrainMesh {
     /// Navigation leaves as coloured quads; `normal` holds the colour.
     pub nav_vertices: Vec<Vertex>,
     pub nav_indices: Vec<u32>,
-    /// Ground-layer navigation leaves: world centre and side.
-    pub nav_cells: Vec<(Vec2, f32)>,
-    /// Where a Hero can walk, and the ground height, once the region is loaded.
-    pub walk: Option<WalkGrid>,
+    /// Navigation leaves: world centre, side and layer (0 = the ground).
+    pub nav_cells: Vec<(Vec2, f32, usize)>,
+    /// Where a Hero can walk, one grid per navigation layer, and the ground height,
+    /// once the region is loaded. Layers above the ground get their surface heights
+    /// later, from the placed meshes.
+    pub walk: Vec<WalkGrid>,
     pub heights: Option<HeightGrid>,
 }
 
@@ -214,12 +216,11 @@ impl TerrainMesh {
                 lev.cell(gx.round().max(0.0) as u32, gy.round().max(0.0) as u32)
                     .map_or(0.0, |c| c.height())
             };
-            if layer == 0 {
-                self.nav_cells.push((
-                    Vec2::new(x + node.centre[0], y + node.centre[1]),
-                    node.size(),
-                ));
-            }
+            self.nav_cells.push((
+                Vec2::new(x + node.centre[0], y + node.centre[1]),
+                node.size(),
+                layer,
+            ));
             let base = self.nav_vertices.len() as u32;
             for (dx, dy) in [(-half, -half), (half, -half), (half, half), (-half, half)] {
                 let (px, py) = (cx + dx, cy + dy);
@@ -237,6 +238,40 @@ impl TerrainMesh {
                 base + 3,
             ]);
         }
+    }
+
+    /// The walk grids as quads at their walking heights: green on the terrain,
+    /// blue on floors of the ground layer, yellow on later layers, and red on
+    /// cells of later layers that `navigation` (the grids before surfaces were
+    /// assigned) marks walkable but that got no height.
+    pub fn walk_overlay(
+        navigation: &[WalkGrid],
+        layers: &[WalkGrid],
+        ground: &HeightGrid,
+    ) -> (Vec<Vertex>, Vec<u32>) {
+        let (mut vertices, mut indices) = (Vec::new(), Vec::new());
+        let mut quad = |c: Vec2, z: f32, colour: [f32; 3]| {
+            let base = vertices.len() as u32;
+            let h = crate::walk::CELL * 0.45;
+            for (dx, dy) in [(-h, -h), (h, -h), (h, h), (-h, h)] {
+                vertices.push(Vertex {
+                    position: [c.x + dx, c.y + dy, z + 0.1],
+                    normal: colour,
+                });
+            }
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        };
+        for (l, (nav, layer)) in navigation.iter().zip(layers).enumerate() {
+            for c in nav.cell_centres() {
+                match layer.height(c, ground) {
+                    Some(z) if l > 0 => quad(c, z, [1.0, 0.85, 0.0]),
+                    Some(z) if layer.on_surface(c) => quad(c, z, [0.2, 0.4, 1.0]),
+                    Some(z) => quad(c, z, [0.2, 0.85, 0.2]),
+                    None => quad(c, ground.height(c), [0.9, 0.1, 0.1]),
+                }
+            }
+        }
+        (vertices, indices)
     }
 
     pub fn bounds(&self) -> (Vec3, Vec3) {
@@ -305,11 +340,13 @@ pub fn load_region(
                 }
             }
         }
-        let mut walk = WalkGrid::new(Vec2::new(lo.x, lo.y), Vec2::new(hi.x, hi.y));
-        for (centre, side) in &mesh.nav_cells {
-            walk.mark(*centre, *side);
+        let layers = mesh.nav_cells.iter().map(|c| c.2 + 1).max().unwrap_or(0);
+        mesh.walk = (0..layers)
+            .map(|_| WalkGrid::new(Vec2::new(lo.x, lo.y), Vec2::new(hi.x, hi.y)))
+            .collect();
+        for (centre, side, layer) in &mesh.nav_cells {
+            mesh.walk[*layer].mark(*centre, *side);
         }
-        mesh.walk = Some(walk);
         mesh.heights = Some(heights);
         mesh.themes = Some(grid);
     }

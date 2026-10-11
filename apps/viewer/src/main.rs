@@ -44,6 +44,8 @@ struct Args {
     nav: bool,
     /// Place the young Hero near the camera target (screenshots).
     walk: bool,
+    /// Then walk him towards this point (x, y) before the screenshot.
+    walk_to: Option<[f32; 2]>,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -55,6 +57,7 @@ fn parse_args() -> Result<Args, Error> {
         camera: None,
         nav: false,
         walk: false,
+        walk_to: None,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -66,6 +69,14 @@ fn parse_args() -> Result<Args, Error> {
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--nav" => args.nav = true,
             "--walk" => args.walk = true,
+            "--walk-to" => {
+                let v: Vec<f32> = value()?
+                    .split(',')
+                    .map(|s| s.trim().parse::<f32>())
+                    .collect::<Result<_, _>>()?;
+                args.walk_to = Some(v.try_into().map_err(|_| "--walk-to takes x,y")?);
+                args.walk = true;
+            }
             "--camera" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -126,15 +137,36 @@ impl Scene {
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
                     let p = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].position);
+                    let n = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].normal);
+                    let triangles = things.indices.as_chunks::<3>().0;
                     renderer.colliders = Some(collide::Colliders::new(
-                        things
-                            .indices
-                            .as_chunks::<3>()
-                            .0
+                        triangles.iter().map(|t| t.map(p)).collect(),
+                        &triangles
                             .iter()
-                            .map(|t| t.map(p))
-                            .collect(),
+                            .map(|t| n(t[0]) + n(t[1]) + n(t[2]))
+                            .collect::<Vec<_>>(),
                     ));
+                    if let (Some(colliders), Some(heights)) =
+                        (&renderer.colliders, &renderer.heights)
+                    {
+                        let navigation = renderer.walk.clone();
+                        let before: Vec<usize> =
+                            renderer.walk.iter().map(|l| l.walkable_cells()).collect();
+                        walk::assign_surfaces(&mut renderer.walk, heights, |p| {
+                            colliders.surfaces(p)
+                        });
+                        let after: Vec<usize> =
+                            renderer.walk.iter().map(|l| l.walkable_cells()).collect();
+                        eprintln!(
+                            "walk layers: {before:?} navigation cells, {after:?} with a surface height"
+                        );
+                        let (v, i) = terrain::TerrainMesh::walk_overlay(
+                            &navigation,
+                            &renderer.walk,
+                            heights,
+                        );
+                        renderer.set_navigation(device, &v, &i);
+                    }
                 }
                 Ok((
                     Self::Terrain(Box::new(renderer)),
@@ -213,7 +245,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         };
     }
     if let (true, Scene::Terrain(renderer)) = (args.walk, &mut scene)
-        && let Some(hero) = spawn_hero(
+        && let Some(mut hero) = spawn_hero(
             renderer,
             data_dir,
             &device,
@@ -221,6 +253,28 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             camera.target.truncate(),
         )?
     {
+        if let Some([x, y]) = args.walk_to {
+            let goal = glam::Vec2::new(x, y);
+            let mut highest = hero.position.z;
+            for _ in 0..3000 {
+                let to = goal - hero.position.truncate();
+                if to.length() < 0.3 {
+                    break;
+                }
+                if let Some(heights) = &renderer.heights {
+                    hero.step(to, walk::WALK_SPEED, 1.0 / 30.0, &renderer.walk, heights);
+                }
+                highest = highest.max(hero.position.z);
+            }
+            camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
+            eprintln!(
+                "walked to {} on layer {} (highest {highest:.1})",
+                hero.position, hero.layer
+            );
+            if let Some((_, transform)) = &mut renderer.hero {
+                *transform = hero_transform(&hero);
+            }
+        }
         let distance = camera.distance.clamp(3.0, 12.0);
         follow(&mut camera, &hero, renderer, distance);
         eprintln!("hero at {}", hero.position);
@@ -252,7 +306,7 @@ fn spawn_hero(
     queue: &wgpu::Queue,
     near: glam::Vec2,
 ) -> Result<Option<walk::Hero>, Error> {
-    let (Some(walk), Some(heights)) = (&renderer.walk, &renderer.heights) else {
+    let (Some(walk), Some(heights)) = (renderer.walk.first(), &renderer.heights) else {
         return Ok(None);
     };
     let Some(at) = walk.nearest_walkable(near) else {
@@ -556,7 +610,7 @@ impl ViewerApp {
         let (Some(hero), Scene::Terrain(renderer)) = (&mut self.walker, &mut self.scene) else {
             return;
         };
-        let (Some(walk), Some(heights)) = (&renderer.walk, &renderer.heights) else {
+        let (walk, Some(heights)) = (&renderer.walk, &renderer.heights) else {
             return;
         };
         let (forward, right, run, dt) = ui.input(|i| {
