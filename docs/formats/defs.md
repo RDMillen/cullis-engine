@@ -89,7 +89,7 @@ A creature's `CAppearanceDef` (`CREATURE_HERO_CHILD`'s has 871 entries, a villag
 | `ST_WALK`, `ST_RUN`, `ST_SLOW_WALK` | `STAND` | `ANIM_HERO_WALK`, `ANIM_HERO_RUN`, `ANIM_HERO_SLOW_WALK` |
 | `ST_IDLE_SUBTLE` | `SWORD`, `CROSSBOW`, `TOO_HEAVY`, `DRAINED`, … | situation variants |
 
-Villagers: `ST_IDLE_SUBTLE` → `ANIM_VILLAGER_MALE_IDLE_BREATHE_01`, `ST_IDLE` → gazing at the sky, scratching the head. Other slots cover combat, emotes (`ST_THANKS`), cutscenes (`CS_SHIFT_WEIGHT3` → `ANIM_HERO_IDLE_3`), objects (`LIGHT_LAMP` with `TABLELIGHT`, `CUPBOARDLIGHT`). How the game chooses among several entries for one slot is not known.
+Villagers: `ST_IDLE_SUBTLE` → `ANIM_VILLAGER_MALE_IDLE_BREATHE_01`, `ST_IDLE` → gazing at the sky, scratching the head. Other slots cover combat, emotes (`ST_THANKS`), cutscenes (`CS_SHIFT_WEIGHT3` → `ANIM_HERO_IDLE_3`), objects (`LIGHT_LAMP` with `TABLELIGHT`, `CUPBOARDLIGHT`). How the game chooses among several entries for one slot is not known. Doors have a three-entry table: `DOOR_OPEN` and `DEFAULT` → `ANIM_VILLAGE_DOOR_TYPE_03_OPEN`, `DOOR_CLOSE` → `…_CLOSE`; closed is the opening animation's first frame and open its last.
 
 ## Skeletal morphs
 

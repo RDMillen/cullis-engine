@@ -110,6 +110,11 @@ impl Clip {
         })
     }
 
+    /// When the last frame starts, in seconds.
+    pub fn last_frame_time(&self) -> f32 {
+        (self.frames.saturating_sub(1)) as f32 / self.fps
+    }
+
     /// Length of one loop in seconds.
     pub fn duration(&self) -> f32 {
         self.frames as f32 / self.fps
@@ -239,6 +244,8 @@ pub struct Animator {
     current: usize,
     time: f32,
     posed: Vec<ModelVertex>,
+    /// The current clip plays once and holds its last frame instead of looping.
+    once: bool,
 }
 
 impl Animator {
@@ -250,6 +257,7 @@ impl Animator {
             current: 0,
             time: 0.0,
             posed: Vec::new(),
+            once: false,
         }
     }
 
@@ -268,6 +276,17 @@ impl Animator {
         if i != self.current && i < self.clips.len() {
             self.current = i;
             self.time = 0.0;
+            self.once = false;
+        }
+    }
+
+    /// Plays clip `i` once from `time` seconds (restarting it even if it is
+    /// playing) and then holds its last frame: a door swinging open.
+    pub fn play_once(&mut self, i: usize, time: f32) {
+        if i < self.clips.len() {
+            self.current = i;
+            self.time = time;
+            self.once = true;
         }
     }
 
@@ -306,6 +325,12 @@ impl Animator {
     /// Advances the current clip by `dt` seconds and returns the posed vertices.
     pub fn advance(&mut self, dt: f32) -> &[ModelVertex] {
         self.time += dt;
+        if self.once
+            && let Some(c) = self.clips.get(self.current)
+        {
+            // The last frame, not the wrap back to the first.
+            self.time = self.time.min(c.last_frame_time());
+        }
         let matrices = pose(
             &self.skin.skeleton,
             self.clips.get(self.current),

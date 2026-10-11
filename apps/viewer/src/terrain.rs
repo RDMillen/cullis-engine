@@ -42,6 +42,8 @@ pub struct TerrainMesh {
     pub exits: Vec<RegionExit>,
     /// Creatures placed in the maps the region contains.
     pub creatures: Vec<CreaturePlacement>,
+    /// Doors in the maps the region contains.
+    pub doors: Vec<DoorPlacement>,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub maps: usize,
@@ -291,8 +293,25 @@ impl TerrainMesh {
     }
 }
 
-/// A map's placed meshes, region exits and creatures.
-type MapThings = (Vec<Placement>, Vec<RegionExit>, Vec<CreaturePlacement>);
+/// A map's placed meshes, region exits, creatures and doors.
+type MapThings = (
+    Vec<Placement>,
+    Vec<RegionExit>,
+    Vec<CreaturePlacement>,
+    Vec<DoorPlacement>,
+);
+
+/// A door (a thing with a `CTCDoor`): a skinned mesh that swings open.
+#[derive(Debug, Clone)]
+pub struct DoorPlacement {
+    pub definition: String,
+    /// `CTCDoor`'s `Open`.
+    pub open: bool,
+    /// `DOOR_OPEN` and `DOOR_CLOSE` animations from its table (filled in after
+    /// loading).
+    pub animations: [Option<u32>; 2],
+    pub placement: Placement,
+}
 
 /// A creature placed in a map (an `AICreature` thing).
 #[derive(Debug, Clone)]
@@ -416,7 +435,7 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        let (placed, exits, creatures) = load_placements(
+        let (placed, exits, creatures, doors) = load_placements(
             &wad,
             &mut file,
             level,
@@ -429,6 +448,7 @@ pub fn load_region(
         if region.contains_maps.contains(level) {
             mesh.exits.extend(exits);
             mesh.creatures.extend(creatures);
+            mesh.doors.extend(doors);
         }
     }
     if !maps.is_empty() {
@@ -486,7 +506,7 @@ fn load_placements(
 ) -> Result<MapThings, Box<dyn std::error::Error>> {
     let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
     let Some(entry) = wad.index.by_name(&tng_name) else {
-        return Ok((Vec::new(), Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
     };
     let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
     let mut tng = Tng::parse(&text)?;
@@ -541,10 +561,35 @@ fn load_placements(
             })
         })
         .collect();
+    let doors = tng
+        .things
+        .iter()
+        .filter_map(|t| {
+            let door = t.component("CTCDoor")?;
+            let definition = t.definition()?;
+            Some(DoorPlacement {
+                definition: definition.to_owned(),
+                open: door
+                    .fields
+                    .iter()
+                    .any(|f| f.key == "Open" && f.value == "TRUE"),
+                animations: [None, None],
+                placement: Placement {
+                    role: MeshRole::Plain,
+                    mesh: defs.get(definition)?.graphic()?,
+                    position: origin + Vec3::from_array(t.position()?),
+                    forward: Vec3::from_array(t.forward()?),
+                    up: Vec3::from_array(t.up()?),
+                },
+            })
+        })
+        .collect();
     let placements = tng
         .things
         .iter()
-        .filter(|t| t.kind == "Building" || t.kind == "Object")
+        .filter(|t| {
+            (t.kind == "Building" || t.kind == "Object") && t.component("CTCDoor").is_none()
+        })
         .filter_map(|t| {
             let def = defs.get(t.definition()?)?;
             let (position, forward, up) = (t.position()?, t.forward()?, t.up()?);
@@ -567,7 +612,7 @@ fn load_placements(
         })
         .flatten()
         .collect();
-    Ok((placements, exits, creatures))
+    Ok((placements, exits, creatures, doors))
 }
 
 #[cfg(test)]

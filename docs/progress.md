@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): doors and collisions
+
+- Doors (`CTCDoor` things) are skinned and posed by their `DOOR_OPEN`/`DOOR_CLOSE` animations (played once, holding the last frame), starting in their `Open` state. A closed door blocks a 0.5-unit strip across its doorway; **E** opens or closes the nearest door within 2 units. Checked on the Inn door: the Hero stops at it closed, it swings open inward, he walks through.
+- People block each other: the Hero cannot come closer than 0.7 to a creature, wandering creatures avoid the Hero and closed doors. `Hero::step_blocked` takes the blocking test.
+- `--use` (with `--walk-to`) uses the nearest door and walks on, for screenshots.
+
 ## 2026-10-11 (later): door frames indoors
 
 - Ross saw doors standing without frames indoors. Doors (`MESH_VILLAGE_DOOR_TYPE_03`) are just the leaves; the frames are part of the building's exterior walls, which were hidden along with the roof. Now only the exterior's roof materials (`Roof`, `roof`, `Roof fringe`, `Fringe`) are hidden indoors and skipped by camera rays; walls and frames stay.

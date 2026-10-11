@@ -55,13 +55,14 @@ impl Npc {
         dt: f32,
         layers: &[WalkGrid],
         heights: Option<&HeightGrid>,
+        blocked: &dyn Fn(Vec2) -> bool,
     ) {
         let Some((_, first)) = self.parts.first() else {
             return;
         };
         let (current, finished) = (first.current(), first.finished());
         let next = match (self.walk.is_some(), heights) {
-            (true, Some(heights)) => self.wander(dt, current, finished, layers, heights),
+            (true, Some(heights)) => self.wander(dt, current, finished, layers, heights, blocked),
             _ => self.fidget(dt, current, finished),
         };
         for (renderer, animator) in &mut self.parts {
@@ -94,6 +95,7 @@ impl Npc {
         finished: bool,
         layers: &[WalkGrid],
         heights: &HeightGrid,
+        blocked: &dyn Fn(Vec2) -> bool,
     ) -> Option<usize> {
         let roll = self.random();
         let w = self.walk.as_mut().unwrap();
@@ -106,7 +108,8 @@ impl Npc {
                 return Some(0);
             }
             let before = w.body.position;
-            w.body.step(to, w.speed, dt, layers, heights);
+            w.body
+                .step_blocked(to, w.speed, dt, layers, heights, blocked);
             let moved = (w.body.position - before).truncate().length();
             w.stuck = if moved < w.speed * dt * 0.2 {
                 w.stuck + dt
@@ -133,6 +136,11 @@ impl Npc {
             w.resting = 0.0;
         }
         self.fidget(dt, current, finished)
+    }
+
+    /// Where the creature stands.
+    pub fn position(&self) -> Vec2 {
+        self.transform.w_axis.truncate().truncate()
     }
 
     /// For a wandering creature, how far it is from its placement.

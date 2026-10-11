@@ -90,6 +90,8 @@ pub struct TerrainRenderer {
     /// hidden).
     pub buildings: Vec<crate::model::Building>,
     pub inside: Option<usize>,
+    /// Doors, posed open or closed.
+    pub doors: Vec<crate::door::Door>,
     /// Creatures standing in the region.
     pub npcs: Vec<crate::npc::Npc>,
     /// The Hero's animations from his animation table, and his bone configs.
@@ -404,6 +406,7 @@ impl TerrainRenderer {
             hero_animations: Default::default(),
             hero_morphs: Vec::new(),
             npcs: Vec::new(),
+            doors: Vec::new(),
             buildings: Vec::new(),
             inside: None,
             colliders: None,
@@ -452,6 +455,9 @@ impl TerrainRenderer {
                 part.prepare(queue, view_proj * npc.transform);
             }
         }
+        for door in &self.doors {
+            door.renderer.prepare(queue, view_proj * door.transform);
+        }
 
         let mut encoder = device.create_command_encoder(&Default::default());
         {
@@ -490,7 +496,10 @@ impl TerrainRenderer {
             for (part, _) in self.npcs.iter().flat_map(|n| &n.parts) {
                 part.draw(&mut pass);
             }
-            if !self.npcs.is_empty() {
+            for door in &self.doors {
+                door.renderer.draw(&mut pass);
+            }
+            if !self.npcs.is_empty() || !self.doors.is_empty() {
                 pass.set_bind_group(0, &self.bind_group, &[]);
             }
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {

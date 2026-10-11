@@ -332,6 +332,7 @@ impl Hero {
     /// so the Hero slides along edges. A step may land on any layer whose surface
     /// there is within [`MAX_STEP`] of the Hero's height, the closest first (the
     /// current layer on a tie), which is how he gets on and off a bridge deck.
+    #[cfg(test)]
     pub fn step(
         &mut self,
         direction: Vec2,
@@ -339,6 +340,20 @@ impl Hero {
         dt: f32,
         layers: &[WalkGrid],
         heights: &HeightGrid,
+    ) {
+        self.step_blocked(direction, speed, dt, layers, heights, |_| false);
+    }
+
+    /// As [`Hero::step`], also refusing points `blocked` returns true for (closed
+    /// doors, other people).
+    pub fn step_blocked(
+        &mut self,
+        direction: Vec2,
+        speed: f32,
+        dt: f32,
+        layers: &[WalkGrid],
+        heights: &HeightGrid,
+        blocked: impl Fn(Vec2) -> bool,
     ) {
         let Some(dir) = direction.try_normalize() else {
             return;
@@ -349,7 +364,7 @@ impl Hero {
         for to in candidates
             .iter()
             .map(|d| from + *d)
-            .filter(|to| *to != from)
+            .filter(|to| *to != from && !blocked(*to))
         {
             let best = layers
                 .iter()
@@ -472,6 +487,28 @@ mod tests {
         assert!(hero.position.x > 10.0, "{:?}", hero.position);
         assert_eq!(highest_in_ravine, 5.4);
         assert_eq!(hero.layer, 0, "back on the far plateau");
+    }
+
+    #[test]
+    fn blocked_points_stop_the_step() {
+        let (walk, heights) = corridor();
+        let mut hero = Hero::new(Vec2::new(2.0, 5.0), &heights);
+        // A wall across the corridor at x = 3.
+        for _ in 0..20 {
+            hero.step_blocked(
+                Vec2::X,
+                WALK_SPEED,
+                0.05,
+                std::slice::from_ref(&walk),
+                &heights,
+                |p| p.x > 3.0,
+            );
+        }
+        assert!(
+            hero.position.x <= 3.0 && hero.position.x > 2.5,
+            "{:?}",
+            hero.position
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 
 mod camera;
 mod collide;
+mod door;
 mod model;
 mod npc;
 mod render;
@@ -59,6 +60,8 @@ struct Args {
     anim_time: f32,
     /// Advance the creatures this many seconds before the screenshot.
     npc_time: f32,
+    /// After walking (`--walk-to`), use the nearest door, then walk again.
+    use_door: bool,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -75,6 +78,7 @@ fn parse_args() -> Result<Args, Error> {
         anim: None,
         anim_time: 0.0,
         npc_time: 0.0,
+        use_door: false,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -93,6 +97,7 @@ fn parse_args() -> Result<Args, Error> {
             }
             "--anim-time" => args.anim_time = value()?.parse()?,
             "--npc-time" => args.npc_time = value()?.parse()?,
+            "--use" => args.use_door = true,
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -153,6 +158,14 @@ impl Scene {
                         c.morphs = defs.skeletal_morphs(def, &names);
                     }
                 }
+                for d in &mut mesh.doors {
+                    if let Some(def) = defs.get(&d.definition) {
+                        let slots = defs.animation_slots(def, &names);
+                        let find =
+                            |slot: &str| slots.iter().find(|s| s.slot == slot).map(|s| s.animation);
+                        d.animations = [find("DOOR_OPEN"), find("DOOR_CLOSE")];
+                    }
+                }
                 let hero_slots = defs
                     .get(HERO_DEFINITION)
                     .map(|d| defs.animation_slots(d, &names))
@@ -181,6 +194,8 @@ impl Scene {
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
                     renderer.npcs = npc::load(data_dir, device, queue, &mesh.creatures);
+                    renderer.doors = door::load(data_dir, device, queue, &mesh.doors);
+                    eprintln!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
                     eprintln!(
                         "{} creatures placed of {}",
                         renderer.npcs.len(),
@@ -312,15 +327,39 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         if let Some([x, y]) = args.walk_to {
             let goal = glam::Vec2::new(x, y);
             let mut highest = hero.position.z;
-            for _ in 0..3000 {
-                let to = goal - hero.position.truncate();
-                if to.length() < 0.3 {
-                    break;
+            // With --use: walk, use the nearest door, let it swing, walk on.
+            for pass in 0..1 + usize::from(args.use_door) {
+                if pass == 1 {
+                    match door::nearest(&renderer.doors, hero.position) {
+                        Some(d) => {
+                            renderer.doors[d].toggle();
+                            eprintln!("used door {d} (open: {})", renderer.doors[d].open);
+                            for door in &mut renderer.doors {
+                                door.animate(&queue, 3.0);
+                            }
+                        }
+                        None => eprintln!("no door within reach"),
+                    }
                 }
-                if let Some(heights) = &renderer.heights {
-                    hero.step(to, walk::WALK_SPEED, 1.0 / 30.0, &renderer.walk, heights);
+                for _ in 0..3000 {
+                    let to = goal - hero.position.truncate();
+                    if to.length() < 0.3 {
+                        break;
+                    }
+                    if let Some(heights) = &renderer.heights {
+                        let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+                        hero.step_blocked(
+                            to,
+                            walk::WALK_SPEED,
+                            1.0 / 30.0,
+                            &renderer.walk,
+                            heights,
+                            |p| blocked_for_hero(doors, npcs, p),
+                        );
+                    }
+                    highest = highest.max(hero.position.z);
                 }
-                highest = highest.max(hero.position.z);
+                eprintln!("walk pass {pass} ended at {}", hero.position);
             }
             camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
             eprintln!(
@@ -367,9 +406,11 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer) = &mut scene {
         let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
         let steps = (args.npc_time * 30.0) as u32;
+        let doors = &renderer.doors;
+        let blocked = |p: glam::Vec2| doors.iter().any(|d| d.blocks(p));
         for _ in 0..steps {
             for npc in &mut renderer.npcs {
-                npc.animate(&queue, 1.0 / 30.0, layers, heights);
+                npc.animate(&queue, 1.0 / 30.0, layers, heights, &blocked);
             }
         }
     }
@@ -403,6 +444,17 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     )?;
     eprintln!("wrote {}", path.display());
     Ok(())
+}
+
+/// How wide a person is, for keeping the Hero and creatures apart.
+const PERSON_RADIUS: f32 = 0.35;
+
+/// Whether the Hero may not stand at `p`: a closed door, or a creature there.
+fn blocked_for_hero(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+    doors.iter().any(|d| d.blocks(p))
+        || npcs
+            .iter()
+            .any(|n| n.position().distance(p) < PERSON_RADIUS * 2.0)
 }
 
 /// The clip the standing Hero plays: his idle (0), or after he has stood for a
@@ -1113,7 +1165,15 @@ impl ViewerApp {
             walk::WALK_SPEED
         });
         let before = hero.position;
-        hero.step(direction, speed, dt, walk, heights);
+        if ui.input(|i| i.key_pressed(egui::Key::E))
+            && let Some(d) = door::nearest(&renderer.doors, hero.position)
+        {
+            renderer.doors[d].toggle();
+        }
+        let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+        hero.step_blocked(direction, speed, dt, walk, heights, |p| {
+            blocked_for_hero(doors, npcs, p)
+        });
         let moved = (hero.position - before).truncate().length() > 1e-4;
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
@@ -1258,8 +1318,17 @@ impl eframe::App for ViewerApp {
                 {
                     let dt = ui.input(|i| i.stable_dt.min(0.1));
                     let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+                    let hero = self.walker.as_ref().map(|h| h.position.truncate());
+                    let doors = &renderer.doors;
+                    let blocked = |p: glam::Vec2| {
+                        doors.iter().any(|d| d.blocks(p))
+                            || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
+                    };
                     for npc in &mut renderer.npcs {
-                        npc.animate(&rs.queue, dt, layers, heights);
+                        npc.animate(&rs.queue, dt, layers, heights, &blocked);
+                    }
+                    for door in &mut renderer.doors {
+                        door.animate(&rs.queue, dt);
                     }
                     ui.ctx().request_repaint();
                 }
