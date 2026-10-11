@@ -6,6 +6,7 @@ use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use glam::{Mat4, Vec3};
 
+use crate::collide::Colliders;
 use crate::model::ModelRenderer;
 use crate::terrain::{TerrainMesh, Vertex};
 use crate::themes::{LAYER_SIZE, Mips, ThemeTextures};
@@ -85,6 +86,8 @@ pub struct TerrainRenderer {
     pub things: Option<ModelRenderer>,
     /// The walking Hero and its model-to-world transform.
     pub hero: Option<(ModelRenderer, Mat4)>,
+    /// Placed meshes as triangles, for camera collision.
+    pub colliders: Option<Colliders>,
     /// Where the Hero can walk and the ground height, if the region has them.
     pub walk: Option<WalkGrid>,
     pub heights: Option<HeightGrid>,
@@ -356,6 +359,7 @@ impl TerrainRenderer {
             sea,
             things: None,
             hero: None,
+            colliders: None,
             walk: mesh.walk.clone(),
             heights: mesh.heights.clone(),
             uniforms,

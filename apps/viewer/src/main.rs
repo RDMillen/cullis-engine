@@ -6,6 +6,7 @@
 //! ```
 
 mod camera;
+mod collide;
 mod model;
 mod render;
 mod terrain;
@@ -124,6 +125,16 @@ impl Scene {
                 );
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
+                    let p = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].position);
+                    renderer.colliders = Some(collide::Colliders::new(
+                        things
+                            .indices
+                            .as_chunks::<3>()
+                            .0
+                            .iter()
+                            .map(|t| t.map(p))
+                            .collect(),
+                    ));
                 }
                 Ok((
                     Self::Terrain(Box::new(renderer)),
@@ -210,7 +221,8 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             camera.target.truncate(),
         )?
     {
-        follow(&mut camera, &hero);
+        let distance = camera.distance.clamp(3.0, 12.0);
+        follow(&mut camera, &hero, renderer, distance);
         eprintln!("hero at {}", hero.position);
     }
     eprintln!("{subject:?}: {status}");
@@ -259,11 +271,56 @@ fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
     glam::Mat4::from_translation(hero.position) * glam::Mat4::from_rotation_z(hero.heading)
 }
 
-/// Points the camera at the Hero's chest from a third-person distance.
-fn follow(camera: &mut OrbitCamera, hero: &walk::Hero) {
+/// Points the camera at the Hero's chest from `distance`, or closer when a placed
+/// mesh or the ground is in the way. The camera is treated as having some width:
+/// besides the ray to it, rays to points around it are cast, so it does not end up
+/// pressed against (or poking into) a wall or a cart.
+fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRenderer, distance: f32) {
+    /// Gap kept between the camera and what it would hit.
+    const MARGIN: f32 = 0.3;
+    /// Half the width of the camera's probe.
+    const RADIUS: f32 = 0.5;
     camera.target = hero.position + glam::Vec3::Z;
-    camera.distance = camera.distance.clamp(3.0, 12.0);
     camera.pitch = camera.pitch.clamp(0.15, 0.8);
+    camera.distance = distance;
+    let back = (camera.eye() - camera.target).normalize_or_zero();
+    let right = back.cross(glam::Vec3::Z).normalize_or(glam::Vec3::X);
+    let up = right.cross(back);
+    let d = std::f32::consts::FRAC_1_SQRT_2;
+    let offsets = [
+        glam::Vec3::ZERO,
+        right,
+        -right,
+        up,
+        -up,
+        (right + up) * d,
+        (right - up) * d,
+        (up - right) * d,
+        (-right - up) * d,
+    ];
+    let mut nearest = distance;
+    for offset in offsets {
+        let to = camera.target + back * (distance + MARGIN) + offset * RADIUS;
+        let (dir, len) = (
+            (to - camera.target).normalize_or_zero(),
+            (to - camera.target).length(),
+        );
+        let hits = [
+            renderer
+                .colliders
+                .as_ref()
+                .and_then(|c| c.ray(camera.target, dir, len)),
+            renderer
+                .heights
+                .as_ref()
+                .and_then(|h| collide::ground_ray(h, camera.target, dir, len, MARGIN)),
+        ];
+        for hit in hits.into_iter().flatten() {
+            // Distance along the camera's own line at which this ray hit.
+            nearest = nearest.min(hit * dir.dot(back) - MARGIN);
+        }
+    }
+    camera.distance = nearest.clamp(0.4, distance);
 }
 
 fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error> {
@@ -333,6 +390,8 @@ struct ViewerApp {
     texture_view: Option<TextureView>,
     /// The walking Hero, when walk mode is on.
     walker: Option<walk::Hero>,
+    /// Preferred camera distance in walk mode (the scroll wheel changes it).
+    follow_distance: f32,
     want_walk: bool,
     list: ListMode,
     filter: String,
@@ -366,6 +425,7 @@ impl ViewerApp {
             texture_names,
             texture_view: None,
             walker: None,
+            follow_distance: 6.0,
             want_walk: false,
             textures,
             list,
@@ -470,7 +530,7 @@ impl ViewerApp {
                     self.camera.target.truncate(),
                 ) {
                     Ok(Some(hero)) => {
-                        follow(&mut self.camera, &hero);
+                        follow(&mut self.camera, &hero, renderer, self.follow_distance);
                         self.walker = Some(hero);
                     }
                     Ok(None) => {
@@ -524,7 +584,7 @@ impl ViewerApp {
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
-        self.camera.target = hero.position + glam::Vec3::Z;
+        follow(&mut self.camera, hero, renderer, self.follow_distance);
     }
 
     /// Decodes texture `id` and shows it in place of the 3D view.
@@ -602,7 +662,13 @@ impl eframe::App for ViewerApp {
                     self.camera.pan(delta.x, delta.y);
                 }
                 if response.hovered() {
-                    self.camera.zoom(ui.input(|i| i.smooth_scroll_delta.y));
+                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                    if self.walker.is_some() {
+                        self.follow_distance =
+                            (self.follow_distance * (-scroll * 0.002).exp()).clamp(2.0, 15.0);
+                    } else {
+                        self.camera.zoom(scroll);
+                    }
                 }
                 self.walk(ui);
 
