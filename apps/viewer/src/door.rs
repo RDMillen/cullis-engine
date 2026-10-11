@@ -93,8 +93,9 @@ pub fn load(
             continue;
         }
         let mut animator = Animator::new(model.vertices.clone(), skin, clips);
-        // Closed is the opening animation's first frame, open its last.
-        animator.play_once(0, if d.open { f32::MAX } else { 0.0 });
+        // Hold the end of the opening animation (open) or of the closing one
+        // (closed), so nothing moves until the door is used.
+        animator.play_once(if d.open { 0 } else { 1 }, f32::MAX);
         let renderer = ModelRenderer::new(device, queue, &model);
         renderer.set_vertices(queue, animator.advance(0.0));
         let transform = d.placement.transform();

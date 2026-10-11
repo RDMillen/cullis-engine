@@ -419,6 +419,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 npc.animate(&queue, 1.0 / 30.0, layers, heights, &blocked);
             }
         }
+        for door in &mut renderer.doors {
+            door.animate(&queue, args.npc_time);
+        }
     }
     if let (Scene::Terrain(renderer), true) = (&scene, args.npc_time > 0.0) {
         let wandered: Vec<String> = renderer
