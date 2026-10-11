@@ -515,6 +515,78 @@ fn animations_parse_with_unit_quaternions() {
 
 #[test]
 #[ignore]
+fn every_region_exit_leads_to_an_entrance() {
+    use fable_data::gtg::{Gtg, split_connected_uid};
+    use fable_data::tng::Tng;
+    use fable_data::wld::Wld;
+
+    let wld = Wld::open(data_dir().join("Levels/FinalAlbion.wld")).unwrap();
+    let gtg_bytes = std::fs::read(data_dir().join("Levels/FinalAlbion.gtg")).unwrap();
+    let gtg = Gtg::parse(&gtg_bytes.iter().map(|&b| b as char).collect::<String>()).unwrap();
+    let path = data_dir().join("Levels/FinalAlbion.wad");
+    let wad = BbbbFile::open(&path).unwrap();
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let (mut exits, mut unresolved) = (0, Vec::new());
+    for map in &wld.maps {
+        // Development regions (CreatureHub: no RegionDef, untranslated name)
+        // have exits to maps that are gone.
+        if !wld
+            .regions
+            .iter()
+            .any(|r| !r.region_def.is_empty() && r.contains_maps.contains(&map.level_name))
+        {
+            continue;
+        }
+        let name = format!("Data\\Levels\\{}", map.level_name.replace(".lev", ".tng"));
+        let Some(entry) = wad.index.by_name(&name) else {
+            continue;
+        };
+        let text: String = entry
+            .read_data(&mut file)
+            .unwrap()
+            .iter()
+            .map(|&b| b as char)
+            .collect();
+        for thing in Tng::parse(&text).unwrap().things {
+            let Some(exit) = thing.component("CTCDRegionExit") else {
+                continue;
+            };
+            let connected: u64 = exit
+                .fields
+                .iter()
+                .find(|f| f.key == "EntranceConnectedToUID")
+                .unwrap()
+                .value
+                .parse()
+                .unwrap();
+            let (map_uid, local) = split_connected_uid(connected);
+            let entrance = wld
+                .maps
+                .iter()
+                .find(|m| m.uid == map_uid)
+                .and_then(|dest| gtg.map(dest.number))
+                .and_then(|m| m.thing(local));
+            match entrance {
+                Some(e) => assert!(
+                    e.component("CTCDRegionEntrance").is_some(),
+                    "{} -> {:?}",
+                    map.level_name,
+                    e.definition()
+                ),
+                None => unresolved.push(format!("{} -> map UID {map_uid}", map.level_name)),
+            }
+            exits += 1;
+        }
+    }
+    eprintln!(
+        "{exits} region exits, {} unresolved: {unresolved:?}",
+        unresolved.len()
+    );
+    assert!(exits > 100 && unresolved.is_empty());
+}
+
+#[test]
+#[ignore]
 fn every_tng_parses_and_places_its_buildings() {
     use fable_data::tng::Tng;
 

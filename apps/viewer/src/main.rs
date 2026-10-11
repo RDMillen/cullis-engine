@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use eframe::{egui, egui_wgpu, wgpu};
 use fable_data::big::BigFile;
 use fable_data::defs::{Defs, Names};
+use fable_data::gtg::{Gtg, split_connected_uid};
 use fable_data::mesh::{SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
 use fable_data::wld::Wld;
 use glam::Mat4;
@@ -256,6 +257,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             pitch,
         };
     }
+    let mut pending_exit = None;
     if let (true, Scene::Terrain(renderer)) = (args.walk, &mut scene)
         && let Some(mut hero) = spawn_hero(
             renderer,
@@ -287,31 +289,29 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 *transform = hero_transform(&hero);
             }
         }
-        let mut clip = usize::from(args.walk_to.is_some());
-        if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
-            clip = match HERO_CLIPS.iter().position(|c| c == name) {
-                Some(i) => i,
-                None => animator.add_clip(skin::Clip::load(data_dir, name, animator.skeleton())?),
-            };
+        pending_exit = exit_at(renderer, &hero);
+        if pending_exit.is_none() {
+            pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
         }
-        if let Some(animator) = &renderer.hero_animator {
-            for (i, name) in HERO_CLIPS.iter().enumerate() {
-                let speed =
-                    animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * model::YOUNG_HERO_SCALE;
-                eprintln!("{name}: {speed:.2} m/s");
-            }
+    }
+    // Walked into a region exit: load where it leads, as the game would.
+    if let Some(connection) = pending_exit {
+        let gtg = load_gtg(data_dir)?;
+        let (region, at, forward) =
+            resolve_exit(wld, &gtg, connection).ok_or("exit leads nowhere")?;
+        eprintln!("region exit -> {region} at {at}");
+        scene = Scene::load(data_dir, wld, &Subject::Region(region), &device, &queue)?.0;
+        let Scene::Terrain(renderer) = &mut scene else {
+            return Err("not a region".into());
+        };
+        let mut hero = spawn_hero(renderer, data_dir, &device, &queue, at.truncate())?
+            .ok_or("nowhere walkable at the entrance")?;
+        hero.heading = (-forward.x).atan2(forward.y);
+        camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
+        if let Some((_, transform)) = &mut renderer.hero {
+            *transform = hero_transform(&hero);
         }
-        animate_hero(renderer, &queue, clip, args.anim_time);
-        if let Some(animator) = &renderer.hero_animator {
-            eprintln!(
-                "posed with {:?} at {}s",
-                animator.clip_name(),
-                args.anim_time
-            );
-        }
-        let distance = camera.distance.clamp(3.0, 12.0);
-        follow(&mut camera, &hero, renderer, distance);
-        eprintln!("hero at {}", hero.position);
+        pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
     }
     eprintln!("{subject:?}: {status}");
     scene.render(
@@ -330,6 +330,81 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     )?;
     eprintln!("wrote {}", path.display());
     Ok(())
+}
+
+/// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
+fn pose_and_frame(
+    renderer: &mut TerrainRenderer,
+    data_dir: &Path,
+    queue: &wgpu::Queue,
+    camera: &mut OrbitCamera,
+    hero: &walk::Hero,
+    args: &Args,
+) -> Result<(), Error> {
+    let mut clip = usize::from(args.walk_to.is_some());
+    if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
+        clip = match HERO_CLIPS.iter().position(|c| c == name) {
+            Some(i) => i,
+            None => animator.add_clip(skin::Clip::load(data_dir, name, animator.skeleton())?),
+        };
+    }
+    if let Some(animator) = &renderer.hero_animator {
+        for (i, name) in HERO_CLIPS.iter().enumerate() {
+            let speed =
+                animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * model::YOUNG_HERO_SCALE;
+            eprintln!("{name}: {speed:.2} m/s");
+        }
+    }
+    animate_hero(renderer, queue, clip, args.anim_time);
+    if let Some(animator) = &renderer.hero_animator {
+        eprintln!(
+            "posed with {:?} at {}s",
+            animator.clip_name(),
+            args.anim_time
+        );
+    }
+    let distance = camera.distance.clamp(3.0, 12.0);
+    follow(camera, hero, renderer, distance);
+    eprintln!("hero at {}", hero.position);
+    Ok(())
+}
+
+/// Reads `Levels/FinalAlbion.gtg` (region entrances).
+fn load_gtg(data_dir: &Path) -> Result<Gtg, Error> {
+    let bytes = std::fs::read(data_dir.join("Levels/FinalAlbion.gtg"))?;
+    Ok(Gtg::parse(
+        &bytes.iter().map(|&b| b as char).collect::<String>(),
+    )?)
+}
+
+/// Where a region exit leads: the region to load, and the entrance's world
+/// position and facing.
+fn resolve_exit(wld: &Wld, gtg: &Gtg, connection: u64) -> Option<(String, glam::Vec3, glam::Vec3)> {
+    let (map_uid, local) = split_connected_uid(connection);
+    let map = wld.maps.iter().find(|m| m.uid == map_uid)?;
+    let entrance = gtg.map(map.number)?.thing(local)?;
+    let region = wld
+        .regions
+        .iter()
+        .find(|r| !r.region_def.is_empty() && r.contains_maps.contains(&map.level_name))?;
+    let origin = glam::Vec3::new(map.x as f32, map.y as f32, 0.0);
+    Some((
+        region.name.clone(),
+        origin + glam::Vec3::from_array(entrance.position()?),
+        glam::Vec3::from_array(entrance.forward().unwrap_or([0.0, 1.0, 0.0])),
+    ))
+}
+
+/// The region exit the Hero stands in, if any.
+fn exit_at(renderer: &TerrainRenderer, hero: &walk::Hero) -> Option<u64> {
+    renderer
+        .exits
+        .iter()
+        .find(|e| {
+            e.position.truncate().distance(hero.position.truncate()) < e.radius
+                && (e.position.z - hero.position.z).abs() < 4.0
+        })
+        .map(|e| e.connection)
 }
 
 /// Places the young Hero on the walkable cell nearest `near`.
@@ -509,6 +584,13 @@ struct ViewerApp {
     walker: Option<walk::Hero>,
     /// Preferred camera distance in walk mode (the scroll wheel changes it).
     follow_distance: f32,
+    /// Region entrances, for region exits.
+    gtg: Gtg,
+    /// A region exit the Hero walked into, taken at the start of the next frame.
+    pending_exit: Option<u64>,
+    /// Exits trigger only after the Hero has been outside all of them, so arriving
+    /// on an entrance next to an exit does not send him straight back.
+    exits_armed: bool,
     want_walk: bool,
     list: ListMode,
     filter: String,
@@ -534,6 +616,7 @@ impl ViewerApp {
             Subject::Mesh(_) => ListMode::Meshes,
         };
         let textures = model::TextureBank::open(&data_dir)?;
+        let gtg = load_gtg(&data_dir)?;
         let texture_names = textures.names();
         Ok(Self {
             data_dir,
@@ -543,6 +626,9 @@ impl ViewerApp {
             texture_view: None,
             walker: None,
             follow_distance: 6.0,
+            gtg,
+            pending_exit: None,
+            exits_armed: false,
             want_walk: false,
             textures,
             list,
@@ -717,6 +803,45 @@ impl ViewerApp {
         animate_hero(renderer, queue, clip, dt);
         ui.ctx().request_repaint();
         follow(&mut self.camera, hero, renderer, self.follow_distance);
+        match exit_at(renderer, hero) {
+            Some(connection) if self.exits_armed => self.pending_exit = Some(connection),
+            Some(_) => {}
+            None => self.exits_armed = true,
+        }
+    }
+
+    /// Loads the region a region exit leads to and puts the Hero at its entrance.
+    fn take_exit(&mut self, rs: &egui_wgpu::RenderState, connection: u64) {
+        let Some((region, at, forward)) = resolve_exit(&self.wld, &self.gtg, connection) else {
+            self.status = format!("region exit {connection:#x} leads nowhere");
+            return;
+        };
+        self.load(rs, Subject::Region(region.clone()));
+        let Scene::Terrain(renderer) = &mut self.scene else {
+            return;
+        };
+        match spawn_hero(
+            renderer,
+            &self.data_dir,
+            &rs.device,
+            &rs.queue,
+            at.truncate(),
+        ) {
+            Ok(Some(mut hero)) => {
+                hero.heading = (-forward.x).atan2(forward.y);
+                if let Some((_, transform)) = &mut renderer.hero {
+                    *transform = hero_transform(&hero);
+                }
+                self.camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
+                follow(&mut self.camera, &hero, renderer, self.follow_distance);
+                self.walker = Some(hero);
+                self.want_walk = true;
+                self.exits_armed = false;
+                self.status = format!("entered {region}");
+            }
+            Ok(None) => self.status = format!("{region}: nowhere walkable at the entrance"),
+            Err(e) => self.status = format!("{region}: {e}"),
+        }
     }
 
     /// Decodes texture `id` and shows it in place of the 3D view.
@@ -759,6 +884,9 @@ impl eframe::App for ViewerApp {
         }
         if let Some(id) = chosen_texture {
             self.show_texture(ui.ctx(), id);
+        }
+        if let Some(connection) = self.pending_exit.take() {
+            self.take_exit(&rs, connection);
         }
         self.update_walk_mode(&rs);
         if self.list == ListMode::Textures

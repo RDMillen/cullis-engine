@@ -88,6 +88,8 @@ pub struct TerrainRenderer {
     pub hero: Option<(ModelRenderer, Mat4)>,
     /// Plays the Hero's animations, when his mesh is skinned.
     pub hero_animator: Option<crate::skin::Animator>,
+    /// Region exits in the region's own maps.
+    pub exits: Vec<crate::terrain::RegionExit>,
     /// Placed meshes as triangles, for camera collision.
     pub colliders: Option<Colliders>,
     /// Where the Hero can walk and the ground height, if the region has them.
@@ -369,6 +371,7 @@ impl TerrainRenderer {
             hero: None,
             hero_animator: None,
             colliders: None,
+            exits: mesh.exits.clone(),
             walk: mesh.walk.clone(),
             heights: mesh.heights.clone(),
             uniforms,

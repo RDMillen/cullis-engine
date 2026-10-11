@@ -9,6 +9,7 @@ pub mod big;
 pub mod defs;
 pub mod dxt;
 mod error;
+pub mod gtg;
 pub mod lev;
 pub mod lzo;
 pub mod mesh;

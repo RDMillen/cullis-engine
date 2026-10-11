@@ -36,6 +36,8 @@ const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
 /// World units: x and y as in the `.wld`, z is height.
 #[derive(Debug, Default)]
 pub struct TerrainMesh {
+    /// Region exits in the maps the region contains.
+    pub exits: Vec<RegionExit>,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub maps: usize,
@@ -285,6 +287,15 @@ impl TerrainMesh {
     }
 }
 
+/// A region exit (`CTCDRegionExit`): walking within `radius` of `position` leads to
+/// the entrance named by `connection` (see `fable_data::gtg::split_connected_uid`).
+#[derive(Debug, Clone, Copy)]
+pub struct RegionExit {
+    pub position: Vec3,
+    pub radius: f32,
+    pub connection: u64,
+}
+
 /// Loads every map a region contains or sees.
 pub fn load_region(
     data_dir: &Path,
@@ -320,7 +331,11 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        placements.extend(load_placements(&wad, &mut file, level, origin, defs)?);
+        let (placed, exits) = load_placements(&wad, &mut file, level, origin, defs)?;
+        placements.extend(placed);
+        if region.contains_maps.contains(level) {
+            mesh.exits.extend(exits);
+        }
     }
     if !maps.is_empty() {
         let (lo, hi) = mesh.bounds();
@@ -372,14 +387,35 @@ fn load_placements(
     level: &str,
     origin: Vec3,
     defs: &Defs,
-) -> Result<Vec<Placement>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<Placement>, Vec<RegionExit>), Box<dyn std::error::Error>> {
     let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
     let Some(entry) = wad.index.by_name(&tng_name) else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
     let tng = Tng::parse(&text)?;
-    Ok(tng
+    let exits = tng
+        .things
+        .iter()
+        .filter_map(|t| {
+            let exit = t.component("CTCDRegionExit")?;
+            let field = |k: &str| {
+                exit.fields
+                    .iter()
+                    .find(|f| f.key == k)
+                    .map(|f| f.value.as_str())
+            };
+            if field("Active") == Some("FALSE") {
+                return None;
+            }
+            Some(RegionExit {
+                position: origin + Vec3::from_array(t.position()?),
+                radius: field("Radius")?.parse().ok()?,
+                connection: field("EntranceConnectedToUID")?.parse().ok()?,
+            })
+        })
+        .collect();
+    let placements = tng
         .things
         .iter()
         .filter(|t| t.kind == "Building" || t.kind == "Object")
@@ -394,7 +430,8 @@ fn load_placements(
             }))
         })
         .flatten()
-        .collect())
+        .collect();
+    Ok((placements, exits))
 }
 
 #[cfg(test)]

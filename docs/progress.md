@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): region transitions
+
+- Region exits decoded (`docs/formats/gtg.md`): a `REGION_EXIT_POINT` thing's `EntranceConnectedToUID` is the destination map's `MapUID` << 40 plus the low 40 bits of a `REGION_ENTRANCE_POINT`'s UID in `Levels/FinalAlbion.gtg` (Tng text per map, now parsed by `fable_data::gtg`). All 129 exits in real regions resolve.
+- Viewer: walking into an exit's radius loads the destination region and places the Hero at its entrance (exits re-arm once he has left them). Checked in screenshots: Oak Bay → Barrow Fields → Haunted House, the Phase 3 gate's three linked regions. Each region loads whole, in a few seconds; there is no loading screen or streaming yet.
+- New example `region_dump` (a region's maps and things; `UID:` lookups).
+
 ## 2026-10-11 (later): building interiors
 
 - Ross noticed the Hero walked on the ground under the Inn's furniture: building interiors were never placed. A building's `CMultiStaticMeshDef` component lists its meshes (exterior and interior); `Graphic` names only the exterior. `Def::component`, `Def::static_meshes`, `Defs::meshes_of`; the viewer places all of them (7 more meshes in StartOakVale).
