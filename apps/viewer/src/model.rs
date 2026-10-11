@@ -35,6 +35,9 @@ pub struct Draw {
     pub first: u32,
     pub count: u32,
     pub image: usize,
+    /// Its material is a roof (named `Roof`, `roof`, `Roof fringe`, `Fringe`):
+    /// hidden while the Hero is inside the building.
+    pub roof: bool,
 }
 
 pub struct ModelData {
@@ -261,6 +264,7 @@ impl ModelBuilder {
             first: first + d.first,
             count: d.count,
             image: d.image,
+            roof: d.roof,
         }));
         true
     }
@@ -332,10 +336,12 @@ impl ModelBuilder {
                 for t in chunk.triangles(sub) {
                     local.indices.extend(t.map(|i| base + u32::from(i)));
                 }
+                let name = material.name.to_ascii_lowercase();
                 local.draws.push(Draw {
                     first,
                     count: local.indices.len() as u32 - first,
                     image,
+                    roof: name.contains("roof") || name.contains("fringe"),
                 });
             }
         }
@@ -439,11 +445,7 @@ pub fn load_placements(
     let mut buildings: HashMap<u64, Building> = HashMap::new();
     let mut placed = 0;
     for p in placements {
-        let (draws, vertices, indices) = (
-            builder.model.draws.len(),
-            builder.model.vertices.len(),
-            builder.model.indices.len(),
-        );
+        let (draws, vertices) = (builder.model.draws.len(), builder.model.vertices.len());
         if !builder.add(p.mesh, p.transform()) {
             continue;
         }
@@ -453,9 +455,12 @@ pub fn load_placements(
             MeshRole::Plain => {}
             MeshRole::Exterior(uid) => {
                 let b = buildings.entry(uid).or_default();
-                b.exterior_draws = draws..builder.model.draws.len();
-                b.exterior_triangles =
-                    (indices / 3) as u32..(builder.model.indices.len() / 3) as u32;
+                for (i, d) in builder.model.draws.iter().enumerate().skip(draws) {
+                    if d.roof {
+                        b.roof_draws.push(i);
+                        b.roof_triangles.push(d.first / 3..(d.first + d.count) / 3);
+                    }
+                }
             }
             MeshRole::Interior(uid) => {
                 let b = buildings.entry(uid).or_default();
@@ -470,7 +475,7 @@ pub fn load_placements(
     eprintln!("{name}: placed {placed} of {} meshes", placements.len());
     let buildings = buildings
         .into_values()
-        .filter(|b| !b.exterior_draws.is_empty() && b.interior_lo.x <= b.interior_hi.x)
+        .filter(|b| !b.roof_draws.is_empty() && b.interior_lo.x <= b.interior_hi.x)
         .collect();
     Ok((builder.finish(), buildings))
 }
@@ -479,10 +484,12 @@ pub fn load_placements(
 /// box its interior mesh spans.
 #[derive(Debug, Clone)]
 pub struct Building {
-    pub exterior_draws: std::ops::Range<usize>,
+    /// Its exterior's roof draws in the placed model (walls, door frames and
+    /// the rest of the exterior stay).
+    pub roof_draws: Vec<usize>,
     /// The exterior's triangles in the placed model (camera rays skip them while
     /// it is hidden).
-    pub exterior_triangles: std::ops::Range<u32>,
+    pub roof_triangles: Vec<std::ops::Range<u32>>,
     pub interior_lo: Vec3,
     pub interior_hi: Vec3,
 }
@@ -490,8 +497,8 @@ pub struct Building {
 impl Default for Building {
     fn default() -> Self {
         Self {
-            exterior_draws: 0..0,
-            exterior_triangles: 0..0,
+            roof_draws: Vec::new(),
+            roof_triangles: Vec::new(),
             interior_lo: Vec3::splat(f32::INFINITY),
             interior_hi: Vec3::splat(f32::NEG_INFINITY),
         }
@@ -569,7 +576,7 @@ pub struct ModelRenderer {
     texture_groups: Vec<wgpu::BindGroup>,
     draws: Vec<(u32, u32, usize)>,
     /// Draws skipped (an exterior hidden while the Hero is inside).
-    hidden: std::ops::Range<usize>,
+    hidden: Vec<usize>,
     pub target: Option<Target>,
 }
 
@@ -740,7 +747,7 @@ impl ModelRenderer {
                 .iter()
                 .map(|d| (d.first, d.count, d.image))
                 .collect(),
-            hidden: 0..0,
+            hidden: Vec::new(),
             target: None,
         }
     }
@@ -815,8 +822,8 @@ impl ModelRenderer {
         }
     }
 
-    /// Skips the draws in `range` (empty to show everything).
-    pub fn set_hidden(&mut self, range: std::ops::Range<usize>) {
-        self.hidden = range;
+    /// Skips the draws listed (empty to show everything).
+    pub fn set_hidden(&mut self, draws: Vec<usize>) {
+        self.hidden = draws;
     }
 }

@@ -68,7 +68,13 @@ impl Colliders {
 
     /// Distance along `dir` (unit length) from `from` to the nearest triangle
     /// within `max`, from either side, ignoring triangles in `skip`.
-    pub fn ray(&self, from: Vec3, dir: Vec3, max: f32, skip: &std::ops::Range<u32>) -> Option<f32> {
+    pub fn ray(
+        &self,
+        from: Vec3,
+        dir: Vec3,
+        max: f32,
+        skip: &[std::ops::Range<u32>],
+    ) -> Option<f32> {
         let to = from + dir * max;
         let (c0, c1) = (
             self.cell(from.truncate().min(to.truncate())),
@@ -78,7 +84,7 @@ impl Colliders {
         for y in c0[1]..=c1[1] {
             for x in c0[0]..=c1[0] {
                 for &i in &self.cells[(y * self.size[0] + x) as usize] {
-                    if skip.contains(&i) {
+                    if skip.iter().any(|r| r.contains(&i)) {
                         continue;
                     }
                     if let Some(t) = hit_triangle(from, dir, &self.triangles[i as usize])
@@ -177,19 +183,19 @@ mod tests {
             wall(3.0).into_iter().chain(wall(6.0)).collect(),
             &[Vec3::X; 4],
         );
-        let d = colliders.ray(Vec3::ZERO, Vec3::X, 10.0, &(0..0)).unwrap();
+        let d = colliders.ray(Vec3::ZERO, Vec3::X, 10.0, &[]).unwrap();
         assert!((d - 3.0).abs() < 1e-5, "{d}");
         let back = colliders
-            .ray(Vec3::new(10.0, 0.0, 0.0), Vec3::NEG_X, 10.0, &(0..0))
+            .ray(Vec3::new(10.0, 0.0, 0.0), Vec3::NEG_X, 10.0, &[])
             .unwrap();
         assert!((back - 4.0).abs() < 1e-5, "{back}");
         assert_eq!(
-            colliders.ray(Vec3::ZERO, Vec3::X, 2.0, &(0..0)),
+            colliders.ray(Vec3::ZERO, Vec3::X, 2.0, &[]),
             None,
             "beyond max"
         );
         assert_eq!(
-            colliders.ray(Vec3::ZERO, Vec3::Y, 10.0, &(0..0)),
+            colliders.ray(Vec3::ZERO, Vec3::Y, 10.0, &[]),
             None,
             "parallel"
         );

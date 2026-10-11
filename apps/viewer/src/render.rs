@@ -169,14 +169,14 @@ fn layer_array(
 }
 
 impl TerrainRenderer {
-    /// Triangles camera rays should ignore: the hidden exterior, if any.
-    pub fn hidden_triangles(&self) -> std::ops::Range<u32> {
+    /// Triangles camera rays should ignore: the hidden roof, if any.
+    pub fn hidden_triangles(&self) -> &[std::ops::Range<u32>] {
         self.inside
-            .map_or(0..0, |i| self.buildings[i].exterior_triangles.clone())
+            .map_or(&[], |i| self.buildings[i].roof_triangles.as_slice())
     }
 
-    /// Hides the exterior of the building whose interior contains `p`, and
-    /// shows it again once `p` leaves.
+    /// Hides the roof of the building whose interior contains `p`, and shows it
+    /// again once `p` leaves.
     pub fn update_interior(&mut self, p: glam::Vec3) {
         let inside = self.buildings.iter().position(|b| b.contains(p));
         if inside == self.inside {
@@ -184,7 +184,8 @@ impl TerrainRenderer {
         }
         self.inside = inside;
         if let Some(things) = &mut self.things {
-            things.set_hidden(inside.map_or(0..0, |i| self.buildings[i].exterior_draws.clone()));
+            things
+                .set_hidden(inside.map_or_else(Vec::new, |i| self.buildings[i].roof_draws.clone()));
         }
     }
 

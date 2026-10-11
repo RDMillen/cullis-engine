@@ -462,7 +462,7 @@ fn pose_and_frame(
     }
     renderer.update_interior(hero.position);
     if let Some(i) = renderer.inside {
-        eprintln!("inside building {i} (exterior hidden)");
+        eprintln!("inside building {i} (roof hidden)");
     }
     let distance = camera.distance.clamp(3.0, 12.0);
     follow(camera, hero, renderer, distance);
@@ -646,7 +646,7 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRendere
             renderer
                 .colliders
                 .as_ref()
-                .and_then(|c| c.ray(camera.target, dir, len, &skip)),
+                .and_then(|c| c.ray(camera.target, dir, len, skip)),
             renderer
                 .heights
                 .as_ref()
