@@ -322,7 +322,7 @@ pub struct Chunk {
     pub node: u32,
     /// Vertices carry 4 bone indices and 4 weights after the position.
     pub skinned: bool,
-    /// Data after the chunk when its end flag is 1: on the young Hero's hair, pairs
+    /// Data after the chunk when its end word is non-zero: on the young Hero's hair, pairs
     /// of vertices with a rest length and stiffness (hair or cloth physics). Not
     /// decoded.
     pub physics: Option<Vec<u8>>,
@@ -394,21 +394,15 @@ impl Lod {
 }
 
 impl Chunk {
-    /// The u32 after a chunk: 0, or 1 followed by two u32s, a length and a stream.
+    /// The u32 after a chunk: 0, or a non-zero value (1 on the young Hero's
+    /// hair, 4 on a washing line) followed by two u32s, a length and a stream.
     fn parse_end(r: &mut Reader) -> Result<Option<Vec<u8>>> {
-        let at = r.pos();
-        match r.u32()? {
-            0 => Ok(None),
-            1 => {
-                let _unknown = [r.u32()?, r.u32()?];
-                let len = r.u32()? as usize;
-                Ok(Some(stream(r, len)?))
-            }
-            flag => Err(Error::Invalid {
-                offset: at,
-                reason: format!("chunk end flag {flag}"),
-            }),
+        if r.u32()? == 0 {
+            return Ok(None);
         }
+        let _unknown = [r.u32()?, r.u32()?];
+        let len = r.u32()? as usize;
+        Ok(Some(stream(r, len)?))
     }
 
     fn parse(r: &mut Reader, skinned: bool) -> Result<Self> {

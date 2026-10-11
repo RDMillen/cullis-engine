@@ -161,4 +161,4 @@ Vertices are stored in the bind pose, in model space, so a mesh can be drawn wit
 
 ### After each chunk (static and skinned)
 
-A u32: 0, or 1 followed by two u32s (0, then 0–6), a length, and a stream of that length. On the young Hero's hair the stream is a count (333), a length, then records pairing two vertices with a rest length and a stiffness (0.1): probably hair or cloth physics. Not decoded further.
+A u32: 0, or a non-zero value (1 on the young Hero's hair, 4 on `MESH_BS_WASHINGLINE_05`) followed by two u32s (0 then 0–6; 2 then 3 on the washing line), a length, and a stream of that length. On the young Hero's hair the stream is a count (333), a length, then records pairing two vertices with a rest length and a stiffness (0.1): probably hair or cloth physics. Not decoded further.

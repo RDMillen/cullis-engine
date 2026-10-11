@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): loading screen
+
+- The viewer loads regions (and meshes) on a background thread and shows "Loading <region>…" with a spinner meanwhile; for a region exit the Hero is placed at the entrance on that thread too. Checked in the window (captured with `xwd`): Oak Bay -> loading screen -> Barrow Fields, 4.4 s. A queued exit or `--walk-to` target does not carry into the new region.
+- `--camera`, `--walk` and `--walk-to` now also work in the window (the Hero walks himself to the point), for testing.
+- Mesh chunk end word: any non-zero value is followed by a physics block (4 on `MESH_BS_WASHINGLINE_05`, whose later data still does not parse).
+
 ## 2026-10-11 (later): roofs hidden indoors
 
 - A building's `CMultiStaticMeshDef` flags each mesh as exterior or interior (`docs/formats/defs.md`). The viewer records each building's exterior draws and triangles and its interior's box; while the Hero is inside the box, the exterior (walls and roof) is not drawn and camera rays ignore it, so the camera looks into single-storey houses from above. In two-storey buildings (the Inn) the upper floor, part of the interior, still keeps the camera low.

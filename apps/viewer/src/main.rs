@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! CullisEngine desktop viewer: a region's terrain from the Lev heightmaps, or a
 //! static mesh with its textures.
 //!
@@ -242,7 +243,7 @@ fn main() -> Result<(), Error> {
     let wld = Wld::open(data_dir.join("Levels/FinalAlbion.wld"))?;
     match &args.screenshot {
         Some(path) => screenshot(&data_dir, &wld, &args, path),
-        None => run_window(data_dir, wld, args.subject),
+        None => run_window(data_dir, wld, args),
     }
 }
 
@@ -528,7 +529,8 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRendere
     camera.distance = nearest.clamp(0.4, distance);
 }
 
-fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error> {
+fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
+    let subject = args.subject.clone();
     let mesh_names = mesh_names(&data_dir)?;
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
@@ -547,6 +549,21 @@ fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error
                 .ok_or("the wgpu renderer is not available")?;
             Ok(Box::new(
                 ViewerApp::new(rs, data_dir, wld, mesh_names, subject)
+                    .map(|mut app| {
+                        // --camera, --walk and --walk-to also work in the window:
+                        // the Hero then walks himself towards the point.
+                        if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
+                            app.camera = OrbitCamera {
+                                target: glam::Vec3::new(x, y, z),
+                                distance,
+                                yaw,
+                                pitch,
+                            };
+                        }
+                        app.want_walk = args.walk;
+                        app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
+                        app
+                    })
                     .map_err(|e| e.to_string())?,
             ))
         }),
@@ -586,7 +603,26 @@ struct TextureView {
     size: [usize; 2],
 }
 
+/// A scene being loaded on a background thread.
+struct Loading {
+    subject: Subject,
+    rx: std::sync::mpsc::Receiver<Result<Loaded, String>>,
+    started: std::time::Instant,
+}
+
+/// What a background load produces.
+struct Loaded {
+    scene: Scene,
+    camera: OrbitCamera,
+    status: String,
+    hero: Option<walk::Hero>,
+}
+
 struct ViewerApp {
+    /// A scene being loaded in the background, shown as a loading screen.
+    loading: Option<Loading>,
+    /// A point the Hero walks himself towards (`--walk-to`), until he is there.
+    auto_walk: Option<glam::Vec2>,
     data_dir: PathBuf,
     wld: Wld,
     mesh_names: Vec<String>,
@@ -641,6 +677,8 @@ impl ViewerApp {
             follow_distance: 6.0,
             gtg,
             pending_exit: None,
+            loading: None,
+            auto_walk: None,
             exits_armed: false,
             want_walk: false,
             textures,
@@ -654,20 +692,106 @@ impl ViewerApp {
         })
     }
 
-    fn load(&mut self, rs: &egui_wgpu::RenderState, subject: Subject) {
-        match Scene::load(&self.data_dir, &self.wld, &subject, &rs.device, &rs.queue) {
-            Ok((scene, camera, status)) => {
-                self.scene = scene;
-                self.camera = camera;
-                self.status = status;
+    /// Starts loading `subject` on a background thread; the window shows a
+    /// loading screen until [`ViewerApp::finish_load`] installs it. `arrival`
+    /// places the Hero at an entrance (position, facing) once a region loads.
+    fn load(
+        &mut self,
+        rs: &egui_wgpu::RenderState,
+        subject: Subject,
+        arrival: Option<(glam::Vec3, glam::Vec3)>,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (data_dir, wld, device, queue) = (
+            self.data_dir.clone(),
+            self.wld.clone(),
+            rs.device.clone(),
+            rs.queue.clone(),
+        );
+        let job = subject.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Loaded, Error> {
+                let (mut scene, mut camera, status) =
+                    Scene::load(&data_dir, &wld, &job, &device, &queue)?;
+                let mut hero = None;
+                if let (Some((at, forward)), Scene::Terrain(renderer)) = (arrival, &mut scene) {
+                    let mut h = spawn_hero(renderer, &data_dir, &device, &queue, at.truncate())?
+                        .ok_or("nowhere walkable at the entrance")?;
+                    h.heading = (-forward.x).atan2(forward.y);
+                    if let Some((_, transform)) = &mut renderer.hero {
+                        *transform = hero_transform(&h);
+                    }
+                    camera.yaw = h.heading - std::f32::consts::FRAC_PI_2;
+                    hero = Some(h);
+                }
+                Ok(Loaded {
+                    scene,
+                    camera,
+                    status,
+                    hero,
+                })
+            })();
+            // The window may have gone; nothing to do then.
+            let _ = tx.send(result.map_err(|e| e.to_string()));
+        });
+        // Nothing from the old scene carries over: no queued exit, no scripted walk.
+        self.pending_exit = None;
+        self.exits_armed = false;
+        self.auto_walk = None;
+        self.loading = Some(Loading {
+            subject,
+            rx,
+            started: std::time::Instant::now(),
+        });
+    }
+
+    /// Installs a finished background load. Returns whether one is still running.
+    fn finish_load(&mut self, rs: &egui_wgpu::RenderState) -> bool {
+        let Some(loading) = &self.loading else {
+            return false;
+        };
+        let result = match loading.rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("loader stopped".into()),
+        };
+        let loading = self.loading.take().unwrap();
+        let subject = loading.subject;
+        match result {
+            Ok(loaded) => {
+                self.scene = loaded.scene;
+                self.camera = loaded.camera;
+                self.status = format!(
+                    "{} (loaded in {:.1} s)",
+                    loaded.status,
+                    loading.started.elapsed().as_secs_f32()
+                );
                 if let Some(id) = self.texture.take() {
                     rs.renderer.write().free_texture(&id);
                 }
                 self.subject = subject;
                 self.walker = None;
                 self.want_walk = false;
+                if let (Some(hero), Scene::Terrain(renderer)) = (loaded.hero, &mut self.scene) {
+                    follow(&mut self.camera, &hero, renderer, self.follow_distance);
+                    self.walker = Some(hero);
+                    self.want_walk = true;
+                    self.exits_armed = false;
+                }
             }
             Err(e) => self.status = format!("{subject:?}: {e}"),
+        }
+        false
+    }
+
+    /// Starts loading the region a region exit leads to, with the Hero arriving at
+    /// its entrance.
+    fn take_exit(&mut self, rs: &egui_wgpu::RenderState, connection: u64) {
+        match resolve_exit(&self.wld, &self.gtg, connection) {
+            Some((region, at, forward)) => {
+                self.load(rs, Subject::Region(region), Some((at, forward)))
+            }
+            None => self.status = format!("region exit {connection:#x} leads nowhere"),
         }
     }
 
@@ -769,6 +893,9 @@ impl ViewerApp {
 
     /// Moves the Hero from the keyboard, relative to the camera, and follows it.
     fn walk(&mut self, ui: &egui::Ui, queue: &wgpu::Queue) {
+        if self.loading.is_some() {
+            return;
+        }
         let (Some(hero), Scene::Terrain(renderer)) = (&mut self.walker, &mut self.scene) else {
             return;
         };
@@ -790,7 +917,15 @@ impl ViewerApp {
             .truncate()
             .normalize_or_zero();
         let side = glam::Vec2::new(view.y, -view.x);
-        let direction = view * forward + side * right;
+        let mut direction = view * forward + side * right;
+        if let Some(goal) = self.auto_walk {
+            let to = goal - hero.position.truncate();
+            if to.length() < 0.3 {
+                self.auto_walk = None;
+            } else if direction == glam::Vec2::ZERO {
+                direction = to;
+            }
+        }
         // The clips' own movement sets the speed, so the feet do not slide.
         let clip_speed = renderer
             .hero_animator
@@ -824,40 +959,6 @@ impl ViewerApp {
         }
     }
 
-    /// Loads the region a region exit leads to and puts the Hero at its entrance.
-    fn take_exit(&mut self, rs: &egui_wgpu::RenderState, connection: u64) {
-        let Some((region, at, forward)) = resolve_exit(&self.wld, &self.gtg, connection) else {
-            self.status = format!("region exit {connection:#x} leads nowhere");
-            return;
-        };
-        self.load(rs, Subject::Region(region.clone()));
-        let Scene::Terrain(renderer) = &mut self.scene else {
-            return;
-        };
-        match spawn_hero(
-            renderer,
-            &self.data_dir,
-            &rs.device,
-            &rs.queue,
-            at.truncate(),
-        ) {
-            Ok(Some(mut hero)) => {
-                hero.heading = (-forward.x).atan2(forward.y);
-                if let Some((_, transform)) = &mut renderer.hero {
-                    *transform = hero_transform(&hero);
-                }
-                self.camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
-                follow(&mut self.camera, &hero, renderer, self.follow_distance);
-                self.walker = Some(hero);
-                self.want_walk = true;
-                self.exits_armed = false;
-                self.status = format!("entered {region}");
-            }
-            Ok(None) => self.status = format!("{region}: nowhere walkable at the entrance"),
-            Err(e) => self.status = format!("{region}: {e}"),
-        }
-    }
-
     /// Decodes texture `id` and shows it in place of the 3D view.
     fn show_texture(&mut self, ctx: &egui::Context, id: u32) {
         let name = self
@@ -888,13 +989,30 @@ impl eframe::App for ViewerApp {
         let Some(rs) = frame.wgpu_render_state().cloned() else {
             return;
         };
+        if self.finish_load(&rs) {
+            // The loading screen: the region's name while it loads.
+            let name = match &self.loading.as_ref().unwrap().subject {
+                Subject::Region(n) | Subject::Mesh(n) => n.clone(),
+            };
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(ui.available_height() / 2.0 - 40.0);
+                        ui.heading(format!("Loading {name}…"));
+                        ui.add(egui::Spinner::new().size(32.0));
+                    });
+                });
+            });
+            ui.ctx().request_repaint();
+            return;
+        }
 
         let (chosen, chosen_texture) = egui::Panel::left("list")
             .resizable(true)
             .show(ui, |ui| self.side_panel(ui))
             .inner;
         if let Some(subject) = chosen.filter(|s| *s != self.subject) {
-            self.load(&rs, subject);
+            self.load(&rs, subject, None);
         }
         if let Some(id) = chosen_texture {
             self.show_texture(ui.ctx(), id);
