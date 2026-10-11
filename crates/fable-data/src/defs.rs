@@ -69,6 +69,11 @@ impl Names {
         self.by_offset.is_empty()
     }
 
+    /// Every (hash, name) pair.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.by_offset.values().map(|(h, n)| (*h, n.as_str()))
+    }
+
     /// Checks every stored hash against its name.
     pub fn hashes_match(&self) -> bool {
         self.by_offset.values().all(|(h, n)| *h == name_hash(n))

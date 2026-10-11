@@ -367,8 +367,88 @@ fn static_meshes_parse_and_reference_real_textures() {
         failed.len(),
         &failed[..failed.len().min(3)]
     );
-    // Skinned meshes (with bones) are not supported yet.
+    // 34 static meshes (statues, summoners, …) stop early; not decoded yet.
     assert!(parsed * 100 >= (parsed + failed.len()) * 97);
+}
+
+#[test]
+#[ignore]
+fn skinned_meshes_parse_with_consistent_skeletons() {
+    use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, mul_affine};
+
+    let path = data_dir().join("graphics/graphics.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let index = big
+        .bank("MBANK_ALLMESHES")
+        .unwrap()
+        .read_index(&mut file)
+        .unwrap();
+    let (mut meshes, mut lods, mut worst_bind) = (0, 0, 0.0f32);
+    let (mut unit_normals, mut normals) = (0usize, 0usize);
+    for entry in index
+        .entries
+        .iter()
+        .filter(|e| e.entry_type == SKINNED_MESH_TYPE)
+    {
+        let data = entry.read_data(&mut file).unwrap();
+        let mesh = Mesh::parse_skinned(&entry.info, &data)
+            .unwrap_or_else(|e| panic!("{}: {e}", entry.name));
+        for lod in &mesh.lods {
+            let skeleton = lod.skeleton.as_ref().unwrap();
+            assert!(!skeleton.bones.is_empty(), "{}", entry.name);
+            // The composed rest pose undoes each inverse bind matrix.
+            for (world, bone) in skeleton.rest_pose().iter().zip(&skeleton.bones) {
+                let m = mul_affine(world, &bone.inverse_bind);
+                for (i, row) in m.iter().enumerate() {
+                    for (j, &v) in row.iter().enumerate() {
+                        let want = if i == j { 1.0 } else { 0.0 };
+                        let scale = if j == 3 { 100.0 } else { 1.0 };
+                        worst_bind = worst_bind.max((v - want).abs() / scale);
+                    }
+                }
+            }
+            for chunk in &lod.chunks {
+                assert!(chunk.skinned);
+                for n in chunk.normals() {
+                    let len = n.iter().map(|x| x * x).sum::<f32>().sqrt();
+                    unit_normals += usize::from((0.9..1.1).contains(&len));
+                    normals += 1;
+                }
+                let weights = chunk.bone_weights();
+                for sub in &chunk.sub_meshes {
+                    for t in chunk.triangles(sub) {
+                        for v in t {
+                            let (bones, w) = weights[usize::from(v)];
+                            assert_eq!(w.iter().map(|&x| u32::from(x)).sum::<u32>(), 255);
+                            for (b, w) in bones.iter().zip(w) {
+                                assert!(
+                                    w == 0 || usize::from(*b) < sub.bones.len(),
+                                    "{} bone {b} of {}",
+                                    entry.name,
+                                    sub.bones.len()
+                                );
+                            }
+                        }
+                    }
+                    assert!(
+                        sub.bones
+                            .iter()
+                            .all(|&b| usize::from(b) < skeleton.bones.len())
+                    );
+                }
+            }
+            lods += 1;
+        }
+        meshes += 1;
+    }
+    eprintln!(
+        "{meshes} skinned meshes, {lods} levels of detail; worst bind-pose error {worst_bind}; \
+         {unit_normals} of {normals} normals unit length"
+    );
+    assert!(unit_normals * 100 >= normals * 99);
+    assert_eq!(meshes, 504);
+    assert!(worst_bind < 0.01, "{worst_bind}");
 }
 
 #[test]

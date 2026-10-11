@@ -1,15 +1,19 @@
-//! Static meshes in the `MBANK_ALLMESHES` bank of `graphics/graphics.big`.
+//! Meshes in the `MBANK_ALLMESHES` bank of `graphics/graphics.big`.
 //! See `docs/formats/mesh.md`.
 //!
 //! Decoded: the info block, and each level of detail's materials, sub-meshes,
-//! vertices (position, normal, texture coordinates) and indices. Skinned meshes
-//! (with bones) and entry types other than 1 are not supported yet.
+//! vertices (position, normal, texture coordinates) and indices, for static
+//! meshes (type 1) and skinned meshes (type 5, characters and creatures), whose
+//! levels also carry a skeleton and per-vertex bone weights. Type 4 is not
+//! supported yet.
 
 use crate::reader::{Reader, latin1};
 use crate::{Error, Result, lzo};
 
 /// Bank entry type of static meshes.
 pub const STATIC_MESH_TYPE: u32 = 1;
+/// Bank entry type of skinned meshes (with a skeleton).
+pub const SKINNED_MESH_TYPE: u32 = 5;
 
 /// The bank entry's info block.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,22 +86,44 @@ impl Mesh {
         let name = &data[..data.iter().position(|&b| b == 0).unwrap_or(0)];
         let mut lods = Vec::with_capacity(info.lod_sizes.len());
         for &size in &info.lod_sizes {
-            lods.push(
-                Lod::parse(&data[at..at + size as usize], name).map_err(|e| match e {
-                    Error::Invalid { offset, reason } => Error::Invalid {
-                        offset: offset + at,
-                        reason,
-                    },
-                    Error::UnexpectedEof { offset, wanted } => Error::UnexpectedEof {
-                        offset: offset + at,
-                        wanted,
-                    },
-                    e => e,
-                })?,
-            );
+            lods.push(Lod::parse(&data[at..at + size as usize], name).map_err(|e| shift(e, at))?);
             at += size as usize;
         }
         Ok(Self { info, lods })
+    }
+
+    /// Parses a skinned mesh entry. Each level of detail is self-contained (it
+    /// repeats the name and the skeleton) and they start at the beginning of the
+    /// entry, in the order and sizes of the info block.
+    pub fn parse_skinned(info: &[u8], data: &[u8]) -> Result<Self> {
+        let info = MeshInfo::parse(info)?;
+        let mut at = 0usize;
+        let mut lods = Vec::with_capacity(info.lod_sizes.len());
+        for &size in &info.lod_sizes {
+            let block = data
+                .get(at..at + size as usize)
+                .ok_or(Error::UnexpectedEof {
+                    offset: at,
+                    wanted: size as usize,
+                })?;
+            lods.push(Lod::parse_skinned(block).map_err(|e| shift(e, at))?);
+            at += size as usize;
+        }
+        Ok(Self { info, lods })
+    }
+}
+
+fn shift(e: Error, by: usize) -> Error {
+    match e {
+        Error::Invalid { offset, reason } => Error::Invalid {
+            offset: offset + by,
+            reason,
+        },
+        Error::UnexpectedEof { offset, wanted } => Error::UnexpectedEof {
+            offset: offset + by,
+            wanted,
+        },
+        e => e,
     }
 }
 
@@ -113,7 +139,7 @@ pub struct Material {
     pub raw: [u8; 33],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubMesh {
     /// Triangles in this sub-mesh.
     pub primitive_count: u32,
@@ -123,6 +149,9 @@ pub struct SubMesh {
     /// Index into the level's materials.
     pub material: u32,
     pub raw_flags: [u8; 3],
+    /// Skinned meshes: the skeleton bones this sub-mesh's vertices refer to; a
+    /// vertex's bone index `i` means `bones[i]`. Empty for static meshes.
+    pub bones: Vec<u8>,
 }
 
 impl SubMesh {
@@ -137,16 +166,166 @@ impl SubMesh {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lod {
+    /// Skinned meshes only.
+    pub skeleton: Option<Skeleton>,
     pub materials: Vec<Material>,
     /// Pieces of geometry, each with its own vertices (the Oakvale tavern has 4).
     pub chunks: Vec<Chunk>,
 }
 
+/// The bones of a skinned mesh, parents before children.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Skeleton {
+    /// Attachment points and dummies (`focus_camera_01`, `WEAPON`, …); not decoded.
+    pub helper_count: u16,
+    pub dummy_count: u16,
+    pub bones: Vec<Bone>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bone {
+    pub name: String,
+    pub parent: Option<usize>,
+    /// Model space to bone space in the bind pose: 3 rows of a 4x4 matrix whose
+    /// last row is (0, 0, 0, 1), acting on column vectors.
+    pub inverse_bind: [[f32; 4]; 3],
+    /// Rest pose relative to the parent, as stored: `rotation` is a quaternion
+    /// (x, y, z, w) of the inverse rotation (see [`Bone::local`]).
+    pub rotation: [f32; 4],
+    pub translation: [f32; 3],
+    pub scale: [f32; 3],
+}
+
+/// A 3x4 affine matrix (rows), acting on column vectors.
+pub type Affine = [[f32; 4]; 3];
+
+impl Bone {
+    /// The rest pose relative to the parent: translate, rotate by the conjugate of
+    /// [`Bone::rotation`], scale. Composing these from the root reproduces the
+    /// inverse of every [`Bone::inverse_bind`] (checked on the young Hero).
+    pub fn local(&self) -> Affine {
+        let [x, y, z, w] = self.rotation;
+        let (x, y, z) = (-x, -y, -z);
+        let r = [
+            [
+                1.0 - 2.0 * (y * y + z * z),
+                2.0 * (x * y - z * w),
+                2.0 * (x * z + y * w),
+            ],
+            [
+                2.0 * (x * y + z * w),
+                1.0 - 2.0 * (x * x + z * z),
+                2.0 * (y * z - x * w),
+            ],
+            [
+                2.0 * (x * z - y * w),
+                2.0 * (y * z + x * w),
+                1.0 - 2.0 * (x * x + y * y),
+            ],
+        ];
+        std::array::from_fn(|i| {
+            [
+                r[i][0] * self.scale[0],
+                r[i][1] * self.scale[1],
+                r[i][2] * self.scale[2],
+                self.translation[i],
+            ]
+        })
+    }
+}
+
+/// `a * b` for affine matrices.
+pub fn mul_affine(a: &Affine, b: &Affine) -> Affine {
+    std::array::from_fn(|i| {
+        std::array::from_fn(|j| {
+            let t = if j == 3 { a[i][3] } else { 0.0 };
+            t + (0..3).map(|k| a[i][k] * b[k][j]).sum::<f32>()
+        })
+    })
+}
+
+impl Skeleton {
+    /// Each bone's rest pose in model space.
+    pub fn rest_pose(&self) -> Vec<Affine> {
+        let mut world: Vec<Affine> = Vec::with_capacity(self.bones.len());
+        for bone in &self.bones {
+            let local = bone.local();
+            let m = match bone.parent.and_then(|p| world.get(p)) {
+                Some(parent) => mul_affine(parent, &local),
+                None => local,
+            };
+            world.push(m);
+        }
+        world
+    }
+
+    /// Parses the skeleton at the start of a skinned level of detail.
+    fn parse(r: &mut Reader) -> Result<Self> {
+        r.c_string()?; // the mesh name
+        let _one = r.array::<1>()?[0];
+        r.bytes(40)?; // bounding sphere and box, as in the info block
+        let helper_count = r.array().map(u16::from_le_bytes)?;
+        let dummy_count = r.array().map(u16::from_le_bytes)?;
+        let helper_names = r.u32()? as usize;
+        let _zero = r.array().map(u16::from_le_bytes)?;
+        optional_stream(r, usize::from(helper_count) * 20)?;
+        optional_stream(r, usize::from(dummy_count) * 56)?;
+        optional_stream(r, helper_names)?;
+        let _unknown = [r.u32()?, r.u32()?];
+        let count = r.u32()? as usize;
+        let names_len = r.u32()? as usize;
+        r.bytes(5)?;
+        let offsets = (0..count)
+            .map(|_| r.array().map(u16::from_le_bytes))
+            .collect::<Result<Vec<_>>>()?;
+        let names = optional_stream(r, names_len)?;
+        let hierarchy = optional_stream(r, count * 60)?;
+        let poses = optional_stream(r, count * 48)?;
+        let matrices = optional_stream(r, count * 64)?;
+        r.bytes(48)?; // a 3x4 matrix, identity on the young Hero
+        let f = |b: &[u8], at: usize| f32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+        let bones = (0..count)
+            .map(|i| {
+                let start = usize::from(offsets[i]);
+                let end = names[start.min(names.len())..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .map_or(names.len(), |n| start + n);
+                let h = &hierarchy[i * 60..];
+                let parent = i32::from_le_bytes(h[4..8].try_into().unwrap());
+                let pose = &poses[i * 48..];
+                let m = &matrices[i * 64..];
+                Bone {
+                    name: latin1(names.get(start..end).unwrap_or_default()),
+                    parent: usize::try_from(parent).ok().filter(|&p| p < i),
+                    inverse_bind: std::array::from_fn(|row| {
+                        std::array::from_fn(|col| f(m, (row * 4 + col) * 4))
+                    }),
+                    rotation: std::array::from_fn(|k| f(pose, k * 4)),
+                    translation: std::array::from_fn(|k| f(pose, 16 + k * 4)),
+                    scale: std::array::from_fn(|k| f(pose, 32 + k * 4)),
+                }
+            })
+            .collect();
+        Ok(Self {
+            helper_count,
+            dummy_count,
+            bones,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
-    /// First word of the chunk; 0 for the first chunk, other values (such as 3)
-    /// for later ones. Possibly the node the chunk hangs from.
+    /// First word of the chunk. Static meshes: 0 for the first chunk, other values
+    /// (such as 3) for later ones. Skinned meshes: the material of every sub-mesh.
     pub node: u32,
+    /// Vertices carry 4 bone indices and 4 weights after the position.
+    pub skinned: bool,
+    /// Data after the chunk when its end flag is 1: on the young Hero's hair, pairs
+    /// of vertices with a rest length and stiffness (hair or cloth physics). Not
+    /// decoded.
+    pub physics: Option<Vec<u8>>,
     pub sub_meshes: Vec<SubMesh>,
     pub vertex_count: u32,
     /// Flags selecting the vertex layout. Every layout starts with position, normal
@@ -174,26 +353,76 @@ impl Lod {
         }
         let mut chunks = Vec::new();
         loop {
-            let chunk = Chunk::parse(&mut r)?;
+            let mut chunk = Chunk::parse(&mut r, false)?;
             chunk.validate(materials.len(), r.pos())?;
+            chunk.physics = Chunk::parse_end(&mut r)?;
             chunks.push(chunk);
-            let _zero = r.u32()?;
             let rest = &block[r.pos()..];
             if name.is_empty() || rest.starts_with(name) || rest.len() < 64 {
                 break;
             }
         }
-        Ok(Self { materials, chunks })
+        Ok(Self {
+            skeleton: None,
+            materials,
+            chunks,
+        })
+    }
+
+    /// A skinned level of detail: skeleton, materials, then chunks to the end.
+    fn parse_skinned(block: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(block);
+        let skeleton = Skeleton::parse(&mut r)?;
+        let mut materials = Vec::new();
+        while let Some(material) = Material::try_parse(block, r.pos())? {
+            r.bytes(material.1)?;
+            materials.push(material.0);
+        }
+        let mut chunks = Vec::new();
+        while r.pos() < block.len() {
+            let mut chunk = Chunk::parse(&mut r, true)?;
+            chunk.validate(materials.len(), r.pos())?;
+            chunk.physics = Chunk::parse_end(&mut r)?;
+            chunks.push(chunk);
+        }
+        Ok(Self {
+            skeleton: Some(skeleton),
+            materials,
+            chunks,
+        })
     }
 }
 
 impl Chunk {
-    fn parse(r: &mut Reader) -> Result<Self> {
+    /// The u32 after a chunk: 0, or 1 followed by two u32s, a length and a stream.
+    fn parse_end(r: &mut Reader) -> Result<Option<Vec<u8>>> {
+        let at = r.pos();
+        match r.u32()? {
+            0 => Ok(None),
+            1 => {
+                let _unknown = [r.u32()?, r.u32()?];
+                let len = r.u32()? as usize;
+                Ok(Some(stream(r, len)?))
+            }
+            flag => Err(Error::Invalid {
+                offset: at,
+                reason: format!("chunk end flag {flag}"),
+            }),
+        }
+    }
+
+    fn parse(r: &mut Reader, skinned: bool) -> Result<Self> {
         let node = r.u32()?;
         let _zero = r.u32()?;
         r.bytes(20)?; // bounding sphere and one more float
-        let sub_mesh_count = r.u32()?;
-        let _zero = r.u32()?;
+        let sub_mesh_count = if skinned {
+            let _unknown = r.u32()?;
+            r.u32()?
+        } else {
+            let count = r.u32()?;
+            let _zero = r.u32()?;
+            count
+        };
         let vertex_count = r.u32()?;
         let _triangles = r.u32()?;
         let index_count = r.u32()?;
@@ -205,13 +434,22 @@ impl Chunk {
             let primitive_count = r.u32()?;
             let first_index = r.u32()?;
             let raw_flags: [u8; 3] = r.array()?;
-            let material = r.u32()?;
+            let (material, bones) = if skinned {
+                let _vertex_count = r.u32()?;
+                let _unknown = r.array().map(u16::from_le_bytes)?;
+                let _unknown = r.array::<1>()?[0];
+                let count = r.array::<1>()?[0];
+                (node, r.bytes(count.into())?.to_vec())
+            } else {
+                (r.u32()?, Vec::new())
+            };
             sub_meshes.push(SubMesh {
                 primitive_count,
                 first_index,
                 strip: raw_flags[0] == 1,
                 material,
                 raw_flags,
+                bones,
             });
         }
         let mut f = || r.u32().map(f32::from_bits);
@@ -231,6 +469,8 @@ impl Chunk {
             .collect();
         Ok(Self {
             node,
+            skinned,
+            physics: None,
             sub_meshes,
             vertex_count,
             vertex_format,
@@ -284,8 +524,31 @@ impl Chunk {
         self.vertex_format & 0x10 != 0
     }
 
-    fn normal_offset(&self) -> usize {
+    fn position_size(&self) -> usize {
         if self.float_positions() { 12 } else { 4 }
+    }
+
+    fn normal_offset(&self) -> usize {
+        self.position_size() + if self.skinned { 8 } else { 0 }
+    }
+
+    /// Per vertex: 4 bone indices into the sub-mesh's [`SubMesh::bones`] and 4
+    /// weights out of 255 (they sum to 255). Stored indices are 3x these, likely
+    /// register offsets of 3-row matrices. Empty for static meshes.
+    pub fn bone_weights(&self) -> Vec<([u8; 4], [u8; 4])> {
+        if !self.skinned {
+            return Vec::new();
+        }
+        let o = self.position_size();
+        (0..self.vertex_count as usize)
+            .map(|i| {
+                let v = self.vertex(i);
+                (
+                    std::array::from_fn(|k| v[o + k] / 3),
+                    std::array::from_fn(|k| v[o + 4 + k]),
+                )
+            })
+            .collect()
     }
 
     fn uv_offset(&self) -> usize {
@@ -384,6 +647,15 @@ impl Material {
             },
             4 + len + 1 + 33,
         )))
+    }
+}
+
+/// A [`stream`] of `len` bytes, absent entirely when `len` is 0.
+fn optional_stream(r: &mut Reader, len: usize) -> Result<Vec<u8>> {
+    if len == 0 {
+        Ok(Vec::new())
+    } else {
+        stream(r, len)
     }
 }
 
@@ -528,6 +800,36 @@ mod tests {
     }
 
     #[test]
+    fn rest_pose_composes_parent_first() {
+        // Root at (0, 0, 100); child 10 units along the root's x, root turned 90°
+        // about z (stored as the inverse rotation: quaternion (0, 0, -s, s)).
+        let s = std::f32::consts::FRAC_1_SQRT_2;
+        let bone = |parent, rotation, translation| Bone {
+            name: String::new(),
+            parent,
+            inverse_bind: [[0.0; 4]; 3],
+            rotation,
+            translation,
+            scale: [1.0; 3],
+        };
+        let skeleton = Skeleton {
+            helper_count: 0,
+            dummy_count: 0,
+            bones: vec![
+                bone(None, [0.0, 0.0, -s, s], [0.0, 0.0, 100.0]),
+                bone(Some(0), [0.0, 0.0, 0.0, 1.0], [10.0, 0.0, 0.0]),
+            ],
+        };
+        let pose = skeleton.rest_pose();
+        let child = [pose[1][0][3], pose[1][1][3], pose[1][2][3]];
+        assert!(
+            (child[0]).abs() < 1e-4 && (child[1] - 10.0).abs() < 1e-4,
+            "{child:?}"
+        );
+        assert_eq!(child[2], 100.0);
+    }
+
+    #[test]
     fn unrolls_strips() {
         let mut lod = Lod::parse(&quad_lod(), b"").unwrap();
         let chunk = &mut lod.chunks[0];
@@ -538,6 +840,7 @@ mod tests {
             strip: true,
             material: 0,
             raw_flags: [1, 0, 0],
+            bones: Vec::new(),
         };
         assert_eq!(chunk.triangles(&strip), [[0, 1, 2], [3, 2, 0]]);
     }

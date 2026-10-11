@@ -1,4 +1,4 @@
-//! A placeholder Hero walking on a region: movement limited to the navigation's
+//! The Hero walking on a region: movement limited to the navigation's
 //! walkable cells, height from the Lev heightmaps.
 
 use glam::{Vec2, Vec3};

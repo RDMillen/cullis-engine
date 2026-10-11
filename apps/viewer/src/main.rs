@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use eframe::{egui, egui_wgpu, wgpu};
 use fable_data::big::BigFile;
 use fable_data::defs::{Defs, Names};
-use fable_data::mesh::STATIC_MESH_TYPE;
+use fable_data::mesh::{SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
 use fable_data::wld::Wld;
 use glam::Mat4;
 
@@ -41,7 +41,7 @@ struct Args {
     camera: Option<[f32; 6]>,
     /// Draw the navigation overlay.
     nav: bool,
-    /// Place the placeholder Hero near the camera target (screenshots).
+    /// Place the young Hero near the camera target (screenshots).
     walk: bool,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
@@ -232,7 +232,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     Ok(())
 }
 
-/// Places the placeholder Hero on the walkable cell nearest `near`.
+/// Places the young Hero on the walkable cell nearest `near`.
 fn spawn_hero(
     renderer: &mut TerrainRenderer,
     data_dir: &Path,
@@ -247,7 +247,7 @@ fn spawn_hero(
         return Ok(None);
     };
     let hero = walk::Hero::new(at, heights);
-    let model = model::hero_placeholder(data_dir)?;
+    let model = model::hero_model(data_dir)?;
     renderer.hero = Some((
         ModelRenderer::new(device, queue, &model),
         hero_transform(&hero),
@@ -267,7 +267,7 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero) {
 }
 
 fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error> {
-    let mesh_names = static_mesh_names(&data_dir)?;
+    let mesh_names = mesh_names(&data_dir)?;
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -292,7 +292,7 @@ fn run_window(data_dir: PathBuf, wld: Wld, subject: Subject) -> Result<(), Error
     Ok(())
 }
 
-fn static_mesh_names(data_dir: &Path) -> Result<Vec<String>, Error> {
+fn mesh_names(data_dir: &Path) -> Result<Vec<String>, Error> {
     let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
     let big = BigFile::read(&mut file)?;
     let index = big
@@ -302,7 +302,7 @@ fn static_mesh_names(data_dir: &Path) -> Result<Vec<String>, Error> {
     let mut names: Vec<String> = index
         .entries
         .into_iter()
-        .filter(|e| e.entry_type == STATIC_MESH_TYPE)
+        .filter(|e| [STATIC_MESH_TYPE, SKINNED_MESH_TYPE].contains(&e.entry_type))
         .map(|e| e.name)
         .collect();
     names.sort();
@@ -331,7 +331,7 @@ struct ViewerApp {
     textures: model::TextureBank,
     texture_names: Vec<(u32, String)>,
     texture_view: Option<TextureView>,
-    /// The walking placeholder Hero, when walk mode is on.
+    /// The walking Hero, when walk mode is on.
     walker: Option<walk::Hero>,
     want_walk: bool,
     list: ListMode,

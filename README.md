@@ -41,7 +41,7 @@ FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --region StartOakVale
 FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --mesh MESH_OAKVALE_HOUSE_02
 ```
 
-The side panel switches between regions, meshes and textures, with a search box. In a region, "Show navigation" draws the walkable area and "Walk" puts a placeholder Hero on it (WASD to move, Shift to run).
+The side panel switches between regions, meshes and textures, with a search box. In a region, "Show navigation" draws the walkable area and "Walk" puts the young Hero on it (WASD to move, Shift to run). Character meshes are listed with the others and drawn in their bind pose.
 
 Add `--screenshot out.png --size 1280x800` to render one frame to a file without opening a window.
 

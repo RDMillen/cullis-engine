@@ -1,6 +1,6 @@
 # Meshes
 
-Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. 2,519 of the 2,583 static meshes parse completely (10.1 million triangles); the rest have bones (skinned), which are not decoded yet. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Other entry types (2, 4, 5: probably skinned and character meshes; 3, 6, 7, 9: short info blocks, probably animations) are not decoded.
+Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. 2,549 of the 2,583 static meshes parse completely (10.2 million triangles); the other 34 (statues, summoners, …) stop early and are not decoded. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Type 5 entries are skinned meshes (characters and creatures), all decoded: see [Skinned meshes](#skinned-meshes-type-5). Other entry types (2, 4; 3, 6, 7, 9: short info blocks, probably animations) are not decoded.
 
 All integers are little-endian; many fields are unaligned.
 
@@ -103,6 +103,62 @@ Positions use the same axes as the terrain (z up) but are in hundredths of a wor
 
 **Orientation.** A mesh's front is its local -y. When a Tng thing gives `forward` and `up`, local -y maps to `forward`, local -x to `right` (forward x up) and z to `up`. Evidence: Oakvale's trader bridge (`MESH_VILLAGE_TOWN_TRADERBRIDGE_01`, local y from -980 to 2309) only rests on both of its 21 m plateaus this way round; the other way, one end hangs over the 12 m dip and the other runs into the hillside. The first guess (front = +y) put house doors facing the cliffs; Ross checked it against the game.
 
-## Character parts (type 5)
+## Skinned meshes (type 5)
 
-504 entries, e.g. the Prologue Hero `MESH_YOUNGHERO_02` and the Hero's outfit pieces (`MESH_HERO_APPRENTICE_SHIRT_01`, …). Their info blocks use the same layout as static meshes, so their texture ids can be read (`MESH_YOUNGHERO_02`: `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO`, `HERO_SKIN_MOUTH`). Their LOD blocks carry bone data and do not parse with the static layout yet.
+504 entries: characters, creatures and the Hero's outfit pieces (`MESH_YOUNGHERO_02`, `MESH_HERO_APPRENTICE_SHIRT_01`, `MESH_SEAGULL_01`, …). The info block has the static layout, so texture ids can be read the same way (`MESH_YOUNGHERO_02`: `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO`, `HERO_SKIN_MOUTH`). All 504 (1431 levels of detail) parse: `Mesh::parse_skinned`, real-data test `skinned_meshes_parse_with_consistent_skeletons`.
+
+### Levels of detail
+
+Unlike static meshes, the levels start at the beginning of the entry, back to back, with the info block's sizes; whatever follows the last one (starting with the name again) is not decoded. Each level is self-contained:
+
+```
+name             NUL-terminated
+u8 1
+40 bytes         bounding sphere and box, as in the info block
+skeleton         below
+materials        as for static meshes
+chunks           skinned layout, up to the end of the level
+```
+
+### Skeleton
+
+A list whose count is 0 is not stored at all (not even a stream header).
+
+| Field | Type | Notes |
+|---|---|---|
+| helper count | u16 | 12 on the young Hero; 1 on the seagull |
+| dummy count | u16 | 6 on the young Hero |
+| helper names length | u32 | |
+| | u16 | 0 |
+| helpers | stream | 20 bytes each; not decoded |
+| dummies | stream | 56 bytes each; not decoded |
+| helper names | stream | NUL-separated: `focus_camera_01`, `weapon_pos_head`, `left_foot`, `EYE_SET_L`, `MOUTH_FOCUS`, `WEAPON`, `SCABBARD_0`, … |
+| | 2 x u32 | 4, 4 on the young Hero; 5, 5 on the sister |
+| bone count | u32 | 76 on the young Hero |
+| bone names length | u32 | |
+| | 5 bytes | `01 00 00 07 00` on both Heroes |
+| name offsets | bone count x u16 | into the bone names |
+| bone names | stream | `Scene Root`, `Movement_dummy`, `Sub_movement_dummy`, `Bip01`, `Bip01 Pelvis`, … |
+| hierarchy | stream | 60 bytes per bone, below |
+| rest poses | stream | 48 bytes per bone, below |
+| inverse bind matrices | stream | 64 bytes per bone: a row-major 4x4 matrix (last row 0, 0, 0, 1), model space to bone space, acting on column vectors |
+| | 48 bytes | identity 3x4 matrix on the young Hero |
+
+Hierarchy record: u32 (unknown, maybe a name hash), i32 parent (-1 for the root; parents come first), u32 (unknown, perhaps a child count), then the inverse bind matrix again as 4 rows of 3 floats (the transpose of the 64-byte form's top 3 rows).
+
+Rest pose record: quaternion (x, y, z, w), translation (3 floats), a float (0), scale (3 floats), a float (0). The quaternion is the inverse rotation: building each bone's local matrix as translate · rotate(conjugate) · scale and composing from the root reproduces every inverse bind matrix to within 4e-6 over all 504 meshes.
+
+### Skinned chunk
+
+As a static chunk except:
+
+- The first word is the material index for all of the chunk's sub-meshes.
+- The two words before the vertex count are (unknown, sub-mesh count) instead of (sub-mesh count, 0).
+- Sub-mesh records are 19 bytes plus a bone list: u32 primitive count, u32 first index, 3 flag bytes (first = 1 for strips), u32 vertex count, u16 (3), u8 (1), u8 bone count, then that many skeleton bone indices.
+- Every vertex format gains 8 bytes right after the position: 4 bone indices (stored x3, so `0x21` is the sub-mesh's 11th bone list entry) and 4 weights summing to 255. The normal and texture coordinates follow. Seen: format 4 (stride 20), 20 (28), 6 (28), 22 (36).
+
+Vertices are stored in the bind pose, in model space, so a mesh can be drawn without its skeleton. The young Hero stands 201 units tall, like the father (195) and the rival Heroes (about 200), though the Prologue Hero is a child; his scale in the game is not decoded (the viewer uses an estimate of 0.65).
+
+### After each chunk (static and skinned)
+
+A u32: 0, or 1 followed by two u32s (0, then 0–6), a length, and a stream of that length. On the young Hero's hair the stream is a count (333), a length, then records pairing two vertices with a rest length and a stiffness (0.1): probably hair or cloth physics. Not decoded further.

@@ -12,6 +12,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11: skinned meshes, the real young Hero
+
+- Skinned meshes (bank entry type 5, 504 entries, 1431 levels of detail) all parse: skeleton (bone names, parents, rest poses, inverse bind matrices), skinned chunks with per-sub-mesh bone lists, 4 bone indices and weights per vertex, and the optional physics stream after a chunk (`docs/formats/mesh.md`). The rest pose composed down the hierarchy reproduces every inverse bind matrix (worst error 4e-6), which fixes the matrix and quaternion conventions.
+- Static meshes: the chunk end flag and physics stream apply to them too; 2,549 of 2,583 now parse (was 2,519).
+- `game.bin`: creature definitions are lists of components (`CAppearanceDef`, `CCreatureDef`, `CHeroMorphDef`, …) pointing at component definitions by global index. `CREATURE_HERO_CHILD`'s `CAppearanceDef` holds its animation table (`ST_IDLE_SUBTLE`, `CS_SHIFT_WEIGHT3`, …). New example `def_dump` prints a definition with known name hashes resolved.
+- Viewer: skinned meshes appear in the Meshes list and draw in their bind pose; walk mode now uses the real `MESH_YOUNGHERO_02` (bind pose, scaled by an estimated 0.65, since the mesh is adult-sized and the scale in the data is not found yet).
+
 ## 2026-10-10 (later): placeholder Hero and Hero textures
 
 - Hero textures: the Prologue Hero is `MESH_YOUNGHERO_02` (mesh id 4300, type 5, skinned); its info block lists `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO` (outfit atlas) and `HERO_SKIN_MOUTH`; all decode correctly (checked by eye). Type-5 meshes (504, the character parts) share the static-mesh info layout. Creature definitions (`CREATURE_HERO_CHILD`, …) do not reference meshes through `Graphic`; how they pick body parts is not decoded.

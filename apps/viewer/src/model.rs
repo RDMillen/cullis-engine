@@ -9,7 +9,7 @@ use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use fable_data::big::BigFile;
-use fable_data::mesh::{Mesh, STATIC_MESH_TYPE};
+use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
 
@@ -110,7 +110,7 @@ impl ModelBuilder {
         let entries = index
             .entries
             .into_iter()
-            .filter(|e| e.entry_type == STATIC_MESH_TYPE)
+            .filter(|e| [STATIC_MESH_TYPE, SKINNED_MESH_TYPE].contains(&e.entry_type))
             .map(|e| (e.id, e))
             .collect();
         Ok(Self {
@@ -135,7 +135,7 @@ impl ModelBuilder {
         })
     }
 
-    /// Id of the first static mesh named `needle`, or containing it (case-insensitive).
+    /// Id of the first mesh named `needle`, or containing it (case-insensitive).
     pub fn find(&self, needle: &str) -> Option<(u32, String)> {
         let needle = needle.to_ascii_uppercase();
         let mut entries: Vec<_> = self.entries.values().collect();
@@ -148,7 +148,7 @@ impl ModelBuilder {
     }
 
     /// Adds mesh `id` transformed by `transform`. Returns false if the mesh could
-    /// not be loaded (unknown id or an undecoded kind such as a skinned mesh).
+    /// not be loaded. Skinned meshes are drawn in their bind pose.
     pub fn add(&mut self, id: u32, transform: Mat4) -> bool {
         if !self.meshes.contains_key(&id) {
             let local = self.load(id).map_err(|e| eprintln!("mesh {id}: {e}")).ok();
@@ -183,8 +183,16 @@ impl ModelBuilder {
     }
 
     fn load(&mut self, id: u32) -> Result<LocalMesh, Error> {
-        let entry = self.entries.get(&id).ok_or("not a static mesh")?;
-        let mesh = Mesh::parse(&entry.info, &entry.read_data(&mut self.file)?)?;
+        let entry = self
+            .entries
+            .get(&id)
+            .ok_or("not a static or skinned mesh")?;
+        let data = entry.read_data(&mut self.file)?;
+        let mesh = if entry.entry_type == SKINNED_MESH_TYPE {
+            Mesh::parse_skinned(&entry.info, &data)?
+        } else {
+            Mesh::parse(&entry.info, &data)?
+        };
         let lod = &mesh.lods[0];
         let mut local = LocalMesh {
             vertices: Vec::new(),
@@ -264,159 +272,28 @@ pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Error> {
     Ok(builder.finish())
 }
 
-/// Mesh whose info block lists the Prologue Hero's textures (face, hair, torso, mouth).
+/// The Prologue Hero's mesh (face, torso, mouth and hair materials).
 const YOUNG_HERO_MESH: &str = "MESH_YOUNGHERO_02";
 
-/// A blocky placeholder for the young Hero, about 1.3 m tall, feet at the origin,
-/// facing +y, textured with the real Hero textures: trousers and shirt from the
-/// torso atlas, the face on the head. Replaced once skinned meshes are decoded.
-pub fn hero_placeholder(data_dir: &Path) -> Result<ModelData, Error> {
-    let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
-    let big = BigFile::read(&mut file)?;
-    let index = big
-        .bank("MBANK_ALLMESHES")
-        .ok_or("no MBANK_ALLMESHES")?
-        .read_index(&mut file)?;
-    let entry = index
-        .entries
-        .iter()
-        .find(|e| e.name == YOUNG_HERO_MESH)
-        .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
-    let ids = fable_data::mesh::MeshInfo::parse(&entry.info)?.texture_ids;
-    let mut textures = TextureBank::open(data_dir)?;
-    let mut model = ModelData {
-        name: "Hero (placeholder)".into(),
-        vertices: Vec::new(),
-        indices: Vec::new(),
-        draws: Vec::new(),
-        images: vec![Image {
-            width: 1,
-            height: 1,
-            rgba: vec![255; 4],
-        }],
-        lo: Vec3::ZERO,
-        hi: Vec3::new(0.4, 0.3, 1.3),
-    };
-    let mut image = |id: Option<&u32>| -> usize {
-        match id.map(|&id| textures.load(id)) {
-            Some(Ok(img)) => {
-                model.images.push(img);
-                model.images.len() - 1
-            }
-            _ => 0,
-        }
-    };
-    let (face, torso) = (image(ids.first()), image(ids.get(2)));
-    // UV rectangles (u0, v0, u1, v1) picked by eye from the torso atlas and face.
-    let parts = [
-        (
-            Vec3::new(-0.12, -0.09, 0.0),
-            Vec3::new(0.12, 0.09, 0.62),
-            torso,
-            [0.0, 0.32, 0.72, 0.66],
-        ),
-        (
-            Vec3::new(-0.18, -0.11, 0.62),
-            Vec3::new(0.18, 0.11, 1.05),
-            torso,
-            [0.0, 0.0, 0.48, 0.3],
-        ),
-        (
-            Vec3::new(-0.11, -0.11, 1.05),
-            Vec3::new(0.11, 0.11, 1.32),
-            face,
-            [0.2, 0.15, 0.8, 0.75],
-        ),
-    ];
-    for (lo, hi, img, uv) in parts {
-        add_box(&mut model, lo, hi, img, uv);
-    }
-    Ok(model)
-}
+/// Estimated size of the young Hero relative to his mesh. The mesh is modelled
+/// at adult size (201 units, like `MESH_HERO_FATHER`'s 195), but the Prologue Hero
+/// is a child; where the game stores his scale is not decoded yet. 0.65 makes him
+/// about 1.3 m tall.
+pub const YOUNG_HERO_SCALE: f32 = 0.65;
 
-/// Appends an axis-aligned box whose every face shows the `uv` rectangle of `image`.
-fn add_box(model: &mut ModelData, lo: Vec3, hi: Vec3, image: usize, uv: [f32; 4]) {
-    let first = model.indices.len() as u32;
-    let faces: [(Vec3, [Vec3; 4]); 6] = [
-        (
-            Vec3::Y,
-            [
-                Vec3::new(lo.x, hi.y, hi.z),
-                Vec3::new(hi.x, hi.y, hi.z),
-                Vec3::new(hi.x, hi.y, lo.z),
-                Vec3::new(lo.x, hi.y, lo.z),
-            ],
-        ),
-        (
-            Vec3::NEG_Y,
-            [
-                Vec3::new(hi.x, lo.y, hi.z),
-                Vec3::new(lo.x, lo.y, hi.z),
-                Vec3::new(lo.x, lo.y, lo.z),
-                Vec3::new(hi.x, lo.y, lo.z),
-            ],
-        ),
-        (
-            Vec3::X,
-            [
-                Vec3::new(hi.x, hi.y, hi.z),
-                Vec3::new(hi.x, lo.y, hi.z),
-                Vec3::new(hi.x, lo.y, lo.z),
-                Vec3::new(hi.x, hi.y, lo.z),
-            ],
-        ),
-        (
-            Vec3::NEG_X,
-            [
-                Vec3::new(lo.x, lo.y, hi.z),
-                Vec3::new(lo.x, hi.y, hi.z),
-                Vec3::new(lo.x, hi.y, lo.z),
-                Vec3::new(lo.x, lo.y, lo.z),
-            ],
-        ),
-        (
-            Vec3::Z,
-            [
-                Vec3::new(lo.x, lo.y, hi.z),
-                Vec3::new(hi.x, lo.y, hi.z),
-                Vec3::new(hi.x, hi.y, hi.z),
-                Vec3::new(lo.x, hi.y, hi.z),
-            ],
-        ),
-        (
-            Vec3::NEG_Z,
-            [
-                Vec3::new(lo.x, hi.y, lo.z),
-                Vec3::new(hi.x, hi.y, lo.z),
-                Vec3::new(hi.x, lo.y, lo.z),
-                Vec3::new(lo.x, lo.y, lo.z),
-            ],
-        ),
-    ];
-    let corners = [
-        [uv[0], uv[1]],
-        [uv[2], uv[1]],
-        [uv[2], uv[3]],
-        [uv[0], uv[3]],
-    ];
-    for (normal, quad) in faces {
-        let base = model.vertices.len() as u32;
-        for (p, t) in quad.iter().zip(corners) {
-            model.vertices.push(ModelVertex {
-                position: p.to_array(),
-                normal: normal.to_array(),
-                uv: t,
-            });
-        }
-        model
-            .indices
-            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+/// The young Hero in his bind pose, feet at the origin, facing +y (meshes face
+/// their local -y, so he is turned round).
+pub fn hero_model(data_dir: &Path) -> Result<ModelData, Error> {
+    let mut builder = ModelBuilder::open(data_dir, "Hero")?;
+    let (id, _) = builder
+        .find(YOUNG_HERO_MESH)
+        .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
+    let transform = Mat4::from_scale(Vec3::splat(MESH_SCALE * YOUNG_HERO_SCALE))
+        * Mat4::from_rotation_z(std::f32::consts::PI);
+    if !builder.add(id, transform) {
+        return Err(format!("could not load {YOUNG_HERO_MESH}").into());
     }
-    model.draws.push(Draw {
-        first,
-        count: model.indices.len() as u32 - first,
-        image,
-    });
+    Ok(builder.finish())
 }
 
 /// Loads every placement into one model in world space.
