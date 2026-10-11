@@ -7,7 +7,7 @@ use eframe::wgpu;
 use glam::Mat4;
 
 use crate::model::{self, ModelData, ModelRenderer, Skin};
-use crate::skin::{Animator, Clip};
+use crate::skin::{AnimBank, Animator, Clip};
 use crate::terrain::CreaturePlacement;
 
 /// One placed creature: one or more skinned meshes (head, torso, legs) playing
@@ -15,14 +15,45 @@ use crate::terrain::CreaturePlacement;
 pub struct Npc {
     pub parts: Vec<(ModelRenderer, Animator)>,
     pub transform: Mat4,
+    /// Seconds since the creature last fidgeted, and when it fidgets next.
+    since_fidget: f32,
+    next_fidget: f32,
+    rng: u64,
 }
 
 impl Npc {
-    /// Advances the creature's animation and uploads its vertices.
+    /// Advances the creature's animation and uploads its vertices. It breathes in
+    /// its base idle (clip 0) and every so often plays one of its fidgets (the
+    /// other clips) once.
     pub fn animate(&mut self, queue: &wgpu::Queue, dt: f32) {
+        let Some((_, first)) = self.parts.first() else {
+            return;
+        };
+        let (current, finished, count) = (first.current(), first.finished(), first.clip_count());
+        self.since_fidget += dt;
+        let next = if current == 0 && count > 1 && self.since_fidget >= self.next_fidget {
+            Some(1 + (self.random() as usize) % (count - 1))
+        } else if current != 0 && finished {
+            self.since_fidget = 0.0;
+            self.next_fidget = 6.0 + (self.random() % 9) as f32;
+            Some(0)
+        } else {
+            None
+        };
         for (renderer, animator) in &mut self.parts {
+            if let Some(clip) = next {
+                animator.play(clip);
+            }
             renderer.set_vertices(queue, animator.advance(dt));
         }
+    }
+
+    fn random(&mut self) -> u64 {
+        self.rng = self
+            .rng
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.rng >> 33
     }
 }
 
@@ -52,8 +83,7 @@ fn meshes_for(c: &CreaturePlacement) -> Vec<(u32, Vec<(u32, u32)>)> {
         .collect()
 }
 
-/// The idle a creature plays. Chosen by name, as a stand-in: which animation the
-/// game uses is in the creature's `CAppearanceDef` slots, not decoded yet.
+/// An idle by kind, for creatures whose animation table has no `ST_IDLE_SUBTLE`.
 fn idle_for(definition: &str) -> &'static str {
     let d = definition.to_ascii_uppercase();
     if d.contains("CHICKEN") {
@@ -89,10 +119,23 @@ pub fn load(
 ) -> Vec<Npc> {
     type Key = (u32, Vec<(u32, u32)>);
     let mut meshes: HashMap<Key, Option<(ModelData, Skin)>> = HashMap::new();
-    let mut clips: HashMap<(u32, &str), Option<Clip>> = HashMap::new();
+    let mut clips: HashMap<(u32, u32), Option<Clip>> = HashMap::new();
+    let mut bank = match AnimBank::open(data_dir) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("animations: {e}");
+            return Vec::new();
+        }
+    };
     let mut npcs = Vec::new();
     for (i, c) in creatures.iter().enumerate() {
-        let name = idle_for(&c.definition);
+        // The base idle from the creature's table, else one by kind; then its fidgets.
+        let Some(base) = c.idles.base.or_else(|| bank.id(idle_for(&c.definition))) else {
+            continue;
+        };
+        let ids: Vec<u32> = std::iter::once(base)
+            .chain(c.idles.fidgets.iter().copied())
+            .collect();
         let mut parts = Vec::new();
         for key in meshes_for(c) {
             let id = key.0;
@@ -110,18 +153,23 @@ pub fn load(
             else {
                 continue;
             };
-            let Some(clip) = clips
-                .entry((id, name))
-                .or_insert_with(|| {
-                    Clip::load(data_dir, name, &skin.skeleton)
-                        .map_err(|e| eprintln!("{name}: {e}"))
-                        .ok()
+            let part_clips: Vec<Clip> = ids
+                .iter()
+                .filter_map(|&anim| {
+                    clips
+                        .entry((id, anim))
+                        .or_insert_with(|| {
+                            bank.clip(anim, &skin.skeleton)
+                                .map_err(|e| eprintln!("animation {anim}: {e}"))
+                                .ok()
+                        })
+                        .clone()
                 })
-                .clone()
-            else {
+                .collect();
+            if part_clips.is_empty() {
                 continue;
-            };
-            let mut animator = Animator::new(model.vertices.clone(), skin.clone(), vec![clip]);
+            }
+            let mut animator = Animator::new(model.vertices.clone(), skin.clone(), part_clips);
             let renderer = ModelRenderer::new(device, queue, model);
             // Start each creature at a different point of its loop.
             renderer.set_vertices(queue, animator.advance(i as f32 * 0.37));
@@ -129,6 +177,9 @@ pub fn load(
         }
         if !parts.is_empty() {
             npcs.push(Npc {
+                since_fidget: 0.0,
+                next_fidget: 3.0 + (c.uid % 11) as f32,
+                rng: c.uid | 1,
                 parts,
                 transform: c.placement.transform()
                     * Mat4::from_scale(glam::Vec3::splat(scale_for(&c.definition))),

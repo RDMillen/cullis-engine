@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): animation tables
+
+- `CAppearanceDef` holds each creature's animation table: slot hash, animation bank id, slot name offset, modifier name offset (`docs/formats/defs.md`). The young Hero's `ST_IDLE_SUBTLE`/`ST_WALK`/`ST_RUN` are exactly the clips chosen by hand before.
+- Viewer: the Hero takes idle, walk and run from `CREATURE_HERO_CHILD`'s table and, after standing 10 s, plays one of his fidgets (`ST_IDLE`: kick the floor, scratch his ear, …). Creatures loop their own `ST_IDLE_SUBTLE` and every 6–14 s play one of their `ST_IDLE` fidgets; the by-kind guess remains only as a fallback.
+- New example `anim_slots` prints a creature's table; `def_dump` resolves `names.bin` offsets.
+
 ## 2026-10-11 (later): every static mesh parses
 
 - 29 static (type 1) meshes, among them the burnt Oakvale's charred villagers and the statues, use the skinned layout (levels from the start of the entry, each with a skeleton) with static chunks: `Mesh::parse_static` falls back to it. The chunk end word is a count of physics blocks (4 on washing lines). All 2,583 static meshes parse; the real-data test now requires it.

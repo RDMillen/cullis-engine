@@ -140,14 +140,25 @@ impl Scene {
                     &std::fs::read(data_dir.join("CompiledDefs/game.bin"))?,
                     &names,
                 )?;
-                let (mesh, placements) =
+                let (mut mesh, placements) =
                     terrain::load_region(data_dir, wld, name, &defs, sections)?;
+                for c in &mut mesh.creatures {
+                    if let Some(def) = defs.get(&c.definition) {
+                        c.idles =
+                            terrain::IdleAnimations::from_slots(&defs.animation_slots(def, &names));
+                    }
+                }
+                let hero_slots = defs
+                    .get(HERO_DEFINITION)
+                    .map(|d| defs.animation_slots(d, &names))
+                    .unwrap_or_default();
                 let (lo, hi) = mesh.bounds();
                 let themes = match &mesh.themes {
                     Some(grid) => Some(themes::load(data_dir, &grid.layers)?),
                     None => None,
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
+                renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 let (things, buildings) = model::load_placements(data_dir, name, &placements)?;
                 renderer.buildings = buildings;
                 let status = format!(
@@ -362,6 +373,30 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     Ok(())
 }
 
+/// The clip the standing Hero plays: his idle (0), or after he has stood for a
+/// while one of his fidgets (clips from 3 on), played once.
+fn hero_idle_clip(
+    animator: Option<&skin::Animator>,
+    standing: &mut f32,
+    fidgets: &mut usize,
+    dt: f32,
+) -> usize {
+    let Some(animator) = animator else {
+        return 0;
+    };
+    let (current, count) = (animator.current(), animator.clip_count());
+    if current >= HERO_CLIPS.len() && !animator.finished() {
+        return current;
+    }
+    *standing += dt;
+    if count > HERO_CLIPS.len() && *standing > 10.0 {
+        *standing = 0.0;
+        *fidgets += 1;
+        return HERO_CLIPS.len() + *fidgets % (count - HERO_CLIPS.len());
+    }
+    0
+}
+
 /// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
 fn pose_and_frame(
     renderer: &mut TerrainRenderer,
@@ -465,23 +500,64 @@ fn spawn_hero(
         ModelRenderer::new(device, queue, &model),
         hero_transform(&hero),
     ));
+    let mut bank = skin::AnimBank::open(data_dir)?;
+    let animations = renderer.hero_animations.clone();
     renderer.hero_animator = skin.and_then(|skin| {
-        let clips: Vec<skin::Clip> = HERO_CLIPS
+        // Idle, walk and run from his table (or by name), then his fidgets.
+        let ids: Vec<u32> = animations
+            .main
             .iter()
-            .filter_map(|name| {
-                skin::Clip::load(data_dir, name, &skin.skeleton)
-                    .map_err(|e| eprintln!("{name}: {e}"))
+            .zip(HERO_CLIPS)
+            .filter_map(|(id, name)| id.or_else(|| bank.id(name)))
+            .collect();
+        if ids.len() != HERO_CLIPS.len() {
+            return None;
+        }
+        let clips: Vec<skin::Clip> = ids
+            .iter()
+            .chain(&animations.fidgets)
+            .filter_map(|&id| {
+                bank.clip(id, &skin.skeleton)
+                    .map_err(|e| eprintln!("animation {id}: {e}"))
                     .ok()
             })
             .collect();
-        (clips.len() == HERO_CLIPS.len())
+        (clips.len() >= HERO_CLIPS.len())
             .then(|| skin::Animator::new(model.vertices.clone(), skin, clips))
     });
     Ok(Some(hero))
 }
 
-/// The Hero's clips: standing, walking, running (indices used by [`animate_hero`]).
+/// The Hero's clips by name, used when his animation table lacks a slot:
+/// standing, walking, running (indices used by [`animate_hero`]).
 const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
+
+/// The young Hero's definition, whose animation table the Hero plays.
+const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";
+
+/// The Hero's animations from his table, as bank ids: idle (`ST_IDLE_SUBTLE`),
+/// walk (`ST_WALK`), run (`ST_RUN`) and fidgets (`ST_IDLE`).
+#[derive(Debug, Clone, Default)]
+pub struct HeroAnimations {
+    pub main: [Option<u32>; 3],
+    pub fidgets: Vec<u32>,
+}
+
+impl HeroAnimations {
+    fn from_slots(slots: &[fable_data::defs::AnimationSlot]) -> Self {
+        let idles = terrain::IdleAnimations::from_slots(slots);
+        let plain = |slot: &str| {
+            slots
+                .iter()
+                .find(|s| s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND"))
+                .map(|s| s.animation)
+        };
+        Self {
+            main: [idles.base, plain("ST_WALK"), plain("ST_RUN")],
+            fidgets: idles.fidgets,
+        }
+    }
+}
 
 /// Poses the Hero with clip `clip` advanced by `dt` and uploads his vertices.
 fn animate_hero(renderer: &mut TerrainRenderer, queue: &wgpu::Queue, clip: usize, dt: f32) {
@@ -653,6 +729,9 @@ struct ViewerApp {
     reload_sections: Option<Vec<String>>,
     /// A scene being loaded in the background, shown as a loading screen.
     loading: Option<Loading>,
+    /// Seconds the Hero has stood still, and fidgets played (picks the next).
+    hero_standing: f32,
+    hero_fidgets: usize,
     /// A point the Hero walks himself towards (`--walk-to`), until he is there.
     auto_walk: Option<glam::Vec2>,
     data_dir: PathBuf,
@@ -718,6 +797,8 @@ impl ViewerApp {
             sections,
             reload_sections: None,
             auto_walk: None,
+            hero_standing: 0.0,
+            hero_fidgets: 0,
             exits_armed: false,
             want_walk: false,
             textures,
@@ -1001,10 +1082,18 @@ impl ViewerApp {
             *transform = hero_transform(hero);
         }
         let clip = match (moved, run) {
-            (false, _) => 0,
+            (false, _) => hero_idle_clip(
+                renderer.hero_animator.as_ref(),
+                &mut self.hero_standing,
+                &mut self.hero_fidgets,
+                dt,
+            ),
             (true, false) => 1,
             (true, true) => 2,
         };
+        if moved {
+            self.hero_standing = 0.0;
+        }
         animate_hero(renderer, queue, clip, dt);
         ui.ctx().request_repaint();
         renderer.update_interior(hero.position);

@@ -207,6 +207,17 @@ impl Def {
     }
 }
 
+/// One entry of a `CAppearanceDef`'s animation table: what a creature plays for a
+/// slot (`ST_IDLE_SUBTLE`, `MOVEMENT_MEDIUM_RIGHT`, `CS_SHIFT_WEIGHT3`, …), maybe
+/// only with a modifier (`SWORD`, `BOW`, `CROUCH`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationSlot {
+    pub slot: String,
+    /// `MBANK_ALLMESHES` entry id of the animation (`ANIM_HERO_IDLE`).
+    pub animation: u32,
+    pub modifier: Option<String>,
+}
+
 /// One mesh of a `CMultiStaticMeshDef` (a building's exterior or interior).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StaticMeshEntry {
@@ -275,6 +286,31 @@ fn part_list(record: &[u8], at: usize) -> Option<(Vec<PartOption>, usize)> {
 }
 
 impl Def {
+    /// The animation table of a `CAppearanceDef`: entries of `u32` slot name hash,
+    /// `u32` animation id, `u32` slot name (a `names.bin` offset), `u32` modifier
+    /// name offset or `0xffffffff`. Found by that layout (the slot's name must hash
+    /// to the hash before it), since the record is not decoded.
+    pub fn animation_slots(&self, names: &Names) -> Vec<AnimationSlot> {
+        let r = &self.record;
+        let word = |o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
+        (0..r.len().saturating_sub(15))
+            .filter_map(|i| {
+                let (hash, animation, name, modifier) =
+                    (word(i), word(i + 4), word(i + 8), word(i + 12));
+                let slot = names.at(name).filter(|n| name_hash(n) == hash)?;
+                let modifier = match modifier {
+                    0xffff_ffff => None,
+                    m => Some(names.at(m)?.to_owned()),
+                };
+                Some(AnimationSlot {
+                    slot: slot.to_owned(),
+                    animation,
+                    modifier,
+                })
+            })
+            .collect()
+    }
+
     /// The part lists of a `CCreatureDef` (heads, torsos, legs, in that order for
     /// Oakvale villagers), found by their layout since the record is not decoded.
     /// Empty for creatures drawn with their `Graphic` alone.
@@ -482,6 +518,15 @@ impl Defs {
         }
     }
 
+    /// A creature's animation table, from its `CAppearanceDef` component.
+    pub fn animation_slots(&self, def: &Def, names: &Names) -> Vec<AnimationSlot> {
+        def.component("CAppearanceDef")
+            .and_then(|i| self.defs.get(i))
+            .filter(|c| self.type_name(c) == "CAppearanceDef")
+            .map(|c| c.animation_slots(names))
+            .unwrap_or_default()
+    }
+
     /// A creature's body part lists, from its `CCreatureDef` component.
     pub fn creature_parts(&self, def: &Def) -> Vec<Vec<PartOption>> {
         def.component("CCreatureDef")
@@ -544,6 +589,39 @@ mod tests {
         assert_eq!(lists[0].len(), 2);
         assert_eq!(lists[0][1].texture_swaps, [(1968, 3253, 0)]);
         assert_eq!(lists[1][0].mesh, 5163);
+    }
+
+    #[test]
+    fn finds_animation_slots() {
+        let (names_data, off) = names_bin(1, &["ST_IDLE_SUBTLE", "SWORD"]);
+        let names = Names::parse(&names_data).unwrap();
+        let mut record = vec![1, 0, 1, 7];
+        for w in [name_hash("ST_IDLE_SUBTLE"), 3041, off[0], 0xffff_ffff] {
+            record.extend_from_slice(&w.to_le_bytes());
+        }
+        for w in [name_hash("ST_IDLE_SUBTLE"), 3120, off[0], off[1]] {
+            record.extend_from_slice(&w.to_le_bytes());
+        }
+        // A hash that does not match the name at the offset is not a slot.
+        for w in [0x1234_5678, 99, off[0], 0xffff_ffff] {
+            record.extend_from_slice(&w.to_le_bytes());
+        }
+        let def = Def {
+            def_type: 0,
+            name: None,
+            record,
+        };
+        let slots = def.animation_slots(&names);
+        assert_eq!(slots.len(), 2);
+        assert_eq!(
+            (
+                slots[0].slot.as_str(),
+                slots[0].animation,
+                slots[0].modifier.as_deref()
+            ),
+            ("ST_IDLE_SUBTLE", 3041, None)
+        );
+        assert_eq!(slots[1].modifier.as_deref(), Some("SWORD"));
     }
 
     #[test]

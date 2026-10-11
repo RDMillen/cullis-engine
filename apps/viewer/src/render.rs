@@ -92,6 +92,8 @@ pub struct TerrainRenderer {
     pub inside: Option<usize>,
     /// Creatures standing in the region.
     pub npcs: Vec<crate::npc::Npc>,
+    /// The Hero's animations from his animation table.
+    pub hero_animations: crate::HeroAnimations,
     /// Plays the Hero's animations, when his mesh is skinned.
     pub hero_animator: Option<crate::skin::Animator>,
     /// The region's quest-state sections (for choosing which are shown).
@@ -397,6 +399,7 @@ impl TerrainRenderer {
             things: None,
             hero: None,
             hero_animator: None,
+            hero_animations: Default::default(),
             npcs: Vec::new(),
             buildings: Vec::new(),
             inside: None,

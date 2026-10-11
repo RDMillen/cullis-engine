@@ -77,3 +77,16 @@ A creature's `Graphic` (tag 4) is its whole body for single-mesh creatures (`CRE
 | | u8 | 0 or 1 |
 
 `CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED` has 8 heads, 4 torsos and 4 legs. The lists are found by this layout (`Def::part_lists`, `Defs::creature_parts`); the fields around them are not decoded, nor how the game picks an option (presumably at random).
+
+## Animation tables
+
+A creature's `CAppearanceDef` (`CREATURE_HERO_CHILD`'s has 871 entries, a villager's 792, a chicken's 25) maps animation slots to animations. Each entry: `u32` slot name hash, `u32` `MBANK_ALLMESHES` id of the animation, `u32` the slot's name (a `names.bin` offset), `u32` a modifier's name offset or `0xffffffff`. Entries are found by that layout, checking that the name at the offset hashes to the hash before it (`Def::animation_slots`, `Defs::animation_slots`); the bytes between entries are not decoded.
+
+| Slot | Modifier | Animation (young Hero) |
+|---|---|---|
+| `ST_IDLE_SUBTLE` | `STAND` | `ANIM_HERO_IDLE` (the breathing loop) |
+| `ST_IDLE` | `STAND` | `ANIM_YOUNGHERO_SCRATCH_EAR`, `…_KICK_FLOOR`, `…_LOOK_BACK`, `…_SCRATCH_ASS` (fidgets) |
+| `ST_WALK`, `ST_RUN`, `ST_SLOW_WALK` | `STAND` | `ANIM_HERO_WALK`, `ANIM_HERO_RUN`, `ANIM_HERO_SLOW_WALK` |
+| `ST_IDLE_SUBTLE` | `SWORD`, `CROSSBOW`, `TOO_HEAVY`, `DRAINED`, … | situation variants |
+
+Villagers: `ST_IDLE_SUBTLE` → `ANIM_VILLAGER_MALE_IDLE_BREATHE_01`, `ST_IDLE` → gazing at the sky, scratching the head. Other slots cover combat, emotes (`ST_THANKS`), cutscenes (`CS_SHIFT_WEIGHT3` → `ANIM_HERO_IDLE_3`), objects (`LIGHT_LAMP` with `TABLELIGHT`, `CUPBOARDLIGHT`). How the game chooses among several entries for one slot is not known.

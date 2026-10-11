@@ -65,7 +65,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             })
             .collect();
-        println!("{at:5x}  {field:<32} {}", after.join("  "));
+        let named: Vec<&str> = (0..3)
+            .filter_map(|k| word(at + 4 + 4 * k))
+            .filter_map(|w| names.at(w))
+            .collect();
+        println!("{at:5x}  {field:<32} {}  {named:?}", after.join("  "));
     }
     Ok(())
 }

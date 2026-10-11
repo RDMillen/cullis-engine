@@ -26,21 +26,57 @@ pub struct Clip {
     movement: f32,
 }
 
-impl Clip {
-    /// Loads animation `name` from `graphics/graphics.big` for `skeleton`.
-    pub fn load(data_dir: &Path, name: &str, skeleton: &Skeleton) -> Result<Self, Error> {
+/// The animations in `graphics/graphics.big`, opened once for many clips.
+pub struct AnimBank {
+    file: BufReader<File>,
+    entries: std::collections::HashMap<u32, fable_data::bank::Entry>,
+}
+
+impl AnimBank {
+    pub fn open(data_dir: &Path) -> Result<Self, Error> {
         let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
         let big = BigFile::read(&mut file)?;
         let index = big
             .bank("MBANK_ALLMESHES")
             .ok_or("no MBANK_ALLMESHES")?
             .read_index(&mut file)?;
-        let entry = index
+        let entries = index
             .entries
-            .iter()
-            .find(|e| e.name == name && ANIMATION_TYPES.contains(&e.entry_type))
+            .into_iter()
+            .filter(|e| ANIMATION_TYPES.contains(&e.entry_type))
+            .map(|e| (e.id, e))
+            .collect();
+        Ok(Self { file, entries })
+    }
+
+    /// The bank id of the animation named `name`.
+    pub fn id(&self, name: &str) -> Option<u32> {
+        self.entries.values().find(|e| e.name == name).map(|e| e.id)
+    }
+
+    /// Loads animation `id` for `skeleton`.
+    pub fn clip(&mut self, id: u32, skeleton: &Skeleton) -> Result<Clip, Error> {
+        let entry = self
+            .entries
+            .get(&id)
+            .ok_or_else(|| format!("no animation {id}"))?;
+        let name = entry.name.clone();
+        let anim = Animation::parse(&entry.read_data(&mut self.file)?)?;
+        Clip::from_animation(name, anim, skeleton)
+    }
+}
+
+impl Clip {
+    /// Loads animation `name` from `graphics/graphics.big` for `skeleton`.
+    pub fn load(data_dir: &Path, name: &str, skeleton: &Skeleton) -> Result<Self, Error> {
+        let mut bank = AnimBank::open(data_dir)?;
+        let id = bank
+            .id(name)
             .ok_or_else(|| format!("no animation {name}"))?;
-        let anim = Animation::parse(&entry.read_data(&mut file)?)?;
+        bank.clip(id, skeleton)
+    }
+
+    fn from_animation(name: String, anim: Animation, skeleton: &Skeleton) -> Result<Self, Error> {
         let movement = anim
             .movement()
             .map_or(0.0, |m| m.iter().map(|v| v * v).sum::<f32>().sqrt());
@@ -66,12 +102,17 @@ impl Clip {
             }
         }
         Ok(Self {
-            name: name.to_owned(),
+            name,
             fps: if fps > 0.0 { fps } else { 30.0 },
             frames: frames.max(1),
             tracks,
             movement,
         })
+    }
+
+    /// Length of one loop in seconds.
+    pub fn duration(&self) -> f32 {
+        self.frames as f32 / self.fps
     }
 
     /// Speed the clip is made for, in mesh units per second (0 in place).
@@ -208,6 +249,23 @@ impl Animator {
     /// Speed clip `i` is made for, in mesh units per second.
     pub fn speed(&self, i: usize) -> Option<f32> {
         self.clips.get(i).map(Clip::speed).filter(|&s| s > 0.0)
+    }
+
+    /// Index of the clip playing.
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    /// Whether the current clip has played through once.
+    pub fn finished(&self) -> bool {
+        self.clips
+            .get(self.current)
+            .is_none_or(|c| self.time >= c.duration())
+    }
+
+    /// Number of clips.
+    pub fn clip_count(&self) -> usize {
+        self.clips.len()
     }
 
     pub fn clip_name(&self) -> Option<&str> {

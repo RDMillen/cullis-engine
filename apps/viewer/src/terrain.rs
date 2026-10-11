@@ -302,7 +302,40 @@ pub struct CreaturePlacement {
     /// The `Graphic` mesh (`placement.mesh`) is used alone when this is empty;
     /// otherwise one option from each list (heads, torsos, legs) is.
     pub parts: Vec<Vec<fable_data::defs::PartOption>>,
+    /// Its idle animations from its `CAppearanceDef` (filled in after loading).
+    pub idles: IdleAnimations,
     pub placement: Placement,
+}
+
+/// A creature's standing animations, as `MBANK_ALLMESHES` ids: the loop it
+/// breathes in (`ST_IDLE_SUBTLE`) and the fidgets it sometimes plays (`ST_IDLE`).
+#[derive(Debug, Clone, Default)]
+pub struct IdleAnimations {
+    pub base: Option<u32>,
+    pub fidgets: Vec<u32>,
+}
+
+impl IdleAnimations {
+    /// From an animation table: the plain or `STAND` variants of the two slots.
+    pub fn from_slots(slots: &[fable_data::defs::AnimationSlot]) -> Self {
+        let plain = |slot: &'static str| {
+            slots
+                .iter()
+                .filter(move |s| {
+                    s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND")
+                })
+                .map(|s| s.animation)
+        };
+        let mut fidgets: Vec<u32> = Vec::new();
+        for a in plain("ST_IDLE") {
+            if !fidgets.contains(&a) {
+                fidgets.push(a);
+            }
+        }
+        let base = plain("ST_IDLE_SUBTLE").next();
+        fidgets.retain(|&a| Some(a) != base);
+        Self { base, fidgets }
+    }
 }
 
 /// A region exit (`CTCDRegionExit`): walking within `radius` of `position` leads to
@@ -482,6 +515,7 @@ fn load_placements(
                 definition: definition.to_owned(),
                 uid: t.uid().unwrap_or(0),
                 parts: defs.creature_parts(def),
+                idles: IdleAnimations::default(),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,
