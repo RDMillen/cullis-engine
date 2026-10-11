@@ -46,7 +46,7 @@ Positions are relative to the map's origin (its `.wld` `MapX`, `MapY`), in the s
 
 ## Creatures
 
-`AICreature` things (`CREATURE_HERO_FATHER`, `CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED`, chickens, …) keep their placement in `CTCPhysicsNavigator` instead of `CTCPhysicsStandard`, with the same `Position*`, `RHSetForward*` and `RHSetUp*` fields. They also carry `InitialPosX/Y/Z`, in world coordinates (map origin plus position), and behaviour flags (`Health`, `OverridingBrainName`, `CanBeMarried`, …), with components such as `CTCTalk`, `CTCVillageMember` and `CTCEnemy`. Their definitions' `Graphic` is a skinned mesh (value tag 4; [defs.md](defs.md)).
+`AICreature` things (`CREATURE_HERO_FATHER`, `CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED`, chickens, …) keep their placement in `CTCPhysicsNavigator` instead of `CTCPhysicsStandard`, with the same `Position*`, `RHSetForward*` and `RHSetUp*` fields. They also carry `InitialPosX/Y/Z`, in world coordinates (map origin plus position), and behaviour flags (`Health`, `OverridingBrainName`, `CanBeMarried`, …), with components such as `CTCTalk`, `CTCVillageMember` and `CTCEnemy`. Their definitions' `Graphic` is a skinned mesh (value tag 4; [defs.md](defs.md)). Their `ScriptName` names a role for the quest that drives them: in the Prologue's Oakvale every creature but the chickens has one, `NOVI_Villager` for background villagers and a role of its own for each quest character (`NOVI_LiveFather`, `NOVI_Theresa`, `NOVI_AffairWife`, …).
 
 ## Sections (quest states)
 

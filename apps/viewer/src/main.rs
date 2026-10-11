@@ -57,6 +57,8 @@ struct Args {
     /// `--walk-to`) at `anim_time` seconds.
     anim: Option<String>,
     anim_time: f32,
+    /// Advance the creatures this many seconds before the screenshot.
+    npc_time: f32,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -72,6 +74,7 @@ fn parse_args() -> Result<Args, Error> {
         sections: Vec::new(),
         anim: None,
         anim_time: 0.0,
+        npc_time: 0.0,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -89,6 +92,7 @@ fn parse_args() -> Result<Args, Error> {
                 args.walk = true;
             }
             "--anim-time" => args.anim_time = value()?.parse()?,
+            "--npc-time" => args.npc_time = value()?.parse()?,
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -359,6 +363,28 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             *transform = hero_transform(&hero);
         }
         pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
+    }
+    if let Scene::Terrain(renderer) = &mut scene {
+        let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+        let steps = (args.npc_time * 30.0) as u32;
+        for _ in 0..steps {
+            for npc in &mut renderer.npcs {
+                npc.animate(&queue, 1.0 / 30.0, layers, heights);
+            }
+        }
+    }
+    if let (Scene::Terrain(renderer), true) = (&scene, args.npc_time > 0.0) {
+        let wandered: Vec<String> = renderer
+            .npcs
+            .iter()
+            .filter_map(|n| n.wandered())
+            .map(|d| format!("{d:.1}"))
+            .collect();
+        eprintln!(
+            "{} wandering creatures, distances from home after {} s: {wandered:?}",
+            wandered.len(),
+            args.npc_time
+        );
     }
     eprintln!("{subject:?}: {status}");
     scene.render(
@@ -1231,8 +1257,9 @@ impl eframe::App for ViewerApp {
                     && !renderer.npcs.is_empty()
                 {
                     let dt = ui.input(|i| i.stable_dt.min(0.1));
+                    let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
                     for npc in &mut renderer.npcs {
-                        npc.animate(&rs.queue, dt);
+                        npc.animate(&rs.queue, dt, layers, heights);
                     }
                     ui.ctx().request_repaint();
                 }

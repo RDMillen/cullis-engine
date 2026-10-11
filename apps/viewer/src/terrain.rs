@@ -306,6 +306,10 @@ pub struct CreaturePlacement {
     pub idles: IdleAnimations,
     /// Its bone config files (`CSkeletalMorphDef`; filled in after loading).
     pub morphs: Vec<String>,
+    /// A quest character (a `ScriptName` naming a role, such as the Prologue's
+    /// `NOVI_AffairWife`), which its quest moves, so it does not wander. Generic
+    /// background roles (`NOVI_Villager`) do not count.
+    pub scripted: bool,
     pub placement: Placement,
 }
 
@@ -315,6 +319,8 @@ pub struct CreaturePlacement {
 pub struct IdleAnimations {
     pub base: Option<u32>,
     pub fidgets: Vec<u32>,
+    /// Its walk (`ST_WALK`).
+    pub walk: Option<u32>,
 }
 
 impl IdleAnimations {
@@ -336,7 +342,12 @@ impl IdleAnimations {
         }
         let base = plain("ST_IDLE_SUBTLE").next();
         fidgets.retain(|&a| Some(a) != base);
-        Self { base, fidgets }
+        let walk = plain("ST_WALK").next();
+        Self {
+            base,
+            fidgets,
+            walk,
+        }
     }
 }
 
@@ -519,6 +530,7 @@ fn load_placements(
                 parts: defs.creature_parts(def),
                 idles: IdleAnimations::default(),
                 morphs: Vec::new(),
+                scripted: t.script_name().is_some_and(|n| !n.ends_with("_Villager")),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,

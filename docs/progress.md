@@ -12,6 +12,11 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): wandering villagers
+
+- Every Prologue creature has a `ScriptName` naming its role in the Prologue quest (`NOVI_Villager` for background villagers; `NOVI_AffairWife`, `NOVI_Bully`, `NOVI_TeddyGirl`, `NOVI_BookTrader`, `NOVI_Theresa`, … for quest characters). Background villagers and unscripted creatures (chickens) now stroll within 5 m of where they are placed, at their `ST_WALK` clip's own speed, resting 8–22 s between strolls; quest characters and guards stay put until quests exist. Stand-in behaviour: the game's creature AI is not decoded.
+- `--npc-time T` advances the creatures before a screenshot.
+
 ## 2026-10-11 (later): bone configs, the young Hero's real size
 
 - `Bones/*.bncfg` give per-bone scales (along, across) that reshape a skeleton; a creature's `CSkeletalMorphDef` names its files (`CREATURE_HERO_CHILD` → `hero_young_set.bncfg`). Parser `fable_data::bncfg`, docs `docs/formats/bncfg.md`.

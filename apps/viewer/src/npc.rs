@@ -9,6 +9,8 @@ use glam::Mat4;
 use crate::model::{self, ModelData, ModelRenderer, Skin};
 use crate::skin::{AnimBank, Animator, Clip};
 use crate::terrain::CreaturePlacement;
+use crate::walk::{self, HeightGrid, WalkGrid};
+use glam::Vec2;
 
 /// One placed creature: one or more skinned meshes (head, torso, legs) playing
 /// the same clip.
@@ -19,26 +21,48 @@ pub struct Npc {
     since_fidget: f32,
     next_fidget: f32,
     rng: u64,
+    /// Clips 1..=fidgets are fidgets; the walk, if any, comes after them.
+    fidgets: usize,
+    walk: Option<Wander>,
 }
 
+/// A creature that strolls around where it was placed. Stand-in behaviour: the
+/// game's creature AI is not decoded.
+struct Wander {
+    body: walk::Hero,
+    home: Vec2,
+    clip: usize,
+    /// World units per second (the walk clip's own speed).
+    speed: f32,
+    target: Option<Vec2>,
+    /// Seconds standing since the last stroll, and when to stroll next.
+    resting: f32,
+    next_stroll: f32,
+    /// Seconds without progress while walking.
+    stuck: f32,
+}
+
+/// How far from its placement a creature strolls.
+const WANDER_RADIUS: f32 = 5.0;
+
 impl Npc {
-    /// Advances the creature's animation and uploads its vertices. It breathes in
-    /// its base idle (clip 0) and every so often plays one of its fidgets (the
-    /// other clips) once.
-    pub fn animate(&mut self, queue: &wgpu::Queue, dt: f32) {
+    /// Advances the creature and uploads its vertices. Standing, it breathes in
+    /// its base idle (clip 0) and every so often plays one of its fidgets once;
+    /// a wandering creature now and then walks to a spot near its placement.
+    pub fn animate(
+        &mut self,
+        queue: &wgpu::Queue,
+        dt: f32,
+        layers: &[WalkGrid],
+        heights: Option<&HeightGrid>,
+    ) {
         let Some((_, first)) = self.parts.first() else {
             return;
         };
-        let (current, finished, count) = (first.current(), first.finished(), first.clip_count());
-        self.since_fidget += dt;
-        let next = if current == 0 && count > 1 && self.since_fidget >= self.next_fidget {
-            Some(1 + (self.random() as usize) % (count - 1))
-        } else if current != 0 && finished {
-            self.since_fidget = 0.0;
-            self.next_fidget = 6.0 + (self.random() % 9) as f32;
-            Some(0)
-        } else {
-            None
+        let (current, finished) = (first.current(), first.finished());
+        let next = match (self.walk.is_some(), heights) {
+            (true, Some(heights)) => self.wander(dt, current, finished, layers, heights),
+            _ => self.fidget(dt, current, finished),
         };
         for (renderer, animator) in &mut self.parts {
             if let Some(clip) = next {
@@ -46,6 +70,76 @@ impl Npc {
             }
             renderer.set_vertices(queue, animator.advance(dt));
         }
+    }
+
+    /// The clip to switch to while standing: a fidget now and then, back to the
+    /// base idle when it ends.
+    fn fidget(&mut self, dt: f32, current: usize, finished: bool) -> Option<usize> {
+        self.since_fidget += dt;
+        if current == 0 && self.fidgets > 0 && self.since_fidget >= self.next_fidget {
+            Some(1 + (self.random() as usize) % self.fidgets)
+        } else if current != 0 && finished {
+            self.since_fidget = 0.0;
+            self.next_fidget = 6.0 + (self.random() % 9) as f32;
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    fn wander(
+        &mut self,
+        dt: f32,
+        current: usize,
+        finished: bool,
+        layers: &[WalkGrid],
+        heights: &HeightGrid,
+    ) -> Option<usize> {
+        let roll = self.random();
+        let w = self.walk.as_mut().unwrap();
+        if let Some(goal) = w.target {
+            let to = goal - w.body.position.truncate();
+            if to.length() < 0.3 || w.stuck > 1.0 {
+                w.target = None;
+                w.resting = 0.0;
+                w.next_stroll = 8.0 + (roll % 15) as f32;
+                return Some(0);
+            }
+            let before = w.body.position;
+            w.body.step(to, w.speed, dt, layers, heights);
+            let moved = (w.body.position - before).truncate().length();
+            w.stuck = if moved < w.speed * dt * 0.2 {
+                w.stuck + dt
+            } else {
+                0.0
+            };
+            self.transform = body_transform(&w.body);
+            return (current != w.clip).then_some(w.clip);
+        }
+        w.resting += dt;
+        if current == 0 && w.resting >= w.next_stroll {
+            // A walkable spot within the radius, if one turns up in a few tries.
+            for k in 0..8u64 {
+                let r = roll.wrapping_mul(k + 1).wrapping_mul(0x9e37_79b9);
+                let angle = (r % 6283) as f32 / 1000.0;
+                let dist = 1.5 + ((r >> 16) % 1000) as f32 / 1000.0 * (WANDER_RADIUS - 1.5);
+                let spot = w.home + Vec2::new(angle.cos(), angle.sin()) * dist;
+                if layers.first().is_some_and(|g| g.walkable(spot)) {
+                    w.target = Some(spot);
+                    w.stuck = 0.0;
+                    return Some(w.clip);
+                }
+            }
+            w.resting = 0.0;
+        }
+        self.fidget(dt, current, finished)
+    }
+
+    /// For a wandering creature, how far it is from its placement.
+    pub fn wandered(&self) -> Option<f32> {
+        self.walk
+            .as_ref()
+            .map(|w| w.body.position.truncate().distance(w.home))
     }
 
     fn random(&mut self) -> u64 {
@@ -81,6 +175,13 @@ fn meshes_for(c: &CreaturePlacement) -> Vec<(u32, Vec<(u32, u32)>)> {
             )
         })
         .collect()
+}
+
+/// A walking creature's model-to-world transform (meshes face their local -y).
+fn body_transform(body: &walk::Hero) -> Mat4 {
+    Mat4::from_translation(body.position)
+        * Mat4::from_rotation_z(body.heading)
+        * model::hero_local()
 }
 
 /// An idle by kind, for creatures whose animation table has no `ST_IDLE_SUBTLE`.
@@ -124,8 +225,11 @@ pub fn load(
             continue;
         };
         let configs = model::bone_configs(data_dir, &c.morphs);
+        let wanders = !c.scripted && !c.definition.contains("GUARD");
+        let walk_id = c.idles.walk.filter(|_| wanders);
         let ids: Vec<u32> = std::iter::once(base)
             .chain(c.idles.fidgets.iter().copied())
+            .chain(walk_id)
             .collect();
         let mut parts = Vec::new();
         for key in meshes_for(c) {
@@ -168,13 +272,45 @@ pub fn load(
             renderer.set_vertices(queue, animator.advance(i as f32 * 0.37));
             parts.push((renderer, animator));
         }
+        // Only if every part loaded every clip can the walk be relied on.
+        let clips = parts.iter().map(|(_, a)| a.clip_count()).min().unwrap_or(0);
+        let complete = parts.iter().all(|(_, a)| a.clip_count() == ids.len());
         if !parts.is_empty() {
+            let has_walk = walk_id.is_some() && complete;
+            let fidgets = clips.saturating_sub(1 + usize::from(has_walk));
+            let walk = has_walk.then(|| {
+                let (_, animator) = &parts[0];
+                let p = c.placement.position;
+                let f = c.placement.forward;
+                Wander {
+                    body: walk::Hero {
+                        position: p,
+                        heading: (-f.x).atan2(f.y),
+                        layer: 0,
+                    },
+                    home: p.truncate(),
+                    clip: clips - 1,
+                    speed: animator.speed(clips - 1).unwrap_or(0.0)
+                        * model::MESH_SCALE
+                        * animator.stride_ratio(),
+                    target: None,
+                    resting: 0.0,
+                    next_stroll: 4.0 + (c.uid % 13) as f32,
+                    stuck: 0.0,
+                }
+            });
+            let transform = match &walk {
+                Some(w) => body_transform(&w.body),
+                None => c.placement.transform(),
+            };
             npcs.push(Npc {
                 since_fidget: 0.0,
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,
+                fidgets,
+                walk: walk.filter(|w| w.speed > 0.0),
                 parts,
-                transform: c.placement.transform(),
+                transform,
             });
         }
     }
