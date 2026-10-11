@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): building interiors
+
+- Ross noticed the Hero walked on the ground under the Inn's furniture: building interiors were never placed. A building's `CMultiStaticMeshDef` component lists its meshes (exterior and interior); `Graphic` names only the exterior. `Def::component`, `Def::static_meshes`, `Defs::meshes_of`; the viewer places all of them (7 more meshes in StartOakVale).
+- The interiors carry the floors: in StartOakVale the second navigation layer now gets heights on 1,210 of 1,220 cells (was 342, the bridge only), and the Hero walks on the Inn's and the houses' floors. The spawn point now uses the walk layer's height, not the terrain's.
+- New example `mesh_dump` prints a mesh's levels, materials and chunks.
+
 ## 2026-10-11 (later): animations, the young Hero walks and runs
 
 - Animations (bank types 6, 7, 9; 3,435 entries, 210,743 bone tracks) all parse: `fable_data::anim`, `docs/formats/anim.md`. Each entry is a u32 length and one LZO stream of chunks (`3DAF`, `ANRT` > `AOBJ` > `XSEQ` per bone, `HLPR` > `MVEC`, `XALO`). Tracks hold float quaternion keys and i16 position keys, each either constant, per frame or a palette with per-frame indices.

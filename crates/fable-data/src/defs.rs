@@ -149,6 +149,30 @@ impl Def {
         }
     }
 
+    /// The global definition index of this definition's component of type
+    /// `component` (`CMultiStaticMeshDef`, `CAppearanceDef`, …). Entity records
+    /// list components as (type name hash, `u32` definition index, `u32`).
+    pub fn component(&self, component: &str) -> Option<usize> {
+        self.value_after(name_hash(component)).map(|v| v as usize)
+    }
+
+    /// Every `u32` that follows the field `field` in the record, in order.
+    pub fn values_after(&self, field: &str) -> Vec<u32> {
+        let hash = name_hash(field).to_le_bytes();
+        self.record
+            .windows(8)
+            .filter(|w| w[..4] == hash)
+            .map(|w| u32::from_le_bytes(w[4..].try_into().unwrap()))
+            .collect()
+    }
+
+    /// Mesh bank entry ids of a `CMultiStaticMeshDef` (its `Mesh` fields): a
+    /// building's exterior and interior (`MESH_OAKVALE_HOUSE_03` and
+    /// `MESH_OAKVALE_HOUSE_INSIDE_03` for `BUILDING_OAKVALE_HOUSE_LARGE`).
+    pub fn static_meshes(&self) -> Vec<u32> {
+        self.values_after("Mesh")
+    }
+
     /// Mesh bank entry id from the `Graphic` field, if the definition has one.
     pub fn graphic(&self) -> Option<u32> {
         self.find_u32("Graphic", GRAPHIC_VALUE_TAG)
@@ -311,6 +335,23 @@ impl Defs {
             defs,
             by_name,
         })
+    }
+
+    /// The meshes an entity is drawn with: those of its `CMultiStaticMeshDef`
+    /// component if it has one (buildings: exterior and interior), else its
+    /// `Graphic`.
+    pub fn meshes_of(&self, def: &Def) -> Vec<u32> {
+        let multi = def
+            .component("CMultiStaticMeshDef")
+            .and_then(|i| self.defs.get(i))
+            .filter(|c| self.type_name(c) == "CMultiStaticMeshDef")
+            .map(Def::static_meshes)
+            .unwrap_or_default();
+        if multi.is_empty() {
+            def.graphic().into_iter().collect()
+        } else {
+            multi
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<&Def> {

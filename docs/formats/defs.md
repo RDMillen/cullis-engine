@@ -40,6 +40,10 @@ Not decoded in general. Records hold fields as a name hash, a value type tag and
 
 Placed things whose definition has no `Graphic` field include animated birds, doors and beds; their graphics are probably elsewhere (another field or an inherited definition).
 
+Entity definitions (`BUILDING`, `CREATURE`, `OBJECT`, …) list components as (component type name hash, `u32` global definition index, `u32`): `BUILDING_OAKVALE_HOUSE_LARGE` has `CCameraCollisionDef`, `CAppearanceDef`, `CVillageMemberDef`, `CPhysicsDef`, `CSmokeGeneratorDef`, `CHitLocationsDef`, `CMultiStaticMeshDef` and `CBuyableHouseDef`; `CREATURE_HERO_CHILD`'s `CAppearanceDef` holds its animation slots. `Def::component` finds one.
+
+A building's `CMultiStaticMeshDef` lists its meshes as `Mesh` fields (hash `0x60194a74`) followed by the mesh id and a few flag fields: `MESH_OAKVALE_HOUSE_INSIDE_03` (flags 0, 1) and `MESH_OAKVALE_HOUSE_03` (1, 0). The `Graphic` field names only the exterior; the interior (floors, stairs, inner walls) comes from this list (`Defs::meshes_of`). Every Oakvale building has one, e.g. the tavern's `MESH_OAKVALE_TAVERN_INSIDE_01`.
+
 ## Terrain themes
 
 `ENGINE_THEME` records are a 5-byte header (`01 00 01 00 00`) then pairs of (`u32` field hash, `u32` value). Texture fields hold `GBANK_MAIN_PC` ids:

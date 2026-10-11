@@ -346,7 +346,11 @@ fn spawn_hero(
     let Some(at) = walk.nearest_walkable(near) else {
         return Ok(None);
     };
-    let hero = walk::Hero::new(at, heights);
+    let mut hero = walk::Hero::new(at, heights);
+    // Stand on the walking surface there (a floor), not the terrain under it.
+    if let Some(z) = walk.height(at, heights) {
+        hero.position.z = z;
+    }
     let (model, skin) = model::hero_model(data_dir)?;
     renderer.hero = Some((
         ModelRenderer::new(device, queue, &model),

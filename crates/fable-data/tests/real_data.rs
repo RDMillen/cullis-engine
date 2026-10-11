@@ -636,6 +636,12 @@ fn game_defs_parse_and_resolve_placed_meshes() {
         &names,
     )
     .unwrap();
+    // Buildings are drawn with every mesh of their CMultiStaticMeshDef component:
+    // the exterior and an interior with its floors.
+    let house = defs.get("BUILDING_OAKVALE_HOUSE_LARGE").unwrap();
+    let meshes = defs.meshes_of(house);
+    assert_eq!(meshes.len(), 2, "{meshes:?}");
+    assert!(meshes.contains(&house.graphic().unwrap()));
     let tavern = defs
         .get("BUILDING_OAKVALE_TAVERN")
         .expect("tavern definition");

@@ -384,14 +384,16 @@ fn load_placements(
         .iter()
         .filter(|t| t.kind == "Building" || t.kind == "Object")
         .filter_map(|t| {
-            let mesh = defs.get(t.definition()?)?.graphic()?;
-            Some(Placement {
+            let def = defs.get(t.definition()?)?;
+            let (position, forward, up) = (t.position()?, t.forward()?, t.up()?);
+            Some(defs.meshes_of(def).into_iter().map(move |mesh| Placement {
                 mesh,
-                position: origin + Vec3::from_array(t.position()?),
-                forward: Vec3::from_array(t.forward()?),
-                up: Vec3::from_array(t.up()?),
-            })
+                position: origin + Vec3::from_array(position),
+                forward: Vec3::from_array(forward),
+                up: Vec3::from_array(up),
+            }))
         })
+        .flatten()
         .collect())
 }
 
