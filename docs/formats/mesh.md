@@ -103,6 +103,14 @@ Positions use the same axes as the terrain (z up) but are in hundredths of a wor
 
 **Orientation.** A mesh's front is its local -y. When a Tng thing gives `forward` and `up`, local -y maps to `forward`, local -x to `right` (forward x up) and z to `up`. Evidence: Oakvale's trader bridge (`MESH_VILLAGE_TOWN_TRADERBRIDGE_01`, local y from -980 to 2309) only rests on both of its 21 m plateaus this way round; the other way, one end hangs over the 12 m dip and the other runs into the hillside. The first guess (front = +y) put house doors facing the cliffs; Ross checked it against the game.
 
+## Static mesh header: helpers and dummies
+
+The bytes before a static mesh's levels of detail are laid out as a [skeleton](#skeleton) with no bones (name, flag byte, bounds, helper and dummy counts and streams, an empty bone section, the 48-byte matrix); all 2,583 parse (`Mesh::header`). The helper names stream holds NUL-separated names of helpers and dummies.
+
+A dummy record (56 bytes): `u32` hash of its name (`name_hash`), a 3x3 rotation (3 rows of 3 floats, acting on column vectors), a position (3 floats, mesh units), `u32` `0xffffffff`.
+
+Dummies named `CREATEOBJECT <definition>` are where the game creates objects as part of the mesh: `MESH_OAKVALE_HOUSE_03` creates `OBJECT_BUILDING_DOORFRAME_OAKVALE_01` (its door frame) and 11 `OBJECT_BUILDING_WINDOW_OAKVALE_01/02` (its windows). 423 such dummies in all static meshes. `Skeleton::created_objects`; the viewer places the definitions' meshes at placement × dummy (two levels deep), 148 objects in StartOakVale. Other dummies name attachment points (`focus_chimney_01`; on characters `WEAPON`, `EYE_SET_L`).
+
 ## Rigged static meshes
 
 29 type 1 entries (the charred villagers of the burnt Oakvale, statues such as `MESH_OBJECT_STATUE_BEAR`, summoners, `MESH_BS_SLUM_04`) are laid out like skinned meshes: each level of detail starts at the beginning of the entry, with the name, a flag byte (0 here, 1 on skinned meshes) and a skeleton ([below](#skeleton)), then materials and chunks. Their chunks are static (15-byte sub-mesh records naming their material, no vertex weights). `Mesh::parse_static` tries the static layout first and falls back to this one.

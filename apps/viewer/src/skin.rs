@@ -365,9 +365,8 @@ mod tests {
     fn rest_pose_without_a_clip_leaves_the_bind_pose() {
         // A root at the origin whose inverse bind undoes nothing: identity skinning.
         let skeleton = Skeleton {
-            helper_count: 0,
-            dummy_count: 0,
             bones: vec![bone(None, [0.0; 3])],
+            ..Default::default()
         };
         let m = pose(&skeleton, None, 0.0, &[]);
         assert!(m[0].abs_diff_eq(Mat4::IDENTITY, 1e-6));
@@ -378,9 +377,8 @@ mod tests {
         // A root at the origin and a child 10 along x; halving the root's length
         // brings the child to 5, while the child keeps its own scale (1).
         let skeleton = Skeleton {
-            helper_count: 0,
-            dummy_count: 0,
             bones: vec![bone(None, [0.0; 3]), bone(Some(0), [10.0, 0.0, 0.0])],
+            ..Default::default()
         };
         let m = pose(&skeleton, None, 0.0, &[[0.5, 1.0, 1.0], [1.0; 3]]);
         // The child's inverse bind is identity here, so its matrix maps the
@@ -403,9 +401,8 @@ mod tests {
             morph: Vec::new(),
             influences: vec![([0, 1, 0, 0], [0.5, 0.5, 0.0, 0.0])],
             skeleton: Skeleton {
-                helper_count: 0,
-                dummy_count: 0,
                 bones: Vec::new(),
+                ..Default::default()
             },
         };
         let bind = [ModelVertex {

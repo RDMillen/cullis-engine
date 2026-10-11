@@ -12,6 +12,10 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): door frames and windows created by buildings
+
+- Ross saw doorways without frames. The door mesh is only the leaves; buildings create their door frames and windows at `CREATEOBJECT <definition>` dummies in their mesh header (`docs/formats/mesh.md`). Static mesh headers now parse (all 2,583) with their dummies; the viewer places the objects they create (148 in StartOakVale): carved frames around every door, glazed windows in the walls.
+
 ## 2026-10-11 (later): doors and collisions
 
 - Doors (`CTCDoor` things) are skinned and posed by their `DOOR_OPEN`/`DOOR_CLOSE` animations (played once, holding the last frame), starting in their `Open` state. A closed door blocks a 0.5-unit strip across its doorway; **E** opens or closes the nearest door within 2 units. Checked on the Inn door: the Hero stops at it closed, it swings open inward, he walks through.

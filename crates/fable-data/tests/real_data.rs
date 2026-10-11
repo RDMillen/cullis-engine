@@ -332,6 +332,7 @@ fn static_meshes_parse_and_reference_real_textures() {
         .read_index(&mut file)
         .unwrap();
     let (mut parsed, mut failed, mut triangles) = (0, Vec::new(), 0usize);
+    let (mut headers, mut created) = (0, 0);
     for entry in index
         .entries
         .iter()
@@ -340,6 +341,10 @@ fn static_meshes_parse_and_reference_real_textures() {
         let data = entry.read_data(&mut file).unwrap();
         match Mesh::parse_static(&entry.info, &data) {
             Ok(mesh) => {
+                if let Some(skeleton) = mesh.skeleton() {
+                    headers += 1;
+                    created += skeleton.created_objects().len();
+                }
                 for lod in &mesh.lods {
                     for m in &lod.materials {
                         for t in [m.texture, m.second_texture] {
@@ -363,11 +368,16 @@ fn static_meshes_parse_and_reference_real_textures() {
         }
     }
     eprintln!(
-        "{parsed} static meshes parsed ({triangles} triangles), {} failed, e.g. {:?}",
+        "{parsed} static meshes parsed ({triangles} triangles), {headers} headers \
+         ({created} CREATEOBJECT dummies), {} failed, e.g. {:?}",
         failed.len(),
         &failed[..failed.len().min(3)]
     );
     assert!(failed.is_empty(), "{failed:?}");
+    assert!(
+        headers * 100 >= parsed * 99,
+        "{headers} of {parsed} headers"
+    );
 }
 
 #[test]

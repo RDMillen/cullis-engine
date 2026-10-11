@@ -81,7 +81,22 @@ impl MeshInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mesh {
     pub info: MeshInfo,
+    /// Static meshes: the header before the levels of detail, laid out as a
+    /// skeleton with no bones: its helpers and dummies (where a building creates
+    /// its door frames and windows). Skinned and rigged meshes keep theirs in
+    /// each level ([`Lod::skeleton`]).
+    pub header: Option<Skeleton>,
     pub lods: Vec<Lod>,
+}
+
+impl Mesh {
+    /// The helpers and dummies of the mesh: its header, or its first level's
+    /// skeleton.
+    pub fn skeleton(&self) -> Option<&Skeleton> {
+        self.header
+            .as_ref()
+            .or_else(|| self.lods.first()?.skeleton.as_ref())
+    }
 }
 
 impl Mesh {
@@ -94,6 +109,7 @@ impl Mesh {
             offset: 0,
             reason: format!("levels of detail ({total} bytes) larger than the entry"),
         })?;
+        let header = Skeleton::parse(&mut Reader::new(&data[..at])).ok();
         // The entry starts with the mesh name; each level of detail ends with a
         // trailer that starts with it again.
         let name = &data[..data.iter().position(|&b| b == 0).unwrap_or(0)];
@@ -102,7 +118,7 @@ impl Mesh {
             lods.push(Lod::parse(&data[at..at + size as usize], name).map_err(|e| shift(e, at))?);
             at += size as usize;
         }
-        Ok(Self { info, lods })
+        Ok(Self { info, header, lods })
     }
 
     /// Parses a skinned mesh entry. Each level of detail is self-contained (it
@@ -134,7 +150,11 @@ impl Mesh {
             lods.push(Lod::parse_skinned(block, layout).map_err(|e| shift(e, at))?);
             at += size as usize;
         }
-        Ok(Self { info, lods })
+        Ok(Self {
+            info,
+            header: None,
+            lods,
+        })
     }
 }
 
@@ -199,12 +219,49 @@ pub struct Lod {
 }
 
 /// The bones of a skinned mesh, parents before children.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Skeleton {
-    /// Attachment points and dummies (`focus_camera_01`, `WEAPON`, …); not decoded.
+    /// Attachment points (`focus_camera_01`, `focus_chimney_01`); not decoded.
     pub helper_count: u16,
     pub dummy_count: u16,
+    /// Names of the helpers and dummies (`WEAPON`, `CREATEOBJECT
+    /// OBJECT_BUILDING_DOORFRAME_OAKVALE_01`); a dummy refers to one by hash.
+    pub helper_names: Vec<String>,
+    pub dummies: Vec<Dummy>,
     pub bones: Vec<Bone>,
+}
+
+/// A named point in a mesh. `CREATEOBJECT <definition>` dummies are where the game
+/// creates objects as part of the mesh: a building's door frames and windows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dummy {
+    /// [`crate::defs::name_hash`] of its name in [`Skeleton::helper_names`].
+    pub name_hash: u32,
+    /// 3 rows of a rotation acting on column vectors.
+    pub rotation: [[f32; 3]; 3],
+    /// In mesh units.
+    pub position: [f32; 3],
+    /// `0xffffffff` in every dummy looked at (perhaps a parent).
+    pub unknown: u32,
+}
+
+impl Skeleton {
+    /// The name of `dummy`, if it is among the helper names.
+    pub fn dummy_name(&self, dummy: &Dummy) -> Option<&str> {
+        self.helper_names
+            .iter()
+            .find(|n| crate::defs::name_hash(n) == dummy.name_hash)
+            .map(String::as_str)
+    }
+
+    /// The objects the mesh creates: (definition name, dummy) for each
+    /// `CREATEOBJECT` dummy.
+    pub fn created_objects(&self) -> Vec<(&str, &Dummy)> {
+        self.dummies
+            .iter()
+            .filter_map(|d| Some((self.dummy_name(d)?.strip_prefix("CREATEOBJECT ")?.trim(), d)))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,8 +351,29 @@ impl Skeleton {
         let helper_names = r.u32()? as usize;
         let _zero = r.array().map(u16::from_le_bytes)?;
         optional_stream(r, usize::from(helper_count) * 20)?;
-        optional_stream(r, usize::from(dummy_count) * 56)?;
-        optional_stream(r, helper_names)?;
+        let dummy_bytes = optional_stream(r, usize::from(dummy_count) * 56)?;
+        let helper_names = optional_stream(r, helper_names)?
+            .split(|&b| b == 0)
+            .filter(|n| n.len() > 1)
+            .map(latin1)
+            .collect();
+        let word = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+        let dummies = dummy_bytes
+            .as_chunks::<56>()
+            .0
+            .iter()
+            .map(|d| {
+                let f = |i: usize| f32::from_bits(word(d, 4 + 4 * i));
+                Dummy {
+                    name_hash: word(d, 0),
+                    rotation: std::array::from_fn(|row| {
+                        std::array::from_fn(|col| f(row * 3 + col))
+                    }),
+                    position: [f(9), f(10), f(11)],
+                    unknown: word(d, 52),
+                }
+            })
+            .collect();
         let _unknown = [r.u32()?, r.u32()?];
         let count = r.u32()? as usize;
         let names_len = r.u32()? as usize;
@@ -341,6 +419,8 @@ impl Skeleton {
         Ok(Self {
             helper_count,
             dummy_count,
+            helper_names,
+            dummies,
             bones,
         })
     }
@@ -856,12 +936,11 @@ mod tests {
             scale: [1.0; 3],
         };
         let skeleton = Skeleton {
-            helper_count: 0,
-            dummy_count: 0,
             bones: vec![
                 bone(None, [0.0, 0.0, -s, s], [0.0, 0.0, 100.0]),
                 bone(Some(0), [0.0, 0.0, 0.0, 1.0], [10.0, 0.0, 0.0]),
             ],
+            ..Default::default()
         };
         let pose = skeleton.rest_pose();
         let child = [pose[1][0][3], pose[1][1][3], pose[1][2][3]];

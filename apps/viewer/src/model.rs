@@ -103,6 +103,9 @@ struct LocalMesh {
     draws: Vec<Draw>,
     /// Skinned meshes: per vertex, 4 skeleton bones and weights, and the skeleton.
     skin: Option<Skin>,
+    /// Objects the mesh creates (`CREATEOBJECT` dummies): definition name and
+    /// where, in the mesh's own space.
+    creates: Vec<(String, Mat4)>,
 }
 
 /// What a skinned mesh needs to be posed: per vertex, 4 skeleton bone indices and
@@ -280,8 +283,27 @@ impl ModelBuilder {
         } else {
             Mesh::parse_static(&entry.info, &data)?
         };
+        let creates = mesh
+            .skeleton()
+            .map(|s| {
+                s.created_objects()
+                    .into_iter()
+                    .map(|(name, d)| {
+                        let r = d.rotation;
+                        let m = Mat4::from_cols(
+                            Vec3::new(r[0][0], r[1][0], r[2][0]).extend(0.0),
+                            Vec3::new(r[0][1], r[1][1], r[2][1]).extend(0.0),
+                            Vec3::new(r[0][2], r[1][2], r[2][2]).extend(0.0),
+                            Vec3::from_array(d.position).extend(1.0),
+                        );
+                        (name.to_owned(), m)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let lod = &mesh.lods[0];
         let mut local = LocalMesh {
+            creates,
             vertices: Vec::new(),
             indices: Vec::new(),
             draws: Vec::new(),
@@ -346,6 +368,40 @@ impl ModelBuilder {
             }
         }
         Ok(local)
+    }
+
+    /// The objects mesh `id` creates (if it was added), with their transforms in
+    /// the mesh's space.
+    fn creates(&self, id: u32) -> Vec<(String, Mat4)> {
+        self.meshes
+            .get(&id)
+            .and_then(Option::as_ref)
+            .map(|m| m.creates.clone())
+            .unwrap_or_default()
+    }
+
+    /// Adds the objects mesh `id`, placed with `transform`, creates, and theirs
+    /// (two levels), resolving definition names to meshes with `resolve`.
+    fn add_created(
+        &mut self,
+        id: u32,
+        transform: Mat4,
+        resolve: &dyn Fn(&str) -> Vec<u32>,
+        depth: u32,
+    ) -> usize {
+        if depth == 0 {
+            return 0;
+        }
+        let mut added = 0;
+        for (name, local) in self.creates(id) {
+            for mesh in resolve(&name) {
+                let t = transform * local;
+                if self.add(mesh, t) {
+                    added += 1 + self.add_created(mesh, t, resolve, depth - 1);
+                }
+            }
+        }
+        added
     }
 
     /// The skin of mesh `id`, if it was added and is skinned. Its influences follow
@@ -436,10 +492,13 @@ pub fn skinned_model(
 }
 
 /// Loads every placement into one model in world space.
+/// `resolve` gives the meshes of an object definition, for the objects meshes
+/// create at their `CREATEOBJECT` dummies (a building's door frames and windows).
 pub fn load_placements(
     data_dir: &Path,
     name: &str,
     placements: &[Placement],
+    resolve: &dyn Fn(&str) -> Vec<u32>,
 ) -> Result<(ModelData, Vec<Building>), Error> {
     let mut builder = ModelBuilder::open(data_dir, name)?;
     let mut buildings: HashMap<u64, Building> = HashMap::new();
@@ -472,7 +531,14 @@ pub fn load_placements(
             }
         }
     }
-    eprintln!("{name}: placed {placed} of {} meshes", placements.len());
+    let mut created = 0;
+    for p in placements {
+        created += builder.add_created(p.mesh, p.transform(), resolve, 2);
+    }
+    eprintln!(
+        "{name}: placed {placed} of {} meshes, and {created} they create",
+        placements.len()
+    );
     let buildings = buildings
         .into_values()
         .filter(|b| !b.roof_draws.is_empty() && b.interior_lo.x <= b.interior_hi.x)

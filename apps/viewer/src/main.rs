@@ -182,7 +182,13 @@ impl Scene {
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
-                let (things, buildings) = model::load_placements(data_dir, name, &placements)?;
+                let resolve = |object: &str| {
+                    defs.get(object)
+                        .map(|d| defs.meshes_of(d))
+                        .unwrap_or_default()
+                };
+                let (things, buildings) =
+                    model::load_placements(data_dir, name, &placements, &resolve)?;
                 renderer.buildings = buildings;
                 let status = format!(
                     "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",
