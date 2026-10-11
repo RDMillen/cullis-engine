@@ -1,8 +1,8 @@
 # CullisEngine
 
-An open-source, clean-room reimplementation of the **Fable: The Lost Chapters** engine for desktop PCs, written in Rust. A PS Vita port is planned as a separate project that will build on this one.
+An open-source, clean-room reimplementation of the Fable: The Lost Chapters engine for desktop PCs, written in Rust. A PS Vita port is planned as a separate project that will build on this one.
 
-**Requires the original game.** CullisEngine ships no game data. It reads files from your own legally owned PC install.
+Requires the original game. CullisEngine ships no game data. It reads files from your own legally owned PC install.
 
 ## Status
 
