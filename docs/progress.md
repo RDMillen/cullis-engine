@@ -12,6 +12,11 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): the game's text
+
+- `lang/English/text.big` decoded (`fable_data::strings`, `docs/formats/strings.md`): 26,807 strings (UTF-16 text, voice bank, speaker, identifier, tags), 2,105 groups of alternatives, the 379-name `[NarratorList]`. All region display names resolve.
+- Viewer: regions show the game's names ("Oakvale (StartOakVale)", "Bowerstone South (BowerstoneSlums)"), including on the loading screen; a Text tab searches every string by name or content and shows its text, speaker, voice bank and tags.
+
 ## 2026-10-11 (later): animation blending
 
 - The animator crossfades over 0.25 s when it switches clips (smoothstep weight; rotations interpolated the short way, positions linearly), so the Hero, the creatures and doors no longer snap between idle, walk, run and fidgets. A door's resting pose at load still jumps straight to its state.

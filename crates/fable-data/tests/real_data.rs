@@ -622,6 +622,52 @@ fn every_bone_config_parses_with_sane_scales() {
 
 #[test]
 #[ignore]
+fn text_bank_parses_with_consistent_names() {
+    use fable_data::strings::TextBank;
+    use fable_data::wld::Wld;
+
+    let text = TextBank::open(&data_dir(), "English").unwrap();
+    assert!(text.strings.len() > 20_000, "{}", text.strings.len());
+    for (&id, entry) in &text.strings {
+        assert_eq!(Some(entry.identifier.as_str()), text.name(id), "entry {id}");
+        assert!(
+            entry.speaker.is_empty() || text.narrators.contains(&entry.speaker),
+            "{} speaker {}",
+            entry.identifier,
+            entry.speaker
+        );
+    }
+    for (id, group) in &text.groups {
+        assert!(
+            group.iter().all(|g| text.strings.contains_key(g)),
+            "group {id}"
+        );
+    }
+    // Every region with a display name has its text.
+    let wld = Wld::open(data_dir().join("Levels/FinalAlbion.wld")).unwrap();
+    let names = wld
+        .regions
+        .iter()
+        .filter(|r| r.display_name.starts_with("TXT_"))
+        .filter(|r| text.get(&r.display_name).is_some_and(|t| !t.is_empty()))
+        .count();
+    let all = wld
+        .regions
+        .iter()
+        .filter(|r| r.display_name.starts_with("TXT_"))
+        .count();
+    eprintln!(
+        "{} strings, {} groups, {} speakers; {names} of {all} region names",
+        text.strings.len(),
+        text.groups.len(),
+        text.narrators.len()
+    );
+    assert_eq!(text.get("TXT_REGION_OAKVALE"), Some("Oakvale"));
+    assert!(names * 10 >= all * 9);
+}
+
+#[test]
+#[ignore]
 fn every_tng_parses_and_places_its_buildings() {
     use fable_data::tng::Tng;
 

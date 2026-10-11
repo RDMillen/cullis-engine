@@ -17,6 +17,7 @@ pub mod mesh;
 pub mod nav;
 mod reader;
 pub mod stb;
+pub mod strings;
 mod text;
 pub mod texture;
 pub mod tng;

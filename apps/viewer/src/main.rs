@@ -792,6 +792,7 @@ enum ListMode {
     Regions,
     Meshes,
     Textures,
+    Text,
 }
 
 /// A texture shown in place of the 3D view.
@@ -835,6 +836,11 @@ struct ViewerApp {
     textures: model::TextureBank,
     texture_names: Vec<(u32, String)>,
     texture_view: Option<TextureView>,
+    /// The game's text (`lang/English/text.big`), if it loaded.
+    text: Option<fable_data::strings::TextBank>,
+    /// Entry names of the text, sorted, and the one shown.
+    text_names: Vec<String>,
+    text_view: Option<String>,
     /// The walking Hero, when walk mode is on.
     walker: Option<walk::Hero>,
     /// Preferred camera distance in walk mode (the scroll wheel changes it).
@@ -876,6 +882,13 @@ impl ViewerApp {
             Subject::Mesh(_) => ListMode::Meshes,
         };
         let textures = model::TextureBank::open(&data_dir)?;
+        let text = fable_data::strings::TextBank::open(&data_dir, "English")
+            .map_err(|e| eprintln!("text: {e}"))
+            .ok();
+        let text_names = text
+            .as_ref()
+            .map(|t| t.names().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
         let gtg = load_gtg(&data_dir)?;
         let texture_names = textures.names();
         Ok(Self {
@@ -884,6 +897,9 @@ impl ViewerApp {
             mesh_names,
             texture_names,
             texture_view: None,
+            text,
+            text_names,
+            text_view: None,
             walker: None,
             follow_distance: 6.0,
             gtg,
@@ -1018,7 +1034,8 @@ impl ViewerApp {
         let mut chosen = None;
         let mut chosen_texture = None;
         let title = match &self.subject {
-            Subject::Region(n) | Subject::Mesh(n) => n.clone(),
+            Subject::Region(n) => self.region_title(n),
+            Subject::Mesh(n) => n.clone(),
         };
         ui.heading(title);
         ui.label(&self.status);
@@ -1047,17 +1064,19 @@ impl ViewerApp {
             ui.selectable_value(&mut self.list, ListMode::Regions, "Regions");
             ui.selectable_value(&mut self.list, ListMode::Meshes, "Meshes");
             ui.selectable_value(&mut self.list, ListMode::Textures, "Textures");
+            ui.selectable_value(&mut self.list, ListMode::Text, "Text");
         });
         ui.text_edit_singleline(&mut self.filter);
         let filter = self.filter.to_ascii_uppercase();
         egui::ScrollArea::vertical().show(ui, |ui| match self.list {
             ListMode::Regions => {
                 for r in &self.wld.regions {
-                    if !r.name.to_ascii_uppercase().contains(&filter) {
+                    let label = self.region_title(&r.name);
+                    if !label.to_ascii_uppercase().contains(&filter) {
                         continue;
                     }
                     let current = self.subject == Subject::Region(r.name.clone());
-                    if ui.selectable_label(current, &r.name).clicked() {
+                    if ui.selectable_label(current, label).clicked() {
                         chosen = Some(Subject::Region(r.name.clone()));
                     }
                 }
@@ -1071,6 +1090,23 @@ impl ViewerApp {
                     let current = self.texture_view.as_ref().is_some_and(|t| t.id == *id);
                     if ui.selectable_label(current, name).clicked() {
                         chosen_texture = Some(*id);
+                    }
+                }
+            }
+            ListMode::Text => {
+                // Names, or text containing the search, up to a few hundred.
+                let text = self.text.as_ref();
+                let matches = self.text_names.iter().filter(|n| {
+                    n.contains(&filter)
+                        || (filter.len() > 2
+                            && text
+                                .and_then(|t| t.get(n))
+                                .is_some_and(|s| s.to_ascii_uppercase().contains(&filter)))
+                });
+                for name in matches.take(500) {
+                    let current = self.text_view.as_deref() == Some(name.as_str());
+                    if ui.selectable_label(current, name).clicked() {
+                        self.text_view = Some(name.clone());
                     }
                 }
             }
@@ -1088,6 +1124,26 @@ impl ViewerApp {
 }
 
 impl ViewerApp {
+    /// A region's name in the game's text (`TXT_REGION_OAKVALE` -> "Oakvale"), or
+    /// its own name.
+    fn region_display_name(&self, region: &str) -> String {
+        self.wld
+            .region(region)
+            .and_then(|r| self.text.as_ref()?.get(&r.display_name))
+            .filter(|t| !t.is_empty())
+            .map_or_else(|| region.to_owned(), str::to_owned)
+    }
+
+    /// "Oakvale (OakBay)": the game's name and the wld's.
+    fn region_title(&self, region: &str) -> String {
+        let shown = self.region_display_name(region);
+        if shown == region {
+            shown
+        } else {
+            format!("{shown} ({region})")
+        }
+    }
+
     /// Spawns or removes the Hero when the walk checkbox changes.
     fn update_walk_mode(&mut self, rs: &egui_wgpu::RenderState) {
         let Scene::Terrain(renderer) = &mut self.scene else {
@@ -1244,7 +1300,8 @@ impl eframe::App for ViewerApp {
         if self.finish_load(&rs) {
             // The loading screen: the region's name while it loads.
             let name = match &self.loading.as_ref().unwrap().subject {
-                Subject::Region(n) | Subject::Mesh(n) => n.clone(),
+                Subject::Region(n) => self.region_display_name(n),
+                Subject::Mesh(n) => n.clone(),
             };
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
@@ -1280,6 +1337,49 @@ impl eframe::App for ViewerApp {
             self.take_exit(&rs, connection);
         }
         self.update_walk_mode(&rs);
+        if self.list == ListMode::Text
+            && let (Some(name), Some(text)) = (&self.text_view, &self.text)
+        {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.heading(name);
+                let id = text.id(name);
+                let members: Vec<u32> = match id.and_then(|i| text.groups.get(&i)) {
+                    Some(group) => {
+                        ui.label(format!("A group of {} alternatives:", group.len()));
+                        group.clone()
+                    }
+                    None => id.into_iter().collect(),
+                };
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for m in members {
+                        let Some(e) = text.strings.get(&m) else {
+                            continue;
+                        };
+                        ui.separator();
+                        let mut details = Vec::new();
+                        if !e.speaker.is_empty() {
+                            details.push(format!("speaker {}", e.speaker));
+                        }
+                        if !e.sound_bank.is_empty() {
+                            details.push(format!("voice in {}", e.sound_bank));
+                        }
+                        if !e.tags.is_empty() {
+                            details.push(e.tags.join(", "));
+                        }
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{}  {}",
+                                e.identifier,
+                                details.join(" · ")
+                            ))
+                            .weak(),
+                        );
+                        ui.label(egui::RichText::new(&e.text).size(16.0));
+                    }
+                });
+            });
+            return;
+        }
         if self.list == ListMode::Textures
             && let Some(view) = &self.texture_view
         {
