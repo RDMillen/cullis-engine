@@ -12,6 +12,10 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): roofs hidden indoors
+
+- A building's `CMultiStaticMeshDef` flags each mesh as exterior or interior (`docs/formats/defs.md`). The viewer records each building's exterior draws and triangles and its interior's box; while the Hero is inside the box, the exterior (walls and roof) is not drawn and camera rays ignore it, so the camera looks into single-storey houses from above. In two-storey buildings (the Inn) the upper floor, part of the interior, still keeps the camera low.
+
 ## 2026-10-11 (later): NPCs
 
 - Creatures (`AICreature` things) keep their placement in `CTCPhysicsNavigator`; `Thing::position` now reads it. Their `Graphic` uses value tag 4 (skinned meshes), as do beds and doors, which now also render.

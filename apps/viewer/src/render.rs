@@ -86,6 +86,10 @@ pub struct TerrainRenderer {
     pub things: Option<ModelRenderer>,
     /// The walking Hero and its model-to-world transform.
     pub hero: Option<(ModelRenderer, Mat4)>,
+    /// Buildings with interiors, and the one the Hero is inside (its exterior is
+    /// hidden).
+    pub buildings: Vec<crate::model::Building>,
+    pub inside: Option<usize>,
     /// Creatures standing in the region.
     pub npcs: Vec<crate::npc::Npc>,
     /// Plays the Hero's animations, when his mesh is skinned.
@@ -160,6 +164,25 @@ fn layer_array(
 }
 
 impl TerrainRenderer {
+    /// Triangles camera rays should ignore: the hidden exterior, if any.
+    pub fn hidden_triangles(&self) -> std::ops::Range<u32> {
+        self.inside
+            .map_or(0..0, |i| self.buildings[i].exterior_triangles.clone())
+    }
+
+    /// Hides the exterior of the building whose interior contains `p`, and
+    /// shows it again once `p` leaves.
+    pub fn update_interior(&mut self, p: glam::Vec3) {
+        let inside = self.buildings.iter().position(|b| b.contains(p));
+        if inside == self.inside {
+            return;
+        }
+        self.inside = inside;
+        if let Some(things) = &mut self.things {
+            things.set_hidden(inside.map_or(0..0, |i| self.buildings[i].exterior_draws.clone()));
+        }
+    }
+
     /// Replaces the navigation overlay.
     pub fn set_navigation(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u32]) {
         self.nav =
@@ -373,6 +396,8 @@ impl TerrainRenderer {
             hero: None,
             hero_animator: None,
             npcs: Vec::new(),
+            buildings: Vec::new(),
+            inside: None,
             colliders: None,
             exits: mesh.exits.clone(),
             walk: mesh.walk.clone(),

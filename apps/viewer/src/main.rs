@@ -140,7 +140,8 @@ impl Scene {
                     None => None,
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
-                let things = model::load_placements(data_dir, name, &placements)?;
+                let (things, buildings) = model::load_placements(data_dir, name, &placements)?;
+                renderer.buildings = buildings;
                 let status = format!(
                     "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",
                     mesh.maps,
@@ -370,6 +371,10 @@ fn pose_and_frame(
             args.anim_time
         );
     }
+    renderer.update_interior(hero.position);
+    if let Some(i) = renderer.inside {
+        eprintln!("inside building {i} (exterior hidden)");
+    }
     let distance = camera.distance.clamp(3.0, 12.0);
     follow(camera, hero, renderer, distance);
     eprintln!("hero at {}", hero.position);
@@ -498,6 +503,7 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRendere
         (-right - up) * d,
     ];
     let mut nearest = distance;
+    let skip = renderer.hidden_triangles();
     for offset in offsets {
         let to = camera.target + back * (distance + MARGIN) + offset * RADIUS;
         let (dir, len) = (
@@ -508,7 +514,7 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRendere
             renderer
                 .colliders
                 .as_ref()
-                .and_then(|c| c.ray(camera.target, dir, len)),
+                .and_then(|c| c.ray(camera.target, dir, len, &skip)),
             renderer
                 .heights
                 .as_ref()
@@ -809,6 +815,7 @@ impl ViewerApp {
         };
         animate_hero(renderer, queue, clip, dt);
         ui.ctx().request_repaint();
+        renderer.update_interior(hero.position);
         follow(&mut self.camera, hero, renderer, self.follow_distance);
         match exit_at(renderer, hero) {
             Some(connection) if self.exits_armed => self.pending_exit = Some(connection),

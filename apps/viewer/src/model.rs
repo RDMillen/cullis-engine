@@ -49,9 +49,21 @@ pub struct ModelData {
 
 type Error = Box<dyn std::error::Error>;
 
+/// Whether a placed mesh is part of a building, and which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshRole {
+    Plain,
+    /// A building's outer shell (walls and roof), hidden while the Hero is inside
+    /// that building (by its Tng UID).
+    Exterior(u64),
+    /// A building's interior (floors, stairs, inner walls).
+    Interior(u64),
+}
+
 /// A mesh placed in the world.
 #[derive(Debug, Clone, Copy)]
 pub struct Placement {
+    pub role: MeshRole,
     /// Mesh bank entry id.
     pub mesh: u32,
     pub position: Vec3,
@@ -365,14 +377,77 @@ pub fn load_placements(
     data_dir: &Path,
     name: &str,
     placements: &[Placement],
-) -> Result<ModelData, Error> {
+) -> Result<(ModelData, Vec<Building>), Error> {
     let mut builder = ModelBuilder::open(data_dir, name)?;
-    let placed = placements
-        .iter()
-        .filter(|p| builder.add(p.mesh, p.transform()))
-        .count();
+    let mut buildings: HashMap<u64, Building> = HashMap::new();
+    let mut placed = 0;
+    for p in placements {
+        let (draws, vertices, indices) = (
+            builder.model.draws.len(),
+            builder.model.vertices.len(),
+            builder.model.indices.len(),
+        );
+        if !builder.add(p.mesh, p.transform()) {
+            continue;
+        }
+        placed += 1;
+        let added = &builder.model.vertices[vertices..];
+        match p.role {
+            MeshRole::Plain => {}
+            MeshRole::Exterior(uid) => {
+                let b = buildings.entry(uid).or_default();
+                b.exterior_draws = draws..builder.model.draws.len();
+                b.exterior_triangles =
+                    (indices / 3) as u32..(builder.model.indices.len() / 3) as u32;
+            }
+            MeshRole::Interior(uid) => {
+                let b = buildings.entry(uid).or_default();
+                for v in added {
+                    let v = Vec3::from_array(v.position);
+                    b.interior_lo = b.interior_lo.min(v);
+                    b.interior_hi = b.interior_hi.max(v);
+                }
+            }
+        }
+    }
     eprintln!("{name}: placed {placed} of {} meshes", placements.len());
-    Ok(builder.finish())
+    let buildings = buildings
+        .into_values()
+        .filter(|b| !b.exterior_draws.is_empty() && b.interior_lo.x <= b.interior_hi.x)
+        .collect();
+    Ok((builder.finish(), buildings))
+}
+
+/// A building with an interior: its exterior's draws in the placed model, and the
+/// box its interior mesh spans.
+#[derive(Debug, Clone)]
+pub struct Building {
+    pub exterior_draws: std::ops::Range<usize>,
+    /// The exterior's triangles in the placed model (camera rays skip them while
+    /// it is hidden).
+    pub exterior_triangles: std::ops::Range<u32>,
+    pub interior_lo: Vec3,
+    pub interior_hi: Vec3,
+}
+
+impl Default for Building {
+    fn default() -> Self {
+        Self {
+            exterior_draws: 0..0,
+            exterior_triangles: 0..0,
+            interior_lo: Vec3::splat(f32::INFINITY),
+            interior_hi: Vec3::splat(f32::NEG_INFINITY),
+        }
+    }
+}
+
+impl Building {
+    /// Whether `p` is inside the interior's box, a little in from its walls.
+    pub fn contains(&self, p: Vec3) -> bool {
+        let margin = Vec3::new(0.3, 0.3, 0.0);
+        let (lo, hi) = (self.interior_lo + margin, self.interior_hi - margin);
+        p.x > lo.x && p.y > lo.y && p.x < hi.x && p.y < hi.y && p.z > lo.z - 1.0 && p.z < hi.z
+    }
 }
 
 pub(crate) struct TextureBank {
@@ -436,6 +511,8 @@ pub struct ModelRenderer {
     uniform_group: wgpu::BindGroup,
     texture_groups: Vec<wgpu::BindGroup>,
     draws: Vec<(u32, u32, usize)>,
+    /// Draws skipped (an exterior hidden while the Hero is inside).
+    hidden: std::ops::Range<usize>,
     pub target: Option<Target>,
 }
 
@@ -606,6 +683,7 @@ impl ModelRenderer {
                 .iter()
                 .map(|d| (d.first, d.count, d.image))
                 .collect(),
+            hidden: 0..0,
             target: None,
         }
     }
@@ -671,9 +749,17 @@ impl ModelRenderer {
         pass.set_bind_group(0, &self.uniform_group, &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-        for &(first, count, image) in &self.draws {
+        for (i, &(first, count, image)) in self.draws.iter().enumerate() {
+            if self.hidden.contains(&i) {
+                continue;
+            }
             pass.set_bind_group(1, &self.texture_groups[image], &[]);
             pass.draw_indexed(first..first + count, 0, 0..1);
         }
+    }
+
+    /// Skips the draws in `range` (empty to show everything).
+    pub fn set_hidden(&mut self, range: std::ops::Range<usize>) {
+        self.hidden = range;
     }
 }

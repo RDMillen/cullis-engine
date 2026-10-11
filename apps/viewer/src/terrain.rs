@@ -14,7 +14,7 @@ use fable_data::tng::Tng;
 use fable_data::wld::Wld;
 use glam::{Vec2, Vec3};
 
-use crate::model::Placement;
+use crate::model::{MeshRole, Placement};
 use crate::walk::{HeightGrid, WalkGrid};
 
 #[repr(C)]
@@ -444,6 +444,7 @@ fn load_placements(
                 uid: t.uid().unwrap_or(0),
                 parts: defs.creature_parts(def),
                 placement: Placement {
+                    role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,
                     position: origin + Vec3::from_array(t.position()?),
                     forward: Vec3::from_array(t.forward()?),
@@ -459,12 +460,22 @@ fn load_placements(
         .filter_map(|t| {
             let def = defs.get(t.definition()?)?;
             let (position, forward, up) = (t.position()?, t.forward()?, t.up()?);
-            Some(defs.meshes_of(def).into_iter().map(move |mesh| Placement {
-                mesh,
-                position: origin + Vec3::from_array(position),
-                forward: Vec3::from_array(forward),
-                up: Vec3::from_array(up),
-            }))
+            let uid = t.uid().unwrap_or(0);
+            Some(
+                defs.mesh_entries_of(def)
+                    .into_iter()
+                    .map(move |e| Placement {
+                        role: match (e.exterior, e.interior) {
+                            (true, _) => MeshRole::Exterior(uid),
+                            (_, true) => MeshRole::Interior(uid),
+                            _ => MeshRole::Plain,
+                        },
+                        mesh: e.mesh,
+                        position: origin + Vec3::from_array(position),
+                        forward: Vec3::from_array(forward),
+                        up: Vec3::from_array(up),
+                    }),
+            )
         })
         .flatten()
         .collect();

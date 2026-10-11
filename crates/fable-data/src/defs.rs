@@ -173,7 +173,30 @@ impl Def {
     /// building's exterior and interior (`MESH_OAKVALE_HOUSE_03` and
     /// `MESH_OAKVALE_HOUSE_INSIDE_03` for `BUILDING_OAKVALE_HOUSE_LARGE`).
     pub fn static_meshes(&self) -> Vec<u32> {
-        self.values_after("Mesh")
+        self.static_mesh_entries().iter().map(|e| e.mesh).collect()
+    }
+
+    /// The `Mesh` entries of a `CMultiStaticMeshDef` with their exterior and
+    /// interior flags (each a field hash and a byte, within the next 20 bytes).
+    pub fn static_mesh_entries(&self) -> Vec<StaticMeshEntry> {
+        let r = &self.record;
+        let flag = |from: usize, field: u32| {
+            let hash = field.to_le_bytes();
+            let end = (from + 24).min(r.len());
+            r.get(from..end)?
+                .windows(5)
+                .find(|w| w[..4] == hash)
+                .map(|w| w[4] == 1)
+        };
+        let hash = name_hash("Mesh").to_le_bytes();
+        (0..r.len().saturating_sub(7))
+            .filter(|&i| r[i..i + 4] == hash)
+            .map(|i| StaticMeshEntry {
+                mesh: u32::from_le_bytes(r[i + 4..i + 8].try_into().unwrap()),
+                exterior: flag(i + 8, EXTERIOR_FLAG_FIELD).unwrap_or(false),
+                interior: flag(i + 8, INTERIOR_FLAG_FIELD).unwrap_or(false),
+            })
+            .collect()
     }
 
     /// Mesh bank entry id from the `Graphic` field, if the definition has one
@@ -183,6 +206,21 @@ impl Def {
             .or_else(|| self.find_u32("Graphic", SKINNED_GRAPHIC_VALUE_TAG))
     }
 }
+
+/// One mesh of a `CMultiStaticMeshDef` (a building's exterior or interior).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaticMeshEntry {
+    pub mesh: u32,
+    /// Field `0x7ca90715`: 1 on the exterior (`MESH_OAKVALE_HOUSE_03`), 0 on the
+    /// interior. Presumably what is hidden when the player goes inside.
+    pub exterior: bool,
+    /// Field `0x97595fc1`: 1 on the interior (`MESH_OAKVALE_HOUSE_INSIDE_03`).
+    pub interior: bool,
+}
+
+/// Field hashes after each `Mesh` of a `CMultiStaticMeshDef` (names unknown).
+const EXTERIOR_FLAG_FIELD: u32 = 0x7ca9_0715;
+const INTERIOR_FLAG_FIELD: u32 = 0x9759_5fc1;
 
 /// One choice for a body part of a built-up creature (villagers, guards,
 /// children): a skinned mesh and texture swaps for it.
@@ -418,14 +456,27 @@ impl Defs {
     /// component if it has one (buildings: exterior and interior), else its
     /// `Graphic`.
     pub fn meshes_of(&self, def: &Def) -> Vec<u32> {
+        self.mesh_entries_of(def).iter().map(|e| e.mesh).collect()
+    }
+
+    /// As [`Defs::meshes_of`], with each mesh's exterior/interior flags (both
+    /// false for a lone `Graphic`).
+    pub fn mesh_entries_of(&self, def: &Def) -> Vec<StaticMeshEntry> {
         let multi = def
             .component("CMultiStaticMeshDef")
             .and_then(|i| self.defs.get(i))
             .filter(|c| self.type_name(c) == "CMultiStaticMeshDef")
-            .map(Def::static_meshes)
+            .map(Def::static_mesh_entries)
             .unwrap_or_default();
         if multi.is_empty() {
-            def.graphic().into_iter().collect()
+            def.graphic()
+                .into_iter()
+                .map(|mesh| StaticMeshEntry {
+                    mesh,
+                    exterior: false,
+                    interior: false,
+                })
+                .collect()
         } else {
             multi
         }
