@@ -12,6 +12,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): quest-state sections, depth fix
+
+- Ross saw bandits among the villagers and meshes changing as the camera or Hero moved.
+- Tng sections are quest states and village events (`docs/formats/tng.md`); the viewer was showing all of them at once. It now shows `NULL` plus a default per region (StartOakVale: `Q_NewOakValeIntro_PreAttack`); the side panel's "Quest state" list and `--section` switch others on (the raid's aftermath, Oak Bay's events). Pre-raid Oakvale: 630 meshes, 29 creatures, all load.
+- The camera's far plane was 10x its distance, so in walk mode (about 6 m, less after camera collision) meshes beyond 60 m, or a few metres, were clipped and popped in and out as the distance changed. Now fixed planes (0.05 to 5000) with reversed-Z depth (`Depth32Float` cleared to 0, `Greater`).
+
 ## 2026-10-11 (later): loading screen
 
 - The viewer loads regions (and meshes) on a background thread and shows "Loading <region>…" with a spinner meanwhile; for a region exit the Hero is placed at the entrance on that thread too. Checked in the window (captured with `xwd`): Oak Bay -> loading screen -> Barrow Fields, 4.4 s. A queued exit or `--walk-to` target does not carry into the new region.

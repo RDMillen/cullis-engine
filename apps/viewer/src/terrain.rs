@@ -36,6 +36,8 @@ const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
 /// World units: x and y as in the `.wld`, z is height.
 #[derive(Debug, Default)]
 pub struct TerrainMesh {
+    /// Every quest-state section the region's things use, besides `NULL`.
+    pub sections: BTreeSet<String>,
     /// Region exits in the maps the region contains.
     pub exits: Vec<RegionExit>,
     /// Creatures placed in the maps the region contains.
@@ -313,11 +315,32 @@ pub struct RegionExit {
 }
 
 /// Loads every map a region contains or sees.
+/// The quest-state sections a region shows by default, besides `NULL`. Tng things
+/// belong to sections: `NULL` (always there), quest states
+/// (`Q_NewOakValeIntro_PreAttack`, `Q__OakValeIntro_PostAttack`, the raid's
+/// bandits) and village events (`V_FisticuffsClubOnlyAtNight`). Which are active
+/// is the quest system's business; until there is one, the Prologue's Oakvale
+/// starts before the raid and other regions show `NULL` only.
+pub fn default_sections(region: &str) -> Vec<String> {
+    match region {
+        "StartOakVale" => vec!["Q_NewOakValeIntro_PreAttack".into()],
+        _ => Vec::new(),
+    }
+}
+
+/// Whether a thing in `section` is shown with `active` sections.
+fn section_active(section: &str, active: &[String]) -> bool {
+    section.is_empty() || section == "NULL" || active.iter().any(|a| a == section)
+}
+
+/// Loads every map a region contains or sees, with things from `NULL` and the
+/// `sections` given (see [`default_sections`]).
 pub fn load_region(
     data_dir: &Path,
     wld: &Wld,
     region: &str,
     defs: &Defs,
+    sections: &[String],
 ) -> Result<(TerrainMesh, Vec<Placement>), Box<dyn std::error::Error>> {
     let region = wld
         .region(region)
@@ -347,7 +370,15 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        let (placed, exits, creatures) = load_placements(&wad, &mut file, level, origin, defs)?;
+        let (placed, exits, creatures) = load_placements(
+            &wad,
+            &mut file,
+            level,
+            origin,
+            defs,
+            sections,
+            &mut mesh.sections,
+        )?;
         placements.extend(placed);
         if region.contains_maps.contains(level) {
             mesh.exits.extend(exits);
@@ -404,13 +435,21 @@ fn load_placements(
     level: &str,
     origin: Vec3,
     defs: &Defs,
+    sections: &[String],
+    found_sections: &mut BTreeSet<String>,
 ) -> Result<MapThings, Box<dyn std::error::Error>> {
     let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
     let Some(entry) = wad.index.by_name(&tng_name) else {
         return Ok((Vec::new(), Vec::new(), Vec::new()));
     };
     let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
-    let tng = Tng::parse(&text)?;
+    let mut tng = Tng::parse(&text)?;
+    for t in &tng.things {
+        if !t.section.is_empty() && t.section != "NULL" {
+            found_sections.insert(t.section.clone());
+        }
+    }
+    tng.things.retain(|t| section_active(&t.section, sections));
     let exits = tng
         .things
         .iter()

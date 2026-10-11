@@ -50,6 +50,9 @@ struct Args {
     walk: bool,
     /// Then walk him towards this point (x, y) before the screenshot.
     walk_to: Option<[f32; 2]>,
+    /// Tng sections (quest states) to show besides `NULL`; repeatable. Default:
+    /// the region's starting state (`terrain::default_sections`).
+    sections: Vec<String>,
     /// Pose the Hero with this animation (default: idle, or walk after
     /// `--walk-to`) at `anim_time` seconds.
     anim: Option<String>,
@@ -66,6 +69,7 @@ fn parse_args() -> Result<Args, Error> {
         nav: false,
         walk: false,
         walk_to: None,
+        sections: Vec::new(),
         anim: None,
         anim_time: 0.0,
         size: [1280, 800],
@@ -79,6 +83,7 @@ fn parse_args() -> Result<Args, Error> {
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--nav" => args.nav = true,
             "--walk" => args.walk = true,
+            "--section" => args.sections.push(value()?),
             "--anim" => {
                 args.anim = Some(value()?);
                 args.walk = true;
@@ -124,6 +129,7 @@ impl Scene {
         data_dir: &Path,
         wld: &Wld,
         subject: &Subject,
+        sections: &[String],
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(Self, OrbitCamera, String), Error> {
@@ -134,7 +140,8 @@ impl Scene {
                     &std::fs::read(data_dir.join("CompiledDefs/game.bin"))?,
                     &names,
                 )?;
-                let (mesh, placements) = terrain::load_region(data_dir, wld, name, &defs)?;
+                let (mesh, placements) =
+                    terrain::load_region(data_dir, wld, name, &defs, sections)?;
                 let (lo, hi) = mesh.bounds();
                 let themes = match &mesh.themes {
                     Some(grid) => Some(themes::load(data_dir, &grid.layers)?),
@@ -254,7 +261,12 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;
     eprintln!("adapter: {}", adapter.get_info().name);
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
-    let (mut scene, mut camera, status) = Scene::load(data_dir, wld, subject, &device, &queue)?;
+    let sections = match subject {
+        Subject::Region(name) if args.sections.is_empty() => terrain::default_sections(name),
+        _ => args.sections.clone(),
+    };
+    let (mut scene, mut camera, status) =
+        Scene::load(data_dir, wld, subject, &sections, &device, &queue)?;
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.show_nav = args.nav;
     }
@@ -309,7 +321,16 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         let (region, at, forward) =
             resolve_exit(wld, &gtg, connection).ok_or("exit leads nowhere")?;
         eprintln!("region exit -> {region} at {at}");
-        scene = Scene::load(data_dir, wld, &Subject::Region(region), &device, &queue)?.0;
+        let sections = terrain::default_sections(&region);
+        scene = Scene::load(
+            data_dir,
+            wld,
+            &Subject::Region(region),
+            &sections,
+            &device,
+            &queue,
+        )?
+        .0;
         let Scene::Terrain(renderer) = &mut scene else {
             return Err("not a region".into());
         };
@@ -548,23 +569,30 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                 .as_ref()
                 .ok_or("the wgpu renderer is not available")?;
             Ok(Box::new(
-                ViewerApp::new(rs, data_dir, wld, mesh_names, subject)
-                    .map(|mut app| {
-                        // --camera, --walk and --walk-to also work in the window:
-                        // the Hero then walks himself towards the point.
-                        if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
-                            app.camera = OrbitCamera {
-                                target: glam::Vec3::new(x, y, z),
-                                distance,
-                                yaw,
-                                pitch,
-                            };
-                        }
-                        app.want_walk = args.walk;
-                        app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
-                        app
-                    })
-                    .map_err(|e| e.to_string())?,
+                ViewerApp::new(
+                    rs,
+                    data_dir,
+                    wld,
+                    mesh_names,
+                    subject,
+                    args.sections.clone(),
+                )
+                .map(|mut app| {
+                    // --camera, --walk and --walk-to also work in the window:
+                    // the Hero then walks himself towards the point.
+                    if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
+                        app.camera = OrbitCamera {
+                            target: glam::Vec3::new(x, y, z),
+                            distance,
+                            yaw,
+                            pitch,
+                        };
+                    }
+                    app.want_walk = args.walk;
+                    app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
+                    app
+                })
+                .map_err(|e| e.to_string())?,
             ))
         }),
     )?;
@@ -619,6 +647,10 @@ struct Loaded {
 }
 
 struct ViewerApp {
+    /// The Tng sections (quest states) shown besides `NULL`.
+    sections: Vec<String>,
+    /// Sections chosen in the side panel; the region reloads with them.
+    reload_sections: Option<Vec<String>>,
     /// A scene being loaded in the background, shown as a loading screen.
     loading: Option<Loading>,
     /// A point the Hero walks himself towards (`--walk-to`), until he is there.
@@ -657,9 +689,14 @@ impl ViewerApp {
         wld: Wld,
         mesh_names: Vec<String>,
         subject: Subject,
+        sections: Vec<String>,
     ) -> Result<Self, Error> {
+        let sections = match &subject {
+            Subject::Region(name) if sections.is_empty() => terrain::default_sections(name),
+            _ => sections,
+        };
         let (scene, camera, status) =
-            Scene::load(&data_dir, &wld, &subject, &rs.device, &rs.queue)?;
+            Scene::load(&data_dir, &wld, &subject, &sections, &rs.device, &rs.queue)?;
         let list = match subject {
             Subject::Region(_) => ListMode::Regions,
             Subject::Mesh(_) => ListMode::Meshes,
@@ -678,6 +715,8 @@ impl ViewerApp {
             gtg,
             pending_exit: None,
             loading: None,
+            sections,
+            reload_sections: None,
             auto_walk: None,
             exits_armed: false,
             want_walk: false,
@@ -700,7 +739,9 @@ impl ViewerApp {
         rs: &egui_wgpu::RenderState,
         subject: Subject,
         arrival: Option<(glam::Vec3, glam::Vec3)>,
+        sections: Vec<String>,
     ) {
+        self.sections = sections.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let (data_dir, wld, device, queue) = (
             self.data_dir.clone(),
@@ -712,7 +753,7 @@ impl ViewerApp {
         std::thread::spawn(move || {
             let result = (|| -> Result<Loaded, Error> {
                 let (mut scene, mut camera, status) =
-                    Scene::load(&data_dir, &wld, &job, &device, &queue)?;
+                    Scene::load(&data_dir, &wld, &job, &sections, &device, &queue)?;
                 let mut hero = None;
                 if let (Some((at, forward)), Scene::Terrain(renderer)) = (arrival, &mut scene) {
                     let mut h = spawn_hero(renderer, &data_dir, &device, &queue, at.truncate())?
@@ -789,7 +830,8 @@ impl ViewerApp {
     fn take_exit(&mut self, rs: &egui_wgpu::RenderState, connection: u64) {
         match resolve_exit(&self.wld, &self.gtg, connection) {
             Some((region, at, forward)) => {
-                self.load(rs, Subject::Region(region), Some((at, forward)))
+                let sections = terrain::default_sections(&region);
+                self.load(rs, Subject::Region(region), Some((at, forward)), sections)
             }
             None => self.status = format!("region exit {connection:#x} leads nowhere"),
         }
@@ -808,6 +850,21 @@ impl ViewerApp {
         if let Scene::Terrain(renderer) = &mut self.scene {
             ui.checkbox(&mut renderer.show_nav, "Show navigation");
             ui.checkbox(&mut self.want_walk, "Walk (WASD, Shift runs)");
+            if !renderer.sections.is_empty() {
+                egui::CollapsingHeader::new("Quest state (Tng sections)").show(ui, |ui| {
+                    for section in &renderer.sections {
+                        let mut on = self.sections.contains(section);
+                        if ui.checkbox(&mut on, section).changed() {
+                            let mut next = self.sections.clone();
+                            next.retain(|s| s != section);
+                            if on {
+                                next.push(section.clone());
+                            }
+                            self.reload_sections = Some(next);
+                        }
+                    }
+                });
+            }
         }
         ui.separator();
         ui.horizontal(|ui| {
@@ -1012,10 +1069,17 @@ impl eframe::App for ViewerApp {
             .show(ui, |ui| self.side_panel(ui))
             .inner;
         if let Some(subject) = chosen.filter(|s| *s != self.subject) {
-            self.load(&rs, subject, None);
+            let sections = match &subject {
+                Subject::Region(name) => terrain::default_sections(name),
+                Subject::Mesh(_) => Vec::new(),
+            };
+            self.load(&rs, subject, None, sections);
         }
         if let Some(id) = chosen_texture {
             self.show_texture(ui.ctx(), id);
+        }
+        if let Some(sections) = self.reload_sections.take() {
+            self.load(&rs, self.subject.clone(), None, sections);
         }
         if let Some(connection) = self.pending_exit.take() {
             self.take_exit(&rs, connection);

@@ -94,6 +94,8 @@ pub struct TerrainRenderer {
     pub npcs: Vec<crate::npc::Npc>,
     /// Plays the Hero's animations, when his mesh is skinned.
     pub hero_animator: Option<crate::skin::Animator>,
+    /// The region's quest-state sections (for choosing which are shown).
+    pub sections: Vec<String>,
     /// Region exits in the region's own maps.
     pub exits: Vec<crate::terrain::RegionExit>,
     /// Placed meshes as triangles, for camera collision.
@@ -356,7 +358,7 @@ impl TerrainRenderer {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: Some(depth_write),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    depth_compare: Some(wgpu::CompareFunction::Greater),
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -400,6 +402,7 @@ impl TerrainRenderer {
             inside: None,
             colliders: None,
             exits: mesh.exits.clone(),
+            sections: mesh.sections.iter().cloned().collect(),
             walk: mesh.walk.clone(),
             heights: mesh.heights.clone(),
             uniforms,
@@ -460,7 +463,7 @@ impl TerrainRenderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &target.depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: wgpu::StoreOp::Discard,
                     }),
                     stencil_ops: None,

@@ -1,6 +1,10 @@
 use glam::camera::rh::{proj, view};
 use glam::{Mat4, Vec3};
 
+/// Near and far clip planes in world units.
+pub const NEAR: f32 = 0.05;
+pub const FAR: f32 = 5000.0;
+
 /// Orbits a target point; z is up.
 #[derive(Debug, Clone, Copy)]
 pub struct OrbitCamera {
@@ -28,13 +32,12 @@ impl OrbitCamera {
         self.target + self.distance * Vec3::new(cp * cy, cp * sy, sp)
     }
 
+    /// Reversed-Z projection: depth 1 at [`NEAR`], 0 at [`FAR`] (passed swapped),
+    /// for a `Depth32Float` buffer cleared to 0 and tested with `Greater`. Fixed
+    /// planes keep distant meshes from appearing and vanishing as the camera's
+    /// distance changes, and reversed float depth keeps precision across them.
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        let proj = proj::directx::perspective(
-            50f32.to_radians(),
-            aspect,
-            self.distance * 0.01,
-            self.distance * 10.0,
-        );
+        let proj = proj::directx::perspective(50f32.to_radians(), aspect, FAR, NEAR);
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Z)
     }
 

@@ -94,7 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     let p = t.position().unwrap_or_default();
                     println!(
-                        "      {} {} at ({:.1}, {:.1}, {:.1})",
+                        "      [{}] {} {} at ({:.1}, {:.1}, {:.1})",
+                        t.section,
                         t.kind,
                         def,
                         map.x as f32 + p[0],

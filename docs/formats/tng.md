@@ -47,3 +47,7 @@ Positions are relative to the map's origin (its `.wld` `MapX`, `MapY`), in the s
 ## Creatures
 
 `AICreature` things (`CREATURE_HERO_FATHER`, `CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED`, chickens, …) keep their placement in `CTCPhysicsNavigator` instead of `CTCPhysicsStandard`, with the same `Position*`, `RHSetForward*` and `RHSetUp*` fields. They also carry `InitialPosX/Y/Z`, in world coordinates (map origin plus position), and behaviour flags (`Health`, `OverridingBrainName`, `CanBeMarried`, …), with components such as `CTCTalk`, `CTCVillageMember` and `CTCEnemy`. Their definitions' `Graphic` is a skinned mesh (value tag 4; [defs.md](defs.md)).
+
+## Sections (quest states)
+
+Things sit between `XXXSectionStart <name>;` and `XXXSectionEnd;`. `NULL` holds what is always there; other sections are states that quests and village events switch on: in StartOakVale `Q_NewOakValeIntro_PreAttack` (villagers, the Hero's father and sister, 9 objects) and `Q__OakValeIntro_PostAttack` (44 objects: the burnt village, charred villagers; the father again), in Oak Bay `Q_CinemaTest` (two bandits), `V_FisticuffsClubOnlyAtNight`, `V_SickChild` and others. Showing every section at once puts states on top of each other (bandits among villagers, intact and burnt objects in one place). The viewer shows `NULL` plus a default per region (the Prologue's Oakvale before the raid) and lets you switch sections on (`--section`, or the side panel).
