@@ -86,6 +86,8 @@ pub struct TerrainRenderer {
     pub things: Option<ModelRenderer>,
     /// The walking Hero and its model-to-world transform.
     pub hero: Option<(ModelRenderer, Mat4)>,
+    /// Creatures standing in the region.
+    pub npcs: Vec<crate::npc::Npc>,
     /// Plays the Hero's animations, when his mesh is skinned.
     pub hero_animator: Option<crate::skin::Animator>,
     /// Region exits in the region's own maps.
@@ -370,6 +372,7 @@ impl TerrainRenderer {
             things: None,
             hero: None,
             hero_animator: None,
+            npcs: Vec::new(),
             colliders: None,
             exits: mesh.exits.clone(),
             walk: mesh.walk.clone(),
@@ -410,6 +413,11 @@ impl TerrainRenderer {
         if let Some((hero, transform)) = &self.hero {
             hero.prepare(queue, view_proj * *transform);
         }
+        for npc in &self.npcs {
+            for (part, _) in &npc.parts {
+                part.prepare(queue, view_proj * npc.transform);
+            }
+        }
 
         let mut encoder = device.create_command_encoder(&Default::default());
         {
@@ -443,6 +451,12 @@ impl TerrainRenderer {
             }
             if let Some((hero, _)) = &self.hero {
                 hero.draw(&mut pass);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+            }
+            for (part, _) in self.npcs.iter().flat_map(|n| &n.parts) {
+                part.draw(&mut pass);
+            }
+            if !self.npcs.is_empty() {
                 pass.set_bind_group(0, &self.bind_group, &[]);
             }
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {

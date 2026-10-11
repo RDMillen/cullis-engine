@@ -86,8 +86,12 @@ impl Thing {
         self.field("ScriptName").filter(|&n| n != "NULL")
     }
 
+    /// Objects and buildings keep their placement in `CTCPhysicsStandard`,
+    /// creatures in `CTCPhysicsNavigator` (same fields).
     fn physics_vector(&self, prefix: &str) -> Option<[f32; 3]> {
-        let c = self.component("CTCPhysicsStandard")?;
+        let c = self
+            .component("CTCPhysicsStandard")
+            .or_else(|| self.component("CTCPhysicsNavigator"))?;
         let axis = |a: &str| find(&c.fields, &format!("{prefix}{a}"))?.parse().ok();
         Some([axis("X")?, axis("Y")?, axis("Z")?])
     }

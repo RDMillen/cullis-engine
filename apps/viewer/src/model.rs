@@ -65,7 +65,7 @@ impl Placement {
     /// the game). So local -y maps to `forward`, -x to `right` and z to `up`.
     /// Meshes are in hundredths of a world unit (a chair is 119 units tall, a
     /// map 96 units wide), so placed meshes are scaled by [`MESH_SCALE`].
-    fn transform(&self) -> Mat4 {
+    pub fn transform(&self) -> Mat4 {
         let up = self.up.normalize_or(Vec3::Z);
         let forward = self.forward.normalize_or(Vec3::Y);
         let right = forward.cross(up).normalize_or(Vec3::X);
@@ -107,6 +107,8 @@ pub struct ModelBuilder {
     images: HashMap<u32, usize>,
     meshes: HashMap<u32, Option<LocalMesh>>,
     model: ModelData,
+    /// Textures to use in place of those materials name (creature part options).
+    swaps: HashMap<u32, u32>,
 }
 
 impl ModelBuilder {
@@ -129,6 +131,7 @@ impl ModelBuilder {
             textures: TextureBank::open(data_dir)?,
             images: HashMap::new(),
             meshes: HashMap::new(),
+            swaps: HashMap::new(),
             model: ModelData {
                 name: name.to_owned(),
                 vertices: Vec::new(),
@@ -243,7 +246,12 @@ impl ModelBuilder {
                 }));
             for sub in &chunk.sub_meshes {
                 let material = &lod.materials[sub.material as usize];
-                let image = self.image(material.texture, &material.name);
+                let texture = self
+                    .swaps
+                    .get(&material.texture)
+                    .copied()
+                    .unwrap_or(material.texture);
+                let image = self.image(texture, &material.name);
                 let first = local.indices.len() as u32;
                 for t in chunk.triangles(sub) {
                     local.indices.extend(t.map(|i| base + u32::from(i)));
@@ -329,12 +337,24 @@ pub fn hero_local() -> Mat4 {
 /// The young Hero in his bind pose, in mesh units (see [`hero_local`]), with his
 /// skin for animation.
 pub fn hero_model(data_dir: &Path) -> Result<(ModelData, Option<Skin>), Error> {
-    let mut builder = ModelBuilder::open(data_dir, "Hero")?;
+    let builder = ModelBuilder::open(data_dir, "Hero")?;
     let (id, _) = builder
         .find(YOUNG_HERO_MESH)
         .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
+    skinned_model(data_dir, id, &[])
+}
+
+/// Mesh `id` in its own units with its textures (with `swaps` applied: texture
+/// named -> texture used), and its skin if it has one.
+pub fn skinned_model(
+    data_dir: &Path,
+    id: u32,
+    swaps: &[(u32, u32)],
+) -> Result<(ModelData, Option<Skin>), Error> {
+    let mut builder = ModelBuilder::open(data_dir, &id.to_string())?;
+    builder.swaps = swaps.iter().copied().collect();
     if !builder.add(id, Mat4::IDENTITY) {
-        return Err(format!("could not load {YOUNG_HERO_MESH}").into());
+        return Err(format!("could not load mesh {id}").into());
     }
     let skin = builder.skin(id);
     Ok((builder.finish(), skin))

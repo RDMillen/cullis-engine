@@ -8,6 +8,7 @@
 mod camera;
 mod collide;
 mod model;
+mod npc;
 mod render;
 mod skin;
 mod terrain;
@@ -149,6 +150,12 @@ impl Scene {
                 );
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
+                    renderer.npcs = npc::load(data_dir, device, queue, &mesh.creatures);
+                    eprintln!(
+                        "{} creatures placed of {}",
+                        renderer.npcs.len(),
+                        mesh.creatures.len()
+                    );
                     let p = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].position);
                     let n = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].normal);
                     let triangles = things.indices.as_chunks::<3>().0;
@@ -931,6 +938,15 @@ impl eframe::App for ViewerApp {
                     }
                 }
                 self.walk(ui, &rs.queue);
+                if let Scene::Terrain(renderer) = &mut self.scene
+                    && !renderer.npcs.is_empty()
+                {
+                    let dt = ui.input(|i| i.stable_dt.min(0.1));
+                    for npc in &mut renderer.npcs {
+                        npc.animate(&rs.queue, dt);
+                    }
+                    ui.ctx().request_repaint();
+                }
 
                 let ppp = ui.ctx().pixels_per_point();
                 let size = [(rect.width() * ppp) as u32, (rect.height() * ppp) as u32];

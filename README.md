@@ -41,7 +41,7 @@ FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --region StartOakVale
 FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --mesh MESH_OAKVALE_HOUSE_02
 ```
 
-The side panel switches between regions, meshes and textures, with a search box. In a region, "Show navigation" draws the walkable area and "Walk" puts the young Hero on it, animated (WASD to walk, Shift to run, the scroll wheel sets the camera distance; the camera keeps out of walls and buildings; bridge decks and building floors are walkable, and walking into a region exit loads the next region). For screenshots, `--walk` places the Hero and `--walk-to x,y` walks him towards a point first, and `--anim ANIM_HERO_RUN --anim-time 0.2` poses him with an animation. Character meshes are listed with the others and drawn in their bind pose.
+The side panel switches between regions, meshes and textures, with a search box. In a region, "Show navigation" draws the walkable area and "Walk" puts the young Hero on it, animated (WASD to walk, Shift to run, the scroll wheel sets the camera distance; the camera keeps out of walls and buildings; bridge decks and building floors are walkable, and walking into a region exit loads the next region). Villagers, guards, children and chickens stand around playing idle animations. For screenshots, `--walk` places the Hero and `--walk-to x,y` walks him towards a point first, and `--anim ANIM_HERO_RUN --anim-time 0.2` poses him with an animation. Character meshes are listed with the others and drawn in their bind pose.
 
 Add `--screenshot out.png --size 1280x800` to render one frame to a file without opening a window.
 

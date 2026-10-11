@@ -113,8 +113,11 @@ pub struct ThemeTextures {
     pub cliff_bump: u32,
 }
 
-/// Value type tag that precedes graphic (mesh) references in records.
+/// Value type tag that precedes graphic (mesh) references in records: 5 for most
+/// objects and buildings (static meshes), 4 for creatures and animated objects
+/// (beds, doors), whose `Graphic` is a skinned mesh.
 const GRAPHIC_VALUE_TAG: u32 = 5;
+const SKINNED_GRAPHIC_VALUE_TAG: u32 = 4;
 
 impl Def {
     /// Finds `field` (by name) with value tag `tag` and returns the `u32` after it.
@@ -173,9 +176,83 @@ impl Def {
         self.values_after("Mesh")
     }
 
-    /// Mesh bank entry id from the `Graphic` field, if the definition has one.
+    /// Mesh bank entry id from the `Graphic` field, if the definition has one
+    /// (value tag 5, or 4 for skinned meshes such as creatures, beds and doors).
     pub fn graphic(&self) -> Option<u32> {
         self.find_u32("Graphic", GRAPHIC_VALUE_TAG)
+            .or_else(|| self.find_u32("Graphic", SKINNED_GRAPHIC_VALUE_TAG))
+    }
+}
+
+/// One choice for a body part of a built-up creature (villagers, guards,
+/// children): a skinned mesh and texture swaps for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartOption {
+    pub mesh: u32,
+    /// 1 in every option looked at.
+    pub unknown: u32,
+    /// (texture the mesh names, texture to use instead, unknown 0): e.g.
+    /// `TEXTURE_BOWER_MALE_MIDDLE_FACE_01` -> `TEXTURE_OV_MALE_MIDDLE_FACE_01` for
+    /// an Oakvale villager.
+    pub texture_swaps: Vec<(u32, u32, u32)>,
+    pub unknown_flag: u8,
+}
+
+/// Reads a list of part options at `at`: a `u32` count, then per option `u32`
+/// mesh, `u32` 1, `u32` swap count n, `u32` 12n, n x (3 x `u32`), `u8`.
+fn part_list(record: &[u8], at: usize) -> Option<(Vec<PartOption>, usize)> {
+    let word = |o: usize| {
+        record
+            .get(o..o + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+    };
+    let count = word(at)?;
+    if !(1..=64).contains(&count) {
+        return None;
+    }
+    let mut q = at + 4;
+    let mut options = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let (mesh, unknown, n, len) = (word(q)?, word(q + 4)?, word(q + 8)?, word(q + 12)?);
+        if mesh == 0 || unknown != 1 || n > 8 || len != 12 * n {
+            return None;
+        }
+        let texture_swaps = (0..n as usize)
+            .map(|k| {
+                let o = q + 16 + 12 * k;
+                Some((word(o)?, word(o + 4)?, word(o + 8)?))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        q += 16 + len as usize;
+        let unknown_flag = *record.get(q)?;
+        q += 1;
+        options.push(PartOption {
+            mesh,
+            unknown,
+            texture_swaps,
+            unknown_flag,
+        });
+    }
+    Some((options, q))
+}
+
+impl Def {
+    /// The part lists of a `CCreatureDef` (heads, torsos, legs, in that order for
+    /// Oakvale villagers), found by their layout since the record is not decoded.
+    /// Empty for creatures drawn with their `Graphic` alone.
+    pub fn part_lists(&self) -> Vec<Vec<PartOption>> {
+        let mut lists = Vec::new();
+        let mut at = 0;
+        while at + 4 <= self.record.len() {
+            match part_list(&self.record, at) {
+                Some((list, end)) => {
+                    lists.push(list);
+                    at = end;
+                }
+                None => at += 1,
+            }
+        }
+        lists
     }
 }
 
@@ -354,6 +431,15 @@ impl Defs {
         }
     }
 
+    /// A creature's body part lists, from its `CCreatureDef` component.
+    pub fn creature_parts(&self, def: &Def) -> Vec<Vec<PartOption>> {
+        def.component("CCreatureDef")
+            .and_then(|i| self.defs.get(i))
+            .filter(|c| self.type_name(c) == "CCreatureDef")
+            .map(Def::part_lists)
+            .unwrap_or_default()
+    }
+
     pub fn get(&self, name: &str) -> Option<&Def> {
         self.by_name.get(name).map(|&i| &self.defs[i])
     }
@@ -383,6 +469,31 @@ fn names_bin(id: u32, names: &[&str]) -> (Vec<u8>, Vec<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_part_lists() {
+        let mut record = vec![1, 0, 1, 0xaa];
+        let words = |r: &mut Vec<u8>, w: &[u32]| {
+            w.iter().for_each(|v| r.extend_from_slice(&v.to_le_bytes()))
+        };
+        // Two heads (the second with one texture swap), then one torso.
+        words(&mut record, &[2, 5150, 1, 0, 0]);
+        record.push(0);
+        words(&mut record, &[5151, 1, 1, 12, 1968, 3253, 0]);
+        record.push(1);
+        words(&mut record, &[1, 5163, 1, 0, 0]);
+        record.push(0);
+        let def = Def {
+            def_type: 0,
+            name: None,
+            record,
+        };
+        let lists = def.part_lists();
+        assert_eq!(lists.len(), 2);
+        assert_eq!(lists[0].len(), 2);
+        assert_eq!(lists[0][1].texture_swaps, [(1968, 3253, 0)]);
+        assert_eq!(lists[1][0].mesh, 5163);
+    }
 
     #[test]
     fn hashes_names_like_names_bin() {

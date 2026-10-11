@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         defs.type_name(def),
         r.len()
     );
-    if r.len() <= 256 {
+    if r.len() <= 256 || std::env::var_os("DEF_RAW").is_some() {
         for (i, line) in r.chunks(16).enumerate() {
             println!("{:5x}  {:02x?}", i * 16, line);
         }

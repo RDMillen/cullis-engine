@@ -12,6 +12,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): NPCs
+
+- Creatures (`AICreature` things) keep their placement in `CTCPhysicsNavigator`; `Thing::position` now reads it. Their `Graphic` uses value tag 4 (skinned meshes), as do beds and doors, which now also render.
+- Built-up creatures (villagers, guards, children) are a head, a torso and legs chosen from part lists in their `CCreatureDef`, each with texture swaps (Bowerstone textures -> Oakvale ones); `docs/formats/defs.md`.
+- Viewer: all 30 creatures in StartOakVale stand in place, each part skinned on the CPU and playing an idle (chosen by kind as a stand-in: chickens, children, women, men), loops staggered. The UID picks each villager's parts, in place of the game's random choice.
+- Not yet: creature AI or movement, which animation the game picks, scale of the young sister (0.65 like the Hero).
+
 ## 2026-10-11 (later): region transitions
 
 - Region exits decoded (`docs/formats/gtg.md`): a `REGION_EXIT_POINT` thing's `EntranceConnectedToUID` is the destination map's `MapUID` << 40 plus the low 40 bits of a `REGION_ENTRANCE_POINT`'s UID in `Levels/FinalAlbion.gtg` (Tng text per map, now parsed by `fable_data::gtg`). All 129 exits in real regions resolve.

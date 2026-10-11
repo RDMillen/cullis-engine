@@ -38,6 +38,8 @@ const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
 pub struct TerrainMesh {
     /// Region exits in the maps the region contains.
     pub exits: Vec<RegionExit>,
+    /// Creatures placed in the maps the region contains.
+    pub creatures: Vec<CreaturePlacement>,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub maps: usize,
@@ -287,6 +289,20 @@ impl TerrainMesh {
     }
 }
 
+/// A map's placed meshes, region exits and creatures.
+type MapThings = (Vec<Placement>, Vec<RegionExit>, Vec<CreaturePlacement>);
+
+/// A creature placed in a map (an `AICreature` thing).
+#[derive(Debug, Clone)]
+pub struct CreaturePlacement {
+    pub definition: String,
+    pub uid: u64,
+    /// The `Graphic` mesh (`placement.mesh`) is used alone when this is empty;
+    /// otherwise one option from each list (heads, torsos, legs) is.
+    pub parts: Vec<Vec<fable_data::defs::PartOption>>,
+    pub placement: Placement,
+}
+
 /// A region exit (`CTCDRegionExit`): walking within `radius` of `position` leads to
 /// the entrance named by `connection` (see `fable_data::gtg::split_connected_uid`).
 #[derive(Debug, Clone, Copy)]
@@ -331,10 +347,11 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        let (placed, exits) = load_placements(&wad, &mut file, level, origin, defs)?;
+        let (placed, exits, creatures) = load_placements(&wad, &mut file, level, origin, defs)?;
         placements.extend(placed);
         if region.contains_maps.contains(level) {
             mesh.exits.extend(exits);
+            mesh.creatures.extend(creatures);
         }
     }
     if !maps.is_empty() {
@@ -387,10 +404,10 @@ fn load_placements(
     level: &str,
     origin: Vec3,
     defs: &Defs,
-) -> Result<(Vec<Placement>, Vec<RegionExit>), Box<dyn std::error::Error>> {
+) -> Result<MapThings, Box<dyn std::error::Error>> {
     let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
     let Some(entry) = wad.index.by_name(&tng_name) else {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
     };
     let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
     let tng = Tng::parse(&text)?;
@@ -415,6 +432,26 @@ fn load_placements(
             })
         })
         .collect();
+    let creatures = tng
+        .things
+        .iter()
+        .filter(|t| t.kind == "AICreature")
+        .filter_map(|t| {
+            let definition = t.definition()?;
+            let def = defs.get(definition)?;
+            Some(CreaturePlacement {
+                definition: definition.to_owned(),
+                uid: t.uid().unwrap_or(0),
+                parts: defs.creature_parts(def),
+                placement: Placement {
+                    mesh: defs.get(definition)?.graphic()?,
+                    position: origin + Vec3::from_array(t.position()?),
+                    forward: Vec3::from_array(t.forward()?),
+                    up: Vec3::from_array(t.up()?),
+                },
+            })
+        })
+        .collect();
     let placements = tng
         .things
         .iter()
@@ -431,7 +468,7 @@ fn load_placements(
         })
         .flatten()
         .collect();
-    Ok((placements, exits))
+    Ok((placements, exits, creatures))
 }
 
 #[cfg(test)]

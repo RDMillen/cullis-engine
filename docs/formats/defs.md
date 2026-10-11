@@ -36,9 +36,9 @@ Name fields are `names.bin` offsets. The type table ends where a row's third wor
 
 ## Records
 
-Not decoded in general. Records hold fields as a name hash, a value type tag and a value. A mesh reference is `Graphic` (hash `0x2e6b63c8`), tag 5, then the `u32` mesh bank entry id (`MBANK_ALLMESHES`, numbered as in `Defs/RetailHeaders/meshdata.h`). `Def::graphic` searches a record for that pattern.
+Not decoded in general. Records hold fields as a name hash, a value type tag and a value. A mesh reference is `Graphic` (hash `0x2e6b63c8`), tag 5 (static meshes) or 4 (skinned meshes: creatures, beds, doors), then the `u32` mesh bank entry id (`MBANK_ALLMESHES`, numbered as in `Defs/RetailHeaders/meshdata.h`). `Def::graphic` searches a record for that pattern.
 
-Placed things whose definition has no `Graphic` field include animated birds, doors and beds; their graphics are probably elsewhere (another field or an inherited definition).
+Doors and beds, which seemed to have no `Graphic`, have one with tag 4 (a skinned mesh: `OBJECT_KHG_BED_01` → `MESH_KHG_BED_01`).
 
 Entity definitions (`BUILDING`, `CREATURE`, `OBJECT`, …) list components as (component type name hash, `u32` global definition index, `u32`): `BUILDING_OAKVALE_HOUSE_LARGE` has `CCameraCollisionDef`, `CAppearanceDef`, `CVillageMemberDef`, `CPhysicsDef`, `CSmokeGeneratorDef`, `CHitLocationsDef`, `CMultiStaticMeshDef` and `CBuyableHouseDef`; `CREATURE_HERO_CHILD`'s `CAppearanceDef` holds its animation slots. `Def::component` finds one.
 
@@ -62,3 +62,18 @@ Of the 344 theme names used by Lev files, 343 have a definition with a base text
 Water themes (`WATER_GREYCLIFF_ET`, `WATER_BWLAKE_*`, …) have a water texture as their base (`LANDSCAPE_WATER`, opaque teal). In StartOakValeWest they cover thin strips beside paths and on slopes at full weight, where the game shows no water (Ross, comparing). They probably mark ground meant to lie under a water surface, likely described by the stb sea banks, which are not decoded. The viewer draws them with their cliff texture until then.
 
 Lake themes (`WATER_BWLAKE_N`, `WATER_WWLAKE_N`, `WATER_KRAKEN_LAKE_N`, …) also have `WaterType` = 1 and `WaterHeight` = N as a float (`WATER_BWLAKE_4` has 4.0, `_16` has 16.0); `WATER_GREYCLIFF_ET` has neither. `WaterHeight` is not a world height: lake themes cover whole background hillsides (up to 160 m) in filler maps, and in StartOakValeWest `WATER_BWLAKE_2` covers 21 points at x 3541–3544, y 901–907 where the ground is 12.5–12.9 m. Water surfaces are therefore described somewhere else (candidates: the stb sea banks, or the Lev sections after the grid). Field names found by hashing: `WaterHeight`, `WaterType`, `MaterialDef`.
+
+## Creatures
+
+A creature's `Graphic` (tag 4) is its whole body for single-mesh creatures (`CREATURE_HERO_FATHER` → `MESH_HERO_FATHER`, chickens, `CREATURE_YOUNG_SISTER`). Built-up creatures (villagers, guards, children, traders) name an "unclothed" base (`MESH_BS_MALE_MIDDLE_UNCLOTHED_01`); their `CCreatureDef` component holds three part lists, heads, torsos and legs, each a `u32` count followed by options:
+
+| Field | Type | Notes |
+|---|---|---|
+| mesh | u32 | skinned mesh (`MESH_BS_MALE_MIDDLE_HEAD_01`, `…_TORSO_02`, `…_LEGS_02`) |
+| | u32 | 1 |
+| swap count n | u32 | |
+| | u32 | 12n |
+| swaps | n x (u32, u32, u32) | texture the mesh names, texture to use, 0 (`TEXTURE_BOWER_MALE_MIDDLE_FACE_01` → `TEXTURE_OV_MALE_MIDDLE_FACE_01` for Oakvale) |
+| | u8 | 0 or 1 |
+
+`CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED` has 8 heads, 4 torsos and 4 legs. The lists are found by this layout (`Def::part_lists`, `Defs::creature_parts`); the fields around them are not decoded, nor how the game picks an option (presumably at random).

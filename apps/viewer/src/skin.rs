@@ -15,6 +15,7 @@ use crate::model::{ModelVertex, Skin};
 type Error = Box<dyn std::error::Error>;
 
 /// An animation's tracks matched to a skeleton's bones by name.
+#[derive(Clone)]
 pub struct Clip {
     pub name: String,
     fps: f32,

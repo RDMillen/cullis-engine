@@ -43,3 +43,7 @@ Positions are relative to the map's origin (its `.wld` `MapX`, `MapY`), in the s
 ## Definitions
 
 `DefinitionType` names a definition in the compiled defs (`CompiledDefs/game.bin`). `CompiledDefs/names.bin` maps name hashes to names: a header of five `u32` (the third is the count, 13,593), then records of `u32` hash + NUL-terminated name. The hash is the reflected CRC-32 polynomial with initial value 0 and no final inversion (`fable_data::defs::name_hash`). See [defs.md](defs.md) for how definitions lead to meshes.
+
+## Creatures
+
+`AICreature` things (`CREATURE_HERO_FATHER`, `CREATURE_OAKVALE_VILLAGER_MALE_UNEMPLOYED`, chickens, …) keep their placement in `CTCPhysicsNavigator` instead of `CTCPhysicsStandard`, with the same `Position*`, `RHSetForward*` and `RHSetUp*` fields. They also carry `InitialPosX/Y/Z`, in world coordinates (map origin plus position), and behaviour flags (`Health`, `OverridingBrainName`, `CanBeMarried`, …), with components such as `CTCTalk`, `CTCVillageMember` and `CTCEnemy`. Their definitions' `Graphic` is a skinned mesh (value tag 4; [defs.md](defs.md)).
