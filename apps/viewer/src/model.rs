@@ -216,17 +216,22 @@ impl ModelBuilder {
         let mesh = if entry.entry_type == SKINNED_MESH_TYPE {
             Mesh::parse_skinned(&entry.info, &data)?
         } else {
-            Mesh::parse(&entry.info, &data)?
+            Mesh::parse_static(&entry.info, &data)?
         };
         let lod = &mesh.lods[0];
         let mut local = LocalMesh {
             vertices: Vec::new(),
             indices: Vec::new(),
             draws: Vec::new(),
-            skin: lod.skeleton.clone().map(|skeleton| Skin {
-                influences: Vec::new(),
-                skeleton,
-            }),
+            // Rigged static meshes have a skeleton but no vertex weights.
+            skin: lod
+                .skeleton
+                .clone()
+                .filter(|_| lod.chunks.iter().any(|c| c.skinned))
+                .map(|skeleton| Skin {
+                    influences: Vec::new(),
+                    skeleton,
+                }),
         };
         for chunk in &lod.chunks {
             let base = local.vertices.len() as u32;

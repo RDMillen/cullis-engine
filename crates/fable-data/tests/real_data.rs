@@ -338,7 +338,7 @@ fn static_meshes_parse_and_reference_real_textures() {
         .filter(|e| e.entry_type == STATIC_MESH_TYPE)
     {
         let data = entry.read_data(&mut file).unwrap();
-        match Mesh::parse(&entry.info, &data) {
+        match Mesh::parse_static(&entry.info, &data) {
             Ok(mesh) => {
                 for lod in &mesh.lods {
                     for m in &lod.materials {
@@ -367,8 +367,7 @@ fn static_meshes_parse_and_reference_real_textures() {
         failed.len(),
         &failed[..failed.len().min(3)]
     );
-    // 34 static meshes (statues, summoners, …) stop early; not decoded yet.
-    assert!(parsed * 100 >= (parsed + failed.len()) * 97);
+    assert!(failed.is_empty(), "{failed:?}");
 }
 
 #[test]

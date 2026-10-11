@@ -1,6 +1,6 @@
 # Meshes
 
-Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. 2,549 of the 2,583 static meshes parse completely (10.2 million triangles); the other 34 (statues, summoners, …) stop early and are not decoded. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Type 5 entries are skinned meshes (characters and creatures), all decoded: see [Skinned meshes](#skinned-meshes-type-5). Types 6, 7 and 9 are animations ([anim.md](anim.md)). Types 2 (grass blades), 3 (`[PHYSICS]` collision meshes) and 4 are not decoded.
+Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. All 2,583 static meshes parse (10.4 million triangles); 29 of them use the rigged layout below. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Type 5 entries are skinned meshes (characters and creatures), all decoded: see [Skinned meshes](#skinned-meshes-type-5). Types 6, 7 and 9 are animations ([anim.md](anim.md)). Types 2 (grass blades), 3 (`[PHYSICS]` collision meshes) and 4 are not decoded.
 
 All integers are little-endian; many fields are unaligned.
 
@@ -103,6 +103,10 @@ Positions use the same axes as the terrain (z up) but are in hundredths of a wor
 
 **Orientation.** A mesh's front is its local -y. When a Tng thing gives `forward` and `up`, local -y maps to `forward`, local -x to `right` (forward x up) and z to `up`. Evidence: Oakvale's trader bridge (`MESH_VILLAGE_TOWN_TRADERBRIDGE_01`, local y from -980 to 2309) only rests on both of its 21 m plateaus this way round; the other way, one end hangs over the 12 m dip and the other runs into the hillside. The first guess (front = +y) put house doors facing the cliffs; Ross checked it against the game.
 
+## Rigged static meshes
+
+29 type 1 entries (the charred villagers of the burnt Oakvale, statues such as `MESH_OBJECT_STATUE_BEAR`, summoners, `MESH_BS_SLUM_04`) are laid out like skinned meshes: each level of detail starts at the beginning of the entry, with the name, a flag byte (0 here, 1 on skinned meshes) and a skeleton ([below](#skeleton)), then materials and chunks. Their chunks are static (15-byte sub-mesh records naming their material, no vertex weights). `Mesh::parse_static` tries the static layout first and falls back to this one.
+
 ## Skinned meshes (type 5)
 
 504 entries: characters, creatures and the Hero's outfit pieces (`MESH_YOUNGHERO_02`, `MESH_HERO_APPRENTICE_SHIRT_01`, `MESH_SEAGULL_01`, …). The info block has the static layout, so texture ids can be read the same way (`MESH_YOUNGHERO_02`: `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO`, `HERO_SKIN_MOUTH`). All 504 (1431 levels of detail) parse: `Mesh::parse_skinned`, real-data test `skinned_meshes_parse_with_consistent_skeletons`.
@@ -161,4 +165,4 @@ Vertices are stored in the bind pose, in model space, so a mesh can be drawn wit
 
 ### After each chunk (static and skinned)
 
-A u32: 0, or a non-zero value (1 on the young Hero's hair, 4 on `MESH_BS_WASHINGLINE_05`) followed by two u32s (0 then 0–6; 2 then 3 on the washing line), a length, and a stream of that length. On the young Hero's hair the stream is a count (333), a length, then records pairing two vertices with a rest length and a stiffness (0.1): probably hair or cloth physics. Not decoded further.
+A u32 count of physics blocks (0 on most chunks, 1 on the young Hero's hair, 4 on `MESH_BS_WASHINGLINE_05`), each two u32s (0 then 0–6 on the hair; 2 then 3 on the washing line), a length, and a stream of that length. On the young Hero's hair the block is a count (333), a length, then records pairing two vertices with a rest length and a stiffness (0.1): probably hair or cloth physics. Not decoded further.

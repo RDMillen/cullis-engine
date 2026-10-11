@@ -28,10 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|e| e.name == want || e.id.to_string() == want)
         .ok_or("no such mesh")?;
     let data = entry.read_data(&mut file)?;
-    let mesh = if entry.entry_type == SKINNED_MESH_TYPE {
+    let mesh = if entry.entry_type == SKINNED_MESH_TYPE || std::env::var_os("SKINNED").is_some() {
         Mesh::parse_skinned(&entry.info, &data)?
     } else {
-        Mesh::parse(&entry.info, &data)?
+        Mesh::parse_static(&entry.info, &data)?
     };
     println!(
         "{} (id {}, type {}): {} bytes, LOD sizes {:?}",
@@ -63,11 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .collect();
             println!(
-                "  chunk {c}: node {}, format {}, {} vertices, z {lo:.0}..{hi:.0}, physics {}, {}",
+                "  chunk {c}: node {}, format {}, {} vertices, z {lo:.0}..{hi:.0}, physics blocks {}, {}",
                 chunk.node,
                 chunk.vertex_format,
                 chunk.vertex_count,
-                chunk.physics.is_some(),
+                chunk.physics.len(),
                 subs.join(", ")
             );
         }

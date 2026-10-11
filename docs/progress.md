@@ -12,6 +12,11 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): every static mesh parses
+
+- 29 static (type 1) meshes, among them the burnt Oakvale's charred villagers and the statues, use the skinned layout (levels from the start of the entry, each with a skeleton) with static chunks: `Mesh::parse_static` falls back to it. The chunk end word is a count of physics blocks (4 on washing lines). All 2,583 static meshes parse; the real-data test now requires it.
+- Stream lengths and bone counts are bounded before allocating (a misread length had asked for 1.2 TB).
+
 ## 2026-10-11 (later): quest-state sections, depth fix
 
 - Ross saw bandits among the villagers and meshes changing as the camera or Hero moved.

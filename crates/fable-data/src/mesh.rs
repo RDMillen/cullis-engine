@@ -10,6 +10,19 @@
 use crate::reader::{Reader, latin1};
 use crate::{Error, Result, lzo};
 
+/// How a level's chunks are laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// Static meshes: sub-mesh records name their material.
+    Static,
+    /// Skinned meshes: the chunk names the material; records carry bone lists and
+    /// vertices bone weights.
+    Skinned,
+    /// Static meshes laid out like skinned ones (each level starts with the name
+    /// and a skeleton) but with static chunks.
+    Rigged,
+}
+
 /// Bank entry type of static meshes.
 pub const STATIC_MESH_TYPE: u32 = 1;
 /// Bank entry type of skinned meshes (with a skeleton).
@@ -96,6 +109,18 @@ impl Mesh {
     /// repeats the name and the skeleton) and they start at the beginning of the
     /// entry, in the order and sizes of the info block.
     pub fn parse_skinned(info: &[u8], data: &[u8]) -> Result<Self> {
+        Self::parse_with_skeleton(info, data, Layout::Skinned)
+    }
+
+    /// Parses a static (type 1) entry, falling back to the rigged layout: some
+    /// static meshes (the charred villagers, statues) are laid out like skinned
+    /// meshes, each level with a skeleton, but with static chunks.
+    pub fn parse_static(info: &[u8], data: &[u8]) -> Result<Self> {
+        Self::parse(info, data)
+            .or_else(|e| Self::parse_with_skeleton(info, data, Layout::Rigged).map_err(|_| e))
+    }
+
+    fn parse_with_skeleton(info: &[u8], data: &[u8], layout: Layout) -> Result<Self> {
         let info = MeshInfo::parse(info)?;
         let mut at = 0usize;
         let mut lods = Vec::with_capacity(info.lod_sizes.len());
@@ -106,7 +131,7 @@ impl Mesh {
                     offset: at,
                     wanted: size as usize,
                 })?;
-            lods.push(Lod::parse_skinned(block).map_err(|e| shift(e, at))?);
+            lods.push(Lod::parse_skinned(block, layout).map_err(|e| shift(e, at))?);
             at += size as usize;
         }
         Ok(Self { info, lods })
@@ -274,6 +299,12 @@ impl Skeleton {
         let _unknown = [r.u32()?, r.u32()?];
         let count = r.u32()? as usize;
         let names_len = r.u32()? as usize;
+        if count > 1024 {
+            return Err(Error::Invalid {
+                offset: r.pos() - 8,
+                reason: format!("{count} bones"),
+            });
+        }
         r.bytes(5)?;
         let offsets = (0..count)
             .map(|_| r.array().map(u16::from_le_bytes))
@@ -322,10 +353,10 @@ pub struct Chunk {
     pub node: u32,
     /// Vertices carry 4 bone indices and 4 weights after the position.
     pub skinned: bool,
-    /// Data after the chunk when its end word is non-zero: on the young Hero's hair, pairs
-    /// of vertices with a rest length and stiffness (hair or cloth physics). Not
-    /// decoded.
-    pub physics: Option<Vec<u8>>,
+    /// Physics blocks after the chunk, as (two unknown words, unpacked bytes): on
+    /// the young Hero's hair one block pairing vertices with a rest length and a
+    /// stiffness (hair or cloth physics); four on a washing line. Not decoded.
+    pub physics: Vec<([u32; 2], Vec<u8>)>,
     pub sub_meshes: Vec<SubMesh>,
     pub vertex_count: u32,
     /// Flags selecting the vertex layout. Every layout starts with position, normal
@@ -353,7 +384,7 @@ impl Lod {
         }
         let mut chunks = Vec::new();
         loop {
-            let mut chunk = Chunk::parse(&mut r, false)?;
+            let mut chunk = Chunk::parse(&mut r, Layout::Static)?;
             chunk.validate(materials.len(), r.pos())?;
             chunk.physics = Chunk::parse_end(&mut r)?;
             chunks.push(chunk);
@@ -370,7 +401,7 @@ impl Lod {
     }
 
     /// A skinned level of detail: skeleton, materials, then chunks to the end.
-    fn parse_skinned(block: &[u8]) -> Result<Self> {
+    fn parse_skinned(block: &[u8], layout: Layout) -> Result<Self> {
         let mut r = Reader::new(block);
         let skeleton = Skeleton::parse(&mut r)?;
         let mut materials = Vec::new();
@@ -380,7 +411,7 @@ impl Lod {
         }
         let mut chunks = Vec::new();
         while r.pos() < block.len() {
-            let mut chunk = Chunk::parse(&mut r, true)?;
+            let mut chunk = Chunk::parse(&mut r, layout)?;
             chunk.validate(materials.len(), r.pos())?;
             chunk.physics = Chunk::parse_end(&mut r)?;
             chunks.push(chunk);
@@ -394,18 +425,27 @@ impl Lod {
 }
 
 impl Chunk {
-    /// The u32 after a chunk: 0, or a non-zero value (1 on the young Hero's
-    /// hair, 4 on a washing line) followed by two u32s, a length and a stream.
-    fn parse_end(r: &mut Reader) -> Result<Option<Vec<u8>>> {
-        if r.u32()? == 0 {
-            return Ok(None);
+    /// After a chunk: a `u32` count of physics blocks (0 usually, 1 on the young
+    /// Hero's hair, 4 on a washing line), each two `u32`s, a length and a stream.
+    fn parse_end(r: &mut Reader) -> Result<Vec<([u32; 2], Vec<u8>)>> {
+        let count = r.u32()?;
+        if count > 64 {
+            return Err(Error::Invalid {
+                offset: r.pos() - 4,
+                reason: format!("{count} physics blocks"),
+            });
         }
-        let _unknown = [r.u32()?, r.u32()?];
-        let len = r.u32()? as usize;
-        Ok(Some(stream(r, len)?))
+        (0..count)
+            .map(|_| {
+                let words = [r.u32()?, r.u32()?];
+                let len = r.u32()? as usize;
+                Ok((words, stream(r, len)?))
+            })
+            .collect()
     }
 
-    fn parse(r: &mut Reader, skinned: bool) -> Result<Self> {
+    fn parse(r: &mut Reader, layout: Layout) -> Result<Self> {
+        let skinned = layout == Layout::Skinned;
         let node = r.u32()?;
         let _zero = r.u32()?;
         r.bytes(20)?; // bounding sphere and one more float
@@ -464,7 +504,7 @@ impl Chunk {
         Ok(Self {
             node,
             skinned,
-            physics: None,
+            physics: Vec::new(),
             sub_meshes,
             vertex_count,
             vertex_format,
@@ -656,6 +696,15 @@ fn optional_stream(r: &mut Reader, len: usize) -> Result<Vec<u8>> {
 /// A `u16` length (or `0xffff` and a `u32` length). Zero means `len` raw bytes
 /// follow; otherwise an LZO1X stream gives `len - 3` bytes and the last 3 follow raw.
 fn stream(r: &mut Reader, len: usize) -> Result<Vec<u8>> {
+    // Nothing in a mesh unpacks to more than this; a larger length means the
+    // bytes were misread, and must not reach an allocation.
+    const MAX_LEN: usize = 64 << 20;
+    if len > MAX_LEN {
+        return Err(Error::Invalid {
+            offset: r.pos(),
+            reason: format!("stream of {len} bytes"),
+        });
+    }
     let short = u16::from_le_bytes(r.array()?);
     let stream_len = if short == 0xffff {
         r.u32()? as usize
