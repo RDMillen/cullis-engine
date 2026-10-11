@@ -2,6 +2,7 @@
 //!
 //! Written clean-room from file observation. Each format has a page in `docs/formats/`.
 
+pub mod anim;
 pub mod bank;
 pub mod bbbb;
 pub mod big;

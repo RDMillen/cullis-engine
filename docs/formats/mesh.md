@@ -1,6 +1,6 @@
 # Meshes
 
-Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. 2,549 of the 2,583 static meshes parse completely (10.2 million triangles); the other 34 (statues, summoners, …) stop early and are not decoded. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Type 5 entries are skinned meshes (characters and creatures), all decoded: see [Skinned meshes](#skinned-meshes-type-5). Other entry types (2, 4; 3, 6, 7, 9: short info blocks, probably animations) are not decoded.
+Entries of type 1 (static meshes) in the `MBANK_ALLMESHES` bank of `graphics/graphics.big` ([big.md](big.md)). Parser: `fable_data::mesh`. 2,549 of the 2,583 static meshes parse completely (10.2 million triangles); the other 34 (statues, summoners, …) stop early and are not decoded. Every texture id their materials name exists in `GBANK_MAIN_PC` (`tests/real_data.rs`). Type 5 entries are skinned meshes (characters and creatures), all decoded: see [Skinned meshes](#skinned-meshes-type-5). Types 6, 7 and 9 are animations ([anim.md](anim.md)). Types 2 (grass blades), 3 (`[PHYSICS]` collision meshes) and 4 are not decoded.
 
 All integers are little-endian; many fields are unaligned.
 

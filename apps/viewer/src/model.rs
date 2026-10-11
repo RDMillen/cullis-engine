@@ -9,7 +9,7 @@ use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use fable_data::big::BigFile;
-use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
+use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE, Skeleton};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
 
@@ -86,6 +86,16 @@ struct LocalMesh {
     vertices: Vec<ModelVertex>,
     indices: Vec<u32>,
     draws: Vec<Draw>,
+    /// Skinned meshes: per vertex, 4 skeleton bones and weights, and the skeleton.
+    skin: Option<Skin>,
+}
+
+/// What a skinned mesh needs to be posed: per vertex, 4 skeleton bone indices and
+/// weights (summing to 1), and the skeleton.
+#[derive(Clone)]
+pub struct Skin {
+    pub influences: Vec<([u16; 4], [f32; 4])>,
+    pub skeleton: Skeleton,
 }
 
 /// Accumulates meshes, placed or not, into one [`ModelData`], loading each mesh
@@ -198,9 +208,31 @@ impl ModelBuilder {
             vertices: Vec::new(),
             indices: Vec::new(),
             draws: Vec::new(),
+            skin: lod.skeleton.clone().map(|skeleton| Skin {
+                influences: Vec::new(),
+                skeleton,
+            }),
         };
         for chunk in &lod.chunks {
             let base = local.vertices.len() as u32;
+            if let Some(skin) = &mut local.skin {
+                // Palette indices are per sub-mesh; resolve them through the
+                // sub-mesh that uses each vertex.
+                let weights = chunk.bone_weights();
+                let mut resolved = vec![([0u16; 4], [1.0, 0.0, 0.0, 0.0]); weights.len()];
+                for sub in &chunk.sub_meshes {
+                    for v in chunk.triangles(sub).into_iter().flatten() {
+                        let (bones, w) = weights[usize::from(v)];
+                        resolved[usize::from(v)] = (
+                            bones.map(|b| {
+                                u16::from(sub.bones.get(usize::from(b)).copied().unwrap_or(0))
+                            }),
+                            w.map(|x| f32::from(x) / 255.0),
+                        );
+                    }
+                }
+                skin.influences.extend(resolved);
+            }
             let (positions, normals, uvs) = (chunk.positions(), chunk.normals(), chunk.uvs());
             local
                 .vertices
@@ -224,6 +256,12 @@ impl ModelBuilder {
             }
         }
         Ok(local)
+    }
+
+    /// The skin of mesh `id`, if it was added and is skinned. Its influences follow
+    /// the mesh's own vertex order, as added by [`ModelBuilder::add`].
+    pub fn skin(&self, id: u32) -> Option<Skin> {
+        self.meshes.get(&id)?.as_ref()?.skin.clone()
     }
 
     /// Index of a texture in the model's images (0, plain white, for none).
@@ -281,19 +319,25 @@ const YOUNG_HERO_MESH: &str = "MESH_YOUNGHERO_02";
 /// about 1.3 m tall.
 pub const YOUNG_HERO_SCALE: f32 = 0.65;
 
-/// The young Hero in his bind pose, feet at the origin, facing +y (meshes face
-/// their local -y, so he is turned round).
-pub fn hero_model(data_dir: &Path) -> Result<ModelData, Error> {
+/// Takes the young Hero's mesh to his local space: feet at the origin, facing +y
+/// (meshes face their local -y, so he is turned round), in world units.
+pub fn hero_local() -> Mat4 {
+    Mat4::from_scale(Vec3::splat(MESH_SCALE * YOUNG_HERO_SCALE))
+        * Mat4::from_rotation_z(std::f32::consts::PI)
+}
+
+/// The young Hero in his bind pose, in mesh units (see [`hero_local`]), with his
+/// skin for animation.
+pub fn hero_model(data_dir: &Path) -> Result<(ModelData, Option<Skin>), Error> {
     let mut builder = ModelBuilder::open(data_dir, "Hero")?;
     let (id, _) = builder
         .find(YOUNG_HERO_MESH)
         .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
-    let transform = Mat4::from_scale(Vec3::splat(MESH_SCALE * YOUNG_HERO_SCALE))
-        * Mat4::from_rotation_z(std::f32::consts::PI);
-    if !builder.add(id, transform) {
+    if !builder.add(id, Mat4::IDENTITY) {
         return Err(format!("could not load {YOUNG_HERO_MESH}").into());
     }
-    Ok(builder.finish())
+    let skin = builder.skin(id);
+    Ok((builder.finish(), skin))
 }
 
 /// Loads every placement into one model in world space.
@@ -376,6 +420,11 @@ pub struct ModelRenderer {
 }
 
 impl ModelRenderer {
+    /// Replaces the vertices (same count and order as the model it was made from).
+    pub fn set_vertices(&self, queue: &wgpu::Queue, vertices: &[ModelVertex]) {
+        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(vertices));
+    }
+
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, model: &ModelData) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("model.wgsl"));
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
@@ -522,7 +571,7 @@ impl ModelRenderer {
             vertices: buffer(
                 "model vertices",
                 bytemuck::cast_slice(&model.vertices),
-                wgpu::BufferUsages::VERTEX,
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             ),
             indices: buffer(
                 "model indices",

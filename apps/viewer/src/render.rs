@@ -86,6 +86,8 @@ pub struct TerrainRenderer {
     pub things: Option<ModelRenderer>,
     /// The walking Hero and its model-to-world transform.
     pub hero: Option<(ModelRenderer, Mat4)>,
+    /// Plays the Hero's animations, when his mesh is skinned.
+    pub hero_animator: Option<crate::skin::Animator>,
     /// Placed meshes as triangles, for camera collision.
     pub colliders: Option<Colliders>,
     /// Where the Hero can walk and the ground height, if the region has them.
@@ -365,6 +367,7 @@ impl TerrainRenderer {
             sea,
             things: None,
             hero: None,
+            hero_animator: None,
             colliders: None,
             walk: mesh.walk.clone(),
             heights: mesh.heights.clone(),

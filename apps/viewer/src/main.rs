@@ -9,6 +9,7 @@ mod camera;
 mod collide;
 mod model;
 mod render;
+mod skin;
 mod terrain;
 mod themes;
 mod walk;
@@ -46,6 +47,10 @@ struct Args {
     walk: bool,
     /// Then walk him towards this point (x, y) before the screenshot.
     walk_to: Option<[f32; 2]>,
+    /// Pose the Hero with this animation (default: idle, or walk after
+    /// `--walk-to`) at `anim_time` seconds.
+    anim: Option<String>,
+    anim_time: f32,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -58,6 +63,8 @@ fn parse_args() -> Result<Args, Error> {
         nav: false,
         walk: false,
         walk_to: None,
+        anim: None,
+        anim_time: 0.0,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -69,6 +76,11 @@ fn parse_args() -> Result<Args, Error> {
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--nav" => args.nav = true,
             "--walk" => args.walk = true,
+            "--anim" => {
+                args.anim = Some(value()?);
+                args.walk = true;
+            }
+            "--anim-time" => args.anim_time = value()?.parse()?,
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -275,6 +287,28 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 *transform = hero_transform(&hero);
             }
         }
+        let mut clip = usize::from(args.walk_to.is_some());
+        if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
+            clip = match HERO_CLIPS.iter().position(|c| c == name) {
+                Some(i) => i,
+                None => animator.add_clip(skin::Clip::load(data_dir, name, animator.skeleton())?),
+            };
+        }
+        if let Some(animator) = &renderer.hero_animator {
+            for (i, name) in HERO_CLIPS.iter().enumerate() {
+                let speed =
+                    animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * model::YOUNG_HERO_SCALE;
+                eprintln!("{name}: {speed:.2} m/s");
+            }
+        }
+        animate_hero(renderer, &queue, clip, args.anim_time);
+        if let Some(animator) = &renderer.hero_animator {
+            eprintln!(
+                "posed with {:?} at {}s",
+                animator.clip_name(),
+                args.anim_time
+            );
+        }
         let distance = camera.distance.clamp(3.0, 12.0);
         follow(&mut camera, &hero, renderer, distance);
         eprintln!("hero at {}", hero.position);
@@ -313,16 +347,41 @@ fn spawn_hero(
         return Ok(None);
     };
     let hero = walk::Hero::new(at, heights);
-    let model = model::hero_model(data_dir)?;
+    let (model, skin) = model::hero_model(data_dir)?;
     renderer.hero = Some((
         ModelRenderer::new(device, queue, &model),
         hero_transform(&hero),
     ));
+    renderer.hero_animator = skin.and_then(|skin| {
+        let clips: Vec<skin::Clip> = HERO_CLIPS
+            .iter()
+            .filter_map(|name| {
+                skin::Clip::load(data_dir, name, &skin.skeleton)
+                    .map_err(|e| eprintln!("{name}: {e}"))
+                    .ok()
+            })
+            .collect();
+        (clips.len() == HERO_CLIPS.len())
+            .then(|| skin::Animator::new(model.vertices.clone(), skin, clips))
+    });
     Ok(Some(hero))
 }
 
+/// The Hero's clips: standing, walking, running (indices used by [`animate_hero`]).
+const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
+
+/// Poses the Hero with clip `clip` advanced by `dt` and uploads his vertices.
+fn animate_hero(renderer: &mut TerrainRenderer, queue: &wgpu::Queue, clip: usize, dt: f32) {
+    if let (Some(animator), Some((model, _))) = (&mut renderer.hero_animator, &renderer.hero) {
+        animator.play(clip);
+        model.set_vertices(queue, animator.advance(dt));
+    }
+}
+
 fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
-    glam::Mat4::from_translation(hero.position) * glam::Mat4::from_rotation_z(hero.heading)
+    glam::Mat4::from_translation(hero.position)
+        * glam::Mat4::from_rotation_z(hero.heading)
+        * model::hero_local()
 }
 
 /// Points the camera at the Hero's chest from `distance`, or closer when a placed
@@ -606,7 +665,7 @@ impl ViewerApp {
     }
 
     /// Moves the Hero from the keyboard, relative to the camera, and follows it.
-    fn walk(&mut self, ui: &egui::Ui) {
+    fn walk(&mut self, ui: &egui::Ui, queue: &wgpu::Queue) {
         let (Some(hero), Scene::Terrain(renderer)) = (&mut self.walker, &mut self.scene) else {
             return;
         };
@@ -629,15 +688,30 @@ impl ViewerApp {
             .normalize_or_zero();
         let side = glam::Vec2::new(view.y, -view.x);
         let direction = view * forward + side * right;
-        let speed = if run {
+        // The clips' own movement sets the speed, so the feet do not slide.
+        let clip_speed = renderer
+            .hero_animator
+            .as_ref()
+            .and_then(|a| a.speed(if run { 2 } else { 1 }))
+            .map(|s| s * model::MESH_SCALE * model::YOUNG_HERO_SCALE);
+        let speed = clip_speed.unwrap_or(if run {
             walk::RUN_SPEED
         } else {
             walk::WALK_SPEED
-        };
+        });
+        let before = hero.position;
         hero.step(direction, speed, dt, walk, heights);
+        let moved = (hero.position - before).truncate().length() > 1e-4;
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
+        let clip = match (moved, run) {
+            (false, _) => 0,
+            (true, false) => 1,
+            (true, true) => 2,
+        };
+        animate_hero(renderer, queue, clip, dt);
+        ui.ctx().request_repaint();
         follow(&mut self.camera, hero, renderer, self.follow_distance);
     }
 
@@ -724,7 +798,7 @@ impl eframe::App for ViewerApp {
                         self.camera.zoom(scroll);
                     }
                 }
-                self.walk(ui);
+                self.walk(ui, &rs.queue);
 
                 let ppp = ui.ctx().pixels_per_point();
                 let size = [(rect.width() * ppp) as u32, (rect.height() * ppp) as u32];

@@ -12,6 +12,14 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
 - Next: decide with Ross between decoding water surfaces now or moving on.
 
+## 2026-10-11 (later): animations, the young Hero walks and runs
+
+- Animations (bank types 6, 7, 9; 3,435 entries, 210,743 bone tracks) all parse: `fable_data::anim`, `docs/formats/anim.md`. Each entry is a u32 length and one LZO stream of chunks (`3DAF`, `ANRT` > `AOBJ` > `XSEQ` per bone, `HLPR` > `MVEC`, `XALO`). Tracks hold float quaternion keys and i16 position keys, each either constant, per frame or a palette with per-frame indices.
+- Conventions checked against `MESH_YOUNGHERO_02`'s skeleton: rotations match the rest-pose convention; positions are directions scaled so the largest component is 1, their length comes from the skeleton (so adult Hero animations fit the young Hero).
+- `MVEC` starts with the distance an animation carries the character per loop: `ANIM_HERO_WALK` 266.67 mesh units per second, `ANIM_HERO_RUN` 390 per 0.6 s. Walk cycles stay in place.
+- Viewer: the Hero is skinned on the CPU each frame and plays `ANIM_HERO_IDLE` standing, `ANIM_HERO_WALK` walking and `ANIM_HERO_RUN` with Shift; his speed comes from the clips' `MVEC` (1.73 and 4.22 m/s at the young Hero's estimated 0.65 scale), so the feet keep pace. `--anim NAME --anim-time T` poses him for screenshots.
+- Not yet: which animation the game uses for what (`CAppearanceDef` slot values are not bank ids), blending between clips, the young Hero's true scale.
+
 ## 2026-10-11: skinned meshes, the real young Hero
 
 - Skinned meshes (bank entry type 5, 504 entries, 1431 levels of detail) all parse: skeleton (bone names, parents, rest poses, inverse bind matrices), skinned chunks with per-sub-mesh bone lists, 4 bone indices and weights per vertex, and the optional physics stream after a chunk (`docs/formats/mesh.md`). The rest pose composed down the hierarchy reproduces every inverse bind matrix (worst error 4e-6), which fixes the matrix and quaternion conventions.

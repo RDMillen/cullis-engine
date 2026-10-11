@@ -453,6 +453,68 @@ fn skinned_meshes_parse_with_consistent_skeletons() {
 
 #[test]
 #[ignore]
+fn animations_parse_with_unit_quaternions() {
+    use fable_data::anim::{ANIMATION_TYPES, AnimInfo, Animation};
+
+    let path = data_dir().join("graphics/graphics.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let index = big
+        .bank("MBANK_ALLMESHES")
+        .unwrap()
+        .read_index(&mut file)
+        .unwrap();
+    let (mut parsed, mut tracks, mut failed) = (0, 0, Vec::new());
+    let (mut unit, mut keys) = (0usize, 0usize);
+    for entry in index
+        .entries
+        .iter()
+        .filter(|e| ANIMATION_TYPES.contains(&e.entry_type))
+    {
+        let info = AnimInfo::parse(&entry.info).unwrap();
+        let data = entry.read_data(&mut file).unwrap();
+        let anim = match Animation::parse(&data) {
+            Ok(a) => a,
+            Err(e) => {
+                failed.push(format!("{}: {e}", entry.name));
+                continue;
+            }
+        };
+        for track in anim.objects.iter().flat_map(|o| &o.tracks) {
+            // Durations agree with the frame counts at the track's rate.
+            assert!(
+                (info.duration - track.frames as f32 / track.fps).abs() < 0.02 || track.frames <= 1,
+                "{} {}: {} frames at {} fps, info {}",
+                entry.name,
+                track.name,
+                track.frames,
+                track.fps,
+                info.duration
+            );
+            for q in &track.rotations {
+                let len = q.iter().map(|v| v * v).sum::<f32>().sqrt();
+                unit += usize::from((len - 1.0).abs() < 0.01);
+                keys += 1;
+            }
+            for frames in [&track.rotation_frames, &track.position_frames] {
+                assert!(frames.is_empty() || frames.len() == track.frames as usize);
+            }
+            tracks += 1;
+        }
+        parsed += 1;
+    }
+    eprintln!(
+        "{parsed} animations ({tracks} tracks) parsed, {} failed, e.g. {:?}; \
+         {unit} of {keys} rotation keys unit length",
+        failed.len(),
+        &failed[..failed.len().min(3)]
+    );
+    assert!(failed.is_empty());
+    assert!(unit * 1000 >= keys * 999);
+}
+
+#[test]
+#[ignore]
 fn every_tng_parses_and_places_its_buildings() {
     use fable_data::tng::Tng;
 
