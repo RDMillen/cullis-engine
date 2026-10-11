@@ -146,11 +146,16 @@ impl Scene {
                     if let Some(def) = defs.get(&c.definition) {
                         c.idles =
                             terrain::IdleAnimations::from_slots(&defs.animation_slots(def, &names));
+                        c.morphs = defs.skeletal_morphs(def, &names);
                     }
                 }
                 let hero_slots = defs
                     .get(HERO_DEFINITION)
                     .map(|d| defs.animation_slots(d, &names))
+                    .unwrap_or_default();
+                let hero_morphs = defs
+                    .get(HERO_DEFINITION)
+                    .map(|d| defs.skeletal_morphs(d, &names))
                     .unwrap_or_default();
                 let (lo, hi) = mesh.bounds();
                 let themes = match &mesh.themes {
@@ -159,6 +164,7 @@ impl Scene {
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
+                renderer.hero_morphs = hero_morphs;
                 let (things, buildings) = model::load_placements(data_dir, name, &placements)?;
                 renderer.buildings = buildings;
                 let status = format!(
@@ -416,7 +422,7 @@ fn pose_and_frame(
     if let Some(animator) = &renderer.hero_animator {
         for (i, name) in HERO_CLIPS.iter().enumerate() {
             let speed =
-                animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * model::YOUNG_HERO_SCALE;
+                animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * animator.stride_ratio();
             eprintln!("{name}: {speed:.2} m/s");
         }
     }
@@ -502,7 +508,9 @@ fn spawn_hero(
     ));
     let mut bank = skin::AnimBank::open(data_dir)?;
     let animations = renderer.hero_animations.clone();
-    renderer.hero_animator = skin.and_then(|skin| {
+    let configs = model::bone_configs(data_dir, &renderer.hero_morphs);
+    renderer.hero_animator = skin.and_then(|mut skin| {
+        skin.set_morph(&configs);
         // Idle, walk and run from his table (or by name), then his fidgets.
         let ids: Vec<u32> = animations
             .main
@@ -1068,8 +1076,11 @@ impl ViewerApp {
         let clip_speed = renderer
             .hero_animator
             .as_ref()
-            .and_then(|a| a.speed(if run { 2 } else { 1 }))
-            .map(|s| s * model::MESH_SCALE * model::YOUNG_HERO_SCALE);
+            .and_then(|a| {
+                a.speed(if run { 2 } else { 1 })
+                    .map(|s| s * a.stride_ratio())
+            })
+            .map(|s| s * model::MESH_SCALE);
         let speed = clip_speed.unwrap_or(if run {
             walk::RUN_SPEED
         } else {

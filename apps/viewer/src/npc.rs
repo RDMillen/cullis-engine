@@ -100,16 +100,6 @@ fn idle_for(definition: &str) -> &'static str {
     }
 }
 
-/// The young Hero's sister is modelled at adult size like him (see
-/// [`model::YOUNG_HERO_SCALE`]).
-fn scale_for(definition: &str) -> f32 {
-    if definition.contains("YOUNG_SISTER") {
-        model::YOUNG_HERO_SCALE
-    } else {
-        1.0
-    }
-}
-
 /// Loads and poses every creature (each mesh and clip is decoded once).
 pub fn load(
     data_dir: &Path,
@@ -133,6 +123,7 @@ pub fn load(
         let Some(base) = c.idles.base.or_else(|| bank.id(idle_for(&c.definition))) else {
             continue;
         };
+        let configs = model::bone_configs(data_dir, &c.morphs);
         let ids: Vec<u32> = std::iter::once(base)
             .chain(c.idles.fidgets.iter().copied())
             .collect();
@@ -169,7 +160,9 @@ pub fn load(
             if part_clips.is_empty() {
                 continue;
             }
-            let mut animator = Animator::new(model.vertices.clone(), skin.clone(), part_clips);
+            let mut skin = skin.clone();
+            skin.set_morph(&configs);
+            let mut animator = Animator::new(model.vertices.clone(), skin, part_clips);
             let renderer = ModelRenderer::new(device, queue, model);
             // Start each creature at a different point of its loop.
             renderer.set_vertices(queue, animator.advance(i as f32 * 0.37));
@@ -181,8 +174,7 @@ pub fn load(
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,
                 parts,
-                transform: c.placement.transform()
-                    * Mat4::from_scale(glam::Vec3::splat(scale_for(&c.definition))),
+                transform: c.placement.transform(),
             });
         }
     }

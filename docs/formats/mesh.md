@@ -161,7 +161,7 @@ As a static chunk except:
 - Sub-mesh records are 19 bytes plus a bone list: u32 primitive count, u32 first index, 3 flag bytes (first = 1 for strips), u32 vertex count, u16 (3), u8 (1), u8 bone count, then that many skeleton bone indices.
 - Every vertex format gains 8 bytes right after the position: 4 bone indices (stored x3, so `0x21` is the sub-mesh's 11th bone list entry) and 4 weights summing to 255. The normal and texture coordinates follow. Seen: format 4 (stride 20), 20 (28), 6 (28), 22 (36).
 
-Vertices are stored in the bind pose, in model space, so a mesh can be drawn without its skeleton. The young Hero stands 201 units tall, like the father (195) and the rival Heroes (about 200), though the Prologue Hero is a child; his scale in the game is not decoded (the viewer uses an estimate of 0.65).
+Vertices are stored in the bind pose, in model space, so a mesh can be drawn without its skeleton. The young Hero's mesh stands 201 units tall, like the father (195) and the rival Heroes (about 200): he is made a child by his bone config ([bncfg.md](bncfg.md)), which shortens his skeleton bone by bone.
 
 ### After each chunk (static and skinned)
 

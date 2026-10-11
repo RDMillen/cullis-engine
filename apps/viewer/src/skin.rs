@@ -149,6 +149,14 @@ fn animated_bone(bone: &Bone, track: Option<&Track>, frames: u32, fps: f32, time
     out
 }
 
+/// Where a bone sits in model space in the bind pose (the inverse of its
+/// inverse bind matrix, applied to the origin).
+pub fn bind_origin(bone: &Bone) -> Vec3 {
+    to_mat4(&bone.inverse_bind)
+        .inverse()
+        .transform_point3(Vec3::ZERO)
+}
+
 fn to_mat4(m: &Affine) -> Mat4 {
     Mat4::from_cols(
         Vec4::new(m[0][0], m[1][0], m[2][0], 0.0),
@@ -159,13 +167,21 @@ fn to_mat4(m: &Affine) -> Mat4 {
 }
 
 /// Per bone, the matrix taking bind-pose model space to posed model space.
-pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32) -> Vec<Mat4> {
+///
+/// `morph` (per bone, may be empty) reshapes the skeleton: a bone's scale applies
+/// to its own vertices (in bone space) and to its children's offsets from it, but
+/// is not inherited, so a shortened thigh brings the calf up without shrinking it.
+pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32, morph: &[[f32; 3]]) -> Vec<Mat4> {
     let mut world: Vec<Affine> = Vec::with_capacity(skeleton.bones.len());
     for (i, bone) in skeleton.bones.iter().enumerate() {
-        let local = match clip {
-            Some(c) => animated_bone(bone, c.tracks[i].as_ref(), c.frames, c.fps, time).local(),
-            None => bone.local(),
+        let mut posed = match clip {
+            Some(c) => animated_bone(bone, c.tracks[i].as_ref(), c.frames, c.fps, time),
+            None => bone.clone(),
         };
+        if let Some(s) = bone.parent.and_then(|p| morph.get(p)) {
+            posed.translation = std::array::from_fn(|k| posed.translation[k] * s[k]);
+        }
+        let local = posed.local();
         let m = match bone.parent.and_then(|p| world.get(p)) {
             Some(parent) => mul_affine(parent, &local),
             None => local,
@@ -175,7 +191,16 @@ pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32) -> Vec<Mat4> {
     world
         .iter()
         .zip(&skeleton.bones)
-        .map(|(w, b)| to_mat4(&mul_affine(w, &b.inverse_bind)))
+        .enumerate()
+        .map(|(i, (w, b))| {
+            let s = morph.get(i).copied().unwrap_or([1.0; 3]);
+            let scale: Affine = [
+                [s[0], 0.0, 0.0, 0.0],
+                [0.0, s[1], 0.0, 0.0],
+                [0.0, 0.0, s[2], 0.0],
+            ];
+            to_mat4(&mul_affine(&mul_affine(w, &scale), &b.inverse_bind))
+        })
         .collect()
 }
 
@@ -251,6 +276,12 @@ impl Animator {
         self.clips.get(i).map(Clip::speed).filter(|&s| s > 0.0)
     }
 
+    /// How much shorter the morph makes the creature's stride (see
+    /// `Skin::stride_ratio`).
+    pub fn stride_ratio(&self) -> f32 {
+        self.skin.stride_ratio()
+    }
+
     /// Index of the clip playing.
     pub fn current(&self) -> usize {
         self.current
@@ -275,7 +306,12 @@ impl Animator {
     /// Advances the current clip by `dt` seconds and returns the posed vertices.
     pub fn advance(&mut self, dt: f32) -> &[ModelVertex] {
         self.time += dt;
-        let matrices = pose(&self.skin.skeleton, self.clips.get(self.current), self.time);
+        let matrices = pose(
+            &self.skin.skeleton,
+            self.clips.get(self.current),
+            self.time,
+            &self.skin.morph,
+        );
         deform(&self.skin, &self.bind, &matrices, &mut self.posed);
         &self.posed
     }
@@ -308,13 +344,38 @@ mod tests {
             dummy_count: 0,
             bones: vec![bone(None, [0.0; 3])],
         };
-        let m = pose(&skeleton, None, 0.0);
+        let m = pose(&skeleton, None, 0.0, &[]);
         assert!(m[0].abs_diff_eq(Mat4::IDENTITY, 1e-6));
+    }
+
+    #[test]
+    fn morph_moves_children_without_inheriting() {
+        // A root at the origin and a child 10 along x; halving the root's length
+        // brings the child to 5, while the child keeps its own scale (1).
+        let skeleton = Skeleton {
+            helper_count: 0,
+            dummy_count: 0,
+            bones: vec![bone(None, [0.0; 3]), bone(Some(0), [10.0, 0.0, 0.0])],
+        };
+        let m = pose(&skeleton, None, 0.0, &[[0.5, 1.0, 1.0], [1.0; 3]]);
+        // The child's inverse bind is identity here, so its matrix maps the
+        // origin to the child's position, and keeps unit length along x.
+        assert!(
+            m[1].transform_point3(Vec3::ZERO)
+                .abs_diff_eq(Vec3::new(5.0, 0.0, 0.0), 1e-5)
+        );
+        assert!(m[1].transform_vector3(Vec3::X).abs_diff_eq(Vec3::X, 1e-5));
+        // The root's own vertices shrink along x.
+        assert!(
+            m[0].transform_point3(Vec3::X)
+                .abs_diff_eq(Vec3::new(0.5, 0.0, 0.0), 1e-5)
+        );
     }
 
     #[test]
     fn deform_blends_bone_matrices_by_weight() {
         let skin = Skin {
+            morph: Vec::new(),
             influences: vec![([0, 1, 0, 0], [0.5, 0.5, 0.0, 0.0])],
             skeleton: Skeleton {
                 helper_count: 0,

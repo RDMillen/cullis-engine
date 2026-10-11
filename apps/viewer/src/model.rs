@@ -108,6 +108,64 @@ struct LocalMesh {
 pub struct Skin {
     pub influences: Vec<([u16; 4], [f32; 4])>,
     pub skeleton: Skeleton,
+    /// Per bone, a scale from the creature's bone configs (`Bones/*.bncfg`):
+    /// along the bone and across it. Empty for none.
+    pub morph: Vec<[f32; 3]>,
+}
+
+/// Reads bone configs by file name from `Bones/` (unreadable ones are skipped
+/// with a message).
+pub fn bone_configs(data_dir: &Path, files: &[String]) -> Vec<fable_data::bncfg::BoneConfig> {
+    files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read(data_dir.join("Bones").join(f))
+                .map_err(|e| eprintln!("{f}: {e}"))
+                .ok()?;
+            fable_data::bncfg::BoneConfig::parse(&String::from_utf8_lossy(&text))
+                .map_err(|e| eprintln!("{f}: {e}"))
+                .ok()
+        })
+        .collect()
+}
+
+impl Skin {
+    /// How much the morph lowers the hips: the pelvis's rest height with the morph
+    /// over without (1 with no morph). Animations made for full-size skeletons
+    /// cover that much less ground.
+    pub fn stride_ratio(&self) -> f32 {
+        let pelvis = |morph: &[[f32; 3]]| {
+            let i = self
+                .skeleton
+                .bones
+                .iter()
+                .position(|b| b.name == "Bip01 Pelvis")?;
+            let m = crate::skin::pose(&self.skeleton, None, 0.0, morph)[i];
+            // The bone's origin: the inverse bind maps it from model space.
+            let bind = crate::skin::bind_origin(&self.skeleton.bones[i]);
+            Some(m.transform_point3(bind).z)
+        };
+        match (pelvis(&self.morph), pelvis(&[])) {
+            (Some(a), Some(b)) if b.abs() > 1e-3 => a / b,
+            _ => 1.0,
+        }
+    }
+
+    /// Applies bone configs: each bone's scale is the product of the configs'
+    /// scales for it.
+    pub fn set_morph(&mut self, configs: &[fable_data::bncfg::BoneConfig]) {
+        self.morph = self
+            .skeleton
+            .bones
+            .iter()
+            .map(|b| {
+                configs
+                    .iter()
+                    .filter_map(|c| c.scale(&b.name))
+                    .fold([1.0; 3], |a, s| [a[0] * s[0], a[1] * s[1], a[2] * s[2]])
+            })
+            .collect();
+    }
 }
 
 /// Accumulates meshes, placed or not, into one [`ModelData`], loading each mesh
@@ -231,6 +289,7 @@ impl ModelBuilder {
                 .map(|skeleton| Skin {
                     influences: Vec::new(),
                     skeleton,
+                    morph: Vec::new(),
                 }),
         };
         for chunk in &lod.chunks {
@@ -338,17 +397,10 @@ pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Error> {
 /// The Prologue Hero's mesh (face, torso, mouth and hair materials).
 const YOUNG_HERO_MESH: &str = "MESH_YOUNGHERO_02";
 
-/// Estimated size of the young Hero relative to his mesh. The mesh is modelled
-/// at adult size (201 units, like `MESH_HERO_FATHER`'s 195), but the Prologue Hero
-/// is a child; where the game stores his scale is not decoded yet. 0.65 makes him
-/// about 1.3 m tall.
-pub const YOUNG_HERO_SCALE: f32 = 0.65;
-
 /// Takes the young Hero's mesh to his local space: feet at the origin, facing +y
 /// (meshes face their local -y, so he is turned round), in world units.
 pub fn hero_local() -> Mat4 {
-    Mat4::from_scale(Vec3::splat(MESH_SCALE * YOUNG_HERO_SCALE))
-        * Mat4::from_rotation_z(std::f32::consts::PI)
+    Mat4::from_scale(Vec3::splat(MESH_SCALE)) * Mat4::from_rotation_z(std::f32::consts::PI)
 }
 
 /// The young Hero in his bind pose, in mesh units (see [`hero_local`]), with his

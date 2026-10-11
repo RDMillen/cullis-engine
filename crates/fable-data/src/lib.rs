@@ -6,6 +6,7 @@ pub mod anim;
 pub mod bank;
 pub mod bbbb;
 pub mod big;
+pub mod bncfg;
 pub mod defs;
 pub mod dxt;
 mod error;

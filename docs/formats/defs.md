@@ -90,3 +90,7 @@ A creature's `CAppearanceDef` (`CREATURE_HERO_CHILD`'s has 871 entries, a villag
 | `ST_IDLE_SUBTLE` | `SWORD`, `CROSSBOW`, `TOO_HEAVY`, `DRAINED`, … | situation variants |
 
 Villagers: `ST_IDLE_SUBTLE` → `ANIM_VILLAGER_MALE_IDLE_BREATHE_01`, `ST_IDLE` → gazing at the sky, scratching the head. Other slots cover combat, emotes (`ST_THANKS`), cutscenes (`CS_SHIFT_WEIGHT3` → `ANIM_HERO_IDLE_3`), objects (`LIGHT_LAMP` with `TABLELIGHT`, `CUPBOARDLIGHT`). How the game chooses among several entries for one slot is not known.
+
+## Skeletal morphs
+
+`CSkeletalMorphDef`: field `0xcbf27745`, a `u32` count, then that many `names.bin` offsets naming bone config files (`hero_young_set.bncfg`, `young_sister_set.bncfg`, a guard's; [bncfg.md](bncfg.md)). `Def::skeletal_morphs`, `Defs::skeletal_morphs`.

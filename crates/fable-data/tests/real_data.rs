@@ -586,6 +586,32 @@ fn every_region_exit_leads_to_an_entrance() {
 
 #[test]
 #[ignore]
+fn every_bone_config_parses_with_sane_scales() {
+    use fable_data::bncfg::BoneConfig;
+
+    let mut files = 0;
+    for entry in std::fs::read_dir(data_dir().join("Bones")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "bncfg") {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+        let config = BoneConfig::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert!(!config.bones.is_empty(), "{}", path.display());
+        for (bone, scale) in &config.bones {
+            assert!(
+                scale.iter().all(|s| (0.05..10.0).contains(s)),
+                "{} {bone} {scale:?}",
+                path.display()
+            );
+        }
+        files += 1;
+    }
+    assert!(files > 50, "{files}");
+}
+
+#[test]
+#[ignore]
 fn every_tng_parses_and_places_its_buildings() {
     use fable_data::tng::Tng;
 

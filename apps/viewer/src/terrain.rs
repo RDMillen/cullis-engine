@@ -304,6 +304,8 @@ pub struct CreaturePlacement {
     pub parts: Vec<Vec<fable_data::defs::PartOption>>,
     /// Its idle animations from its `CAppearanceDef` (filled in after loading).
     pub idles: IdleAnimations,
+    /// Its bone config files (`CSkeletalMorphDef`; filled in after loading).
+    pub morphs: Vec<String>,
     pub placement: Placement,
 }
 
@@ -516,6 +518,7 @@ fn load_placements(
                 uid: t.uid().unwrap_or(0),
                 parts: defs.creature_parts(def),
                 idles: IdleAnimations::default(),
+                morphs: Vec::new(),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,

@@ -229,6 +229,9 @@ pub struct StaticMeshEntry {
     pub interior: bool,
 }
 
+/// Field of a `CSkeletalMorphDef` listing bone config files (name unknown).
+const SKELETAL_MORPH_FIELD: u32 = 0xcbf2_7745;
+
 /// Field hashes after each `Mesh` of a `CMultiStaticMeshDef` (names unknown).
 const EXTERIOR_FLAG_FIELD: u32 = 0x7ca9_0715;
 const INTERIOR_FLAG_FIELD: u32 = 0x9759_5fc1;
@@ -308,6 +311,27 @@ impl Def {
                     modifier,
                 })
             })
+            .collect()
+    }
+
+    /// The bone config files a `CSkeletalMorphDef` names (`hero_young_set.bncfg`):
+    /// field `0xcbf27745`, a `u32` count, then that many `names.bin` offsets.
+    pub fn skeletal_morphs(&self, names: &Names) -> Vec<String> {
+        let r = &self.record;
+        let word = |o: usize| {
+            r.get(o..o + 4)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        };
+        let Some(at) = r
+            .windows(4)
+            .position(|w| w == SKELETAL_MORPH_FIELD.to_le_bytes())
+        else {
+            return Vec::new();
+        };
+        let count = word(at + 4).unwrap_or(0).min(16) as usize;
+        (0..count)
+            .filter_map(|k| names.at(word(at + 8 + 4 * k)?))
+            .map(str::to_owned)
             .collect()
     }
 
@@ -524,6 +548,15 @@ impl Defs {
             .and_then(|i| self.defs.get(i))
             .filter(|c| self.type_name(c) == "CAppearanceDef")
             .map(|c| c.animation_slots(names))
+            .unwrap_or_default()
+    }
+
+    /// A creature's bone config files, from its `CSkeletalMorphDef` component.
+    pub fn skeletal_morphs(&self, def: &Def, names: &Names) -> Vec<String> {
+        def.component("CSkeletalMorphDef")
+            .and_then(|i| self.defs.get(i))
+            .filter(|c| self.type_name(c) == "CSkeletalMorphDef")
+            .map(|c| c.skeletal_morphs(names))
             .unwrap_or_default()
     }
 
