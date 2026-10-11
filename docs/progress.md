@@ -17,6 +17,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Hero textures: the Prologue Hero is `MESH_YOUNGHERO_02` (mesh id 4300, type 5, skinned); its info block lists `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO` (outfit atlas) and `HERO_SKIN_MOUTH`; all decode correctly (checked by eye). Type-5 meshes (504, the character parts) share the static-mesh info layout. Creature definitions (`CREATURE_HERO_CHILD`, …) do not reference meshes through `Graphic`; how they pick body parts is not decoded.
 - Viewer: a Textures tab lists every texture by name and shows the selected one.
 - Viewer walk mode ("Walk" checkbox, or `--walk` for screenshots): a blocky placeholder Hero textured with the young Hero's textures, on a 0.5 m walkability grid from the ground-layer navigation leaves, height from the heightmaps, WASD relative to the camera, Shift to run, sliding along blocked edges, follow camera.
+- Ross confirmed walk mode and the texture browser work in the window (2026-10-11).
 - Not yet: camera collision (the camera can end up inside houses), walking on upper navigation layers (bridge decks), skinned meshes and animation.
 
 ## 2026-10-10 (later): the rest of the Lev
