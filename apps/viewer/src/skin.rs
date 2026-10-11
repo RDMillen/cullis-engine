@@ -177,12 +177,46 @@ fn to_mat4(m: &Affine) -> Mat4 {
 /// to its own vertices (in bone space) and to its children's offsets from it, but
 /// is not inherited, so a shortened thigh brings the calf up without shrinking it.
 pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32, morph: &[[f32; 3]]) -> Vec<Mat4> {
+    pose_blended(skeleton, clip, time, None, morph)
+}
+
+/// A bone's pose under `clip` at `time` (its rest pose without a clip).
+fn bone_pose(bone: &Bone, i: usize, clip: Option<&Clip>, time: f32) -> Bone {
+    match clip {
+        Some(c) => animated_bone(bone, c.tracks[i].as_ref(), c.frames, c.fps, time),
+        None => bone.clone(),
+    }
+}
+
+/// Blends two poses of a bone: `k` 0 is `a`, 1 is `b` (rotations interpolated
+/// along the shorter way, translations linearly).
+fn blend_bones(a: &Bone, b: &Bone, k: f32) -> Bone {
+    let (qa, qb) = (Quat::from_array(a.rotation), Quat::from_array(b.rotation));
+    let qb = if qa.dot(qb) < 0.0 { -qb } else { qb };
+    let mut out = b.clone();
+    out.rotation = qa.lerp(qb, k).normalize().to_array();
+    out.translation = Vec3::from_array(a.translation)
+        .lerp(Vec3::from_array(b.translation), k)
+        .to_array();
+    out
+}
+
+/// As [`pose`], fading in from `from` (a clip, its time, and how far the fade
+/// has come, 0 to 1).
+pub fn pose_blended(
+    skeleton: &Skeleton,
+    clip: Option<&Clip>,
+    time: f32,
+    from: Option<(&Clip, f32, f32)>,
+    morph: &[[f32; 3]],
+) -> Vec<Mat4> {
     let mut world: Vec<Affine> = Vec::with_capacity(skeleton.bones.len());
     for (i, bone) in skeleton.bones.iter().enumerate() {
-        let mut posed = match clip {
-            Some(c) => animated_bone(bone, c.tracks[i].as_ref(), c.frames, c.fps, time),
-            None => bone.clone(),
-        };
+        let mut posed = bone_pose(bone, i, clip, time);
+        if let Some((old, old_time, k)) = from {
+            let before = bone_pose(bone, i, Some(old), old_time);
+            posed = blend_bones(&before, &posed, k);
+        }
         if let Some(s) = bone.parent.and_then(|p| morph.get(p)) {
             posed.translation = std::array::from_fn(|k| posed.translation[k] * s[k]);
         }
@@ -246,7 +280,13 @@ pub struct Animator {
     posed: Vec<ModelVertex>,
     /// The current clip plays once and holds its last frame instead of looping.
     once: bool,
+    /// The clip being faded out after a switch: index, its time, whether it was
+    /// held, and seconds since the switch.
+    fading: Option<(usize, f32, bool, f32)>,
 }
+
+/// How long a switch between clips crossfades, in seconds.
+const FADE: f32 = 0.25;
 
 impl Animator {
     pub fn new(bind: Vec<ModelVertex>, skin: Skin, clips: Vec<Clip>) -> Self {
@@ -258,6 +298,7 @@ impl Animator {
             time: 0.0,
             posed: Vec::new(),
             once: false,
+            fading: None,
         }
     }
 
@@ -274,6 +315,7 @@ impl Animator {
     /// Switches to clip `i` (restarting it) unless it is already playing.
     pub fn play(&mut self, i: usize) {
         if i != self.current && i < self.clips.len() {
+            self.fading = Some((self.current, self.time, self.once, 0.0));
             self.current = i;
             self.time = 0.0;
             self.once = false;
@@ -284,6 +326,8 @@ impl Animator {
     /// playing) and then holds its last frame: a door swinging open.
     pub fn play_once(&mut self, i: usize, time: f32) {
         if i < self.clips.len() {
+            // Starting partway (a door's resting pose) jumps; from the start fades.
+            self.fading = (time == 0.0).then_some((self.current, self.time, self.once, 0.0));
             self.current = i;
             self.time = time;
             self.once = true;
@@ -324,17 +368,26 @@ impl Animator {
 
     /// Advances the current clip by `dt` seconds and returns the posed vertices.
     pub fn advance(&mut self, dt: f32) -> &[ModelVertex] {
-        self.time += dt;
-        if self.once
-            && let Some(c) = self.clips.get(self.current)
-        {
+        let hold = |clips: &[Clip], i: usize, once: bool, t: f32| match clips.get(i) {
             // The last frame, not the wrap back to the first.
-            self.time = self.time.min(c.last_frame_time());
+            Some(c) if once => t.min(c.last_frame_time()),
+            _ => t,
+        };
+        self.time = hold(&self.clips, self.current, self.once, self.time + dt);
+        if let Some((i, t, once, since)) = self.fading {
+            let since = since + dt;
+            self.fading =
+                (since < FADE).then(|| (i, hold(&self.clips, i, once, t + dt), once, since));
         }
-        let matrices = pose(
+        let from = self.fading.and_then(|(i, t, _, since)| {
+            let k = since / FADE;
+            Some((self.clips.get(i)?, t, k * k * (3.0 - 2.0 * k)))
+        });
+        let matrices = pose_blended(
             &self.skin.skeleton,
             self.clips.get(self.current),
             self.time,
+            from,
             &self.skin.morph,
         );
         deform(&self.skin, &self.bind, &matrices, &mut self.posed);
@@ -392,6 +445,21 @@ mod tests {
         assert!(
             m[0].transform_point3(Vec3::X)
                 .abs_diff_eq(Vec3::new(0.5, 0.0, 0.0), 1e-5)
+        );
+    }
+
+    #[test]
+    fn blending_two_poses_meets_halfway() {
+        let a = bone(None, [0.0; 3]);
+        let mut b = bone(None, [2.0, 0.0, 0.0]);
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        b.rotation = [0.0, 0.0, h, h]; // 90 degrees about z
+        let mid = blend_bones(&a, &b, 0.5);
+        assert_eq!(mid.translation, [1.0, 0.0, 0.0]);
+        let angle = Quat::from_array(mid.rotation).to_axis_angle().1;
+        assert!(
+            (angle - std::f32::consts::FRAC_PI_4).abs() < 1e-3,
+            "{angle}"
         );
     }
 
