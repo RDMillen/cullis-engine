@@ -99,6 +99,8 @@ pub struct TerrainRenderer {
     pub hero_morphs: Vec<String>,
     /// Plays the Hero's animations, when his mesh is skinned.
     pub hero_animator: Option<crate::skin::Animator>,
+    /// The Hero's kick among his clips, if it loaded.
+    pub hero_kick: Option<usize>,
     /// The region's quest-state sections (for choosing which are shown).
     pub sections: Vec<String>,
     /// Region exits in the region's own maps.
@@ -403,6 +405,7 @@ impl TerrainRenderer {
             things: None,
             hero: None,
             hero_animator: None,
+            hero_kick: None,
             hero_animations: Default::default(),
             hero_morphs: Vec::new(),
             npcs: Vec::new(),
@@ -450,7 +453,7 @@ impl TerrainRenderer {
         if let Some((hero, transform)) = &self.hero {
             hero.prepare(queue, view_proj * *transform);
         }
-        for npc in &self.npcs {
+        for npc in self.npcs.iter().filter(|n| !n.hidden) {
             for (part, _) in &npc.parts {
                 part.prepare(queue, view_proj * npc.transform);
             }
@@ -493,7 +496,12 @@ impl TerrainRenderer {
                 hero.draw(&mut pass);
                 pass.set_bind_group(0, &self.bind_group, &[]);
             }
-            for (part, _) in self.npcs.iter().flat_map(|n| &n.parts) {
+            for (part, _) in self
+                .npcs
+                .iter()
+                .filter(|n| !n.hidden)
+                .flat_map(|n| &n.parts)
+            {
                 part.draw(&mut pass);
             }
             for door in &self.doors {

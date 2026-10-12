@@ -13,6 +13,7 @@ mod model;
 mod npc;
 mod render;
 mod skin;
+mod story;
 mod talk;
 mod terrain;
 mod themes;
@@ -66,6 +67,9 @@ struct Args {
     /// After walking, talk to the nearest creature this many times, printing
     /// what it says.
     talk: u32,
+    /// Start the Prologue quest with Theresa's present bought (for testing the
+    /// ending).
+    with_present: bool,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -84,6 +88,7 @@ fn parse_args() -> Result<Args, Error> {
         npc_time: 0.0,
         use_door: false,
         talk: 0,
+        with_present: false,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -104,6 +109,7 @@ fn parse_args() -> Result<Args, Error> {
             "--npc-time" => args.npc_time = value()?.parse()?,
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
+            "--with-present" => args.with_present = true,
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -384,22 +390,35 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         if args.talk > 0 {
             let text = fable_data::strings::TextBank::open(data_dir, "English")?;
-            let mut talks = 0;
+            let region = match subject {
+                Subject::Region(r) => r.as_str(),
+                Subject::Mesh(_) => "",
+            };
+            let mut story = story::Story::for_region(region, &sections);
+            let mut subs = talk::Subtitles::default();
+            let at = hero.position.truncate();
             for _ in 0..args.talk {
-                match talk_to(
-                    &mut renderer.npcs,
-                    hero.position.truncate(),
-                    &text,
-                    &mut talks,
-                ) {
-                    Some(c) => {
-                        let who = renderer.npcs[c.with].script_name.as_deref().unwrap_or("?");
-                        for line in &c.lines {
-                            eprintln!("{who}: {}: {}", line.speaker, line.text);
+                let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
+                let (Some(story), Some(i)) = (&mut story, near) else {
+                    eprintln!("nobody to talk to");
+                    continue;
+                };
+                story.talk(&renderer.npcs, i, at, &text, &mut subs);
+                let who = renderer.npcs[i].script_name.as_deref().unwrap_or("?");
+                let mut effects = Vec::new();
+                loop {
+                    subs.step(0.0, &mut effects);
+                    if let Some((line, _)) = subs.line() {
+                        eprintln!("{who}: {}: {}", line.speaker, line.text);
+                        subs.advance();
+                    } else {
+                        if let Some(question) = subs.asking() {
+                            eprintln!("{who} asks: {question}");
                         }
+                        break;
                     }
-                    None => eprintln!("nobody to talk to"),
                 }
+                subs.clear();
             }
         }
         pending_exit = exit_at(renderer, &hero);
@@ -484,51 +503,19 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
 /// How wide a person is, for keeping the Hero and creatures apart.
 const PERSON_RADIUS: f32 = 0.35;
 
-/// Talks to the nearest creature within reach of `at` that has something to say,
-/// starting a conversation. `talks` counts conversations, to vary the lines.
-fn talk_to(
-    npcs: &mut [npc::Npc],
-    at: glam::Vec2,
-    text: &fable_data::strings::TextBank,
-    talks: &mut u64,
-) -> Option<talk::Conversation> {
-    let (i, role) = npcs
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (i, n, n.position().distance(at)))
-        .filter(|&(_, _, d)| d < door::REACH)
-        .filter_map(|(i, n, d)| talk::role_of(n.script_name.as_deref()).map(|r| (i, r, d)))
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .map(|(i, r, _)| (i, r))?;
-    let (entry, mode) = talk::entry(role, npcs[i].talked);
-    npcs[i].talked = true;
-    *talks += 1;
-    let roll = talks.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 20;
-    let mut lines = talk::lines(text, entry, mode, roll);
-    // Lines in a voice set rather than a character's name say who by role.
-    let name = talk::role_name(npcs[i].script_name.as_deref().unwrap_or_default());
-    for line in lines.iter_mut().filter(|l| l.speaker.is_empty()) {
-        line.speaker.clone_from(&name);
-    }
-    (!lines.is_empty()).then_some(talk::Conversation {
-        with: i,
-        lines,
-        at: 0,
-    })
-}
-
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
 fn blocked_for_hero(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
     doors.iter().any(|d| d.blocks(p))
         || npcs
             .iter()
-            .any(|n| n.position().distance(p) < PERSON_RADIUS * 2.0)
+            .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0)
 }
 
 /// The clip the standing Hero plays: his idle (0), or after he has stood for a
-/// while one of his fidgets (clips from 3 on), played once.
+/// while one of his fidgets (clips from 3 up to `end`), played once.
 fn hero_idle_clip(
     animator: Option<&skin::Animator>,
+    end: usize,
     standing: &mut f32,
     fidgets: &mut usize,
     dt: f32,
@@ -536,7 +523,7 @@ fn hero_idle_clip(
     let Some(animator) = animator else {
         return 0;
     };
-    let (current, count) = (animator.current(), animator.clip_count());
+    let (current, count) = (animator.current(), animator.clip_count().min(end));
     if current >= HERO_CLIPS.len() && !animator.finished() {
         return current;
     }
@@ -679,12 +666,25 @@ fn spawn_hero(
         (clips.len() >= HERO_CLIPS.len())
             .then(|| skin::Animator::new(model.vertices.clone(), skin, clips))
     });
+    // His kick, after the fidgets.
+    renderer.hero_kick = None;
+    if let Some(animator) = &mut renderer.hero_animator
+        && let Some(id) = bank.id(HERO_KICK)
+    {
+        match bank.clip(id, animator.skeleton()) {
+            Ok(clip) => renderer.hero_kick = Some(animator.add_clip(clip)),
+            Err(e) => eprintln!("kick: {e}"),
+        }
+    }
     Ok(Some(hero))
 }
 
 /// The Hero's clips by name, used when his animation table lacks a slot:
 /// standing, walking, running (indices used by [`animate_hero`]).
 const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
+
+/// The boy Hero's kick (one of his `STRIKE_MEDIUM_FRONT` animations).
+const HERO_KICK: &str = "ANIM_HERO_UNARMED_KICK_RIGHT_2_1";
 
 /// The young Hero's definition, whose animation table the Hero plays.
 const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";
@@ -821,6 +821,9 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     app.want_walk = args.walk;
                     app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
                     app.auto_talk = args.talk > 0;
+                    if let (true, Some(story)) = (args.with_present, &mut app.story) {
+                        story.quest.skip_to_present();
+                    }
                     app
                 })
                 .map_err(|e| e.to_string())?,
@@ -885,9 +888,13 @@ struct ViewerApp {
     reload_sections: Option<Vec<String>>,
     /// A scene being loaded in the background, shown as a loading screen.
     loading: Option<Loading>,
-    /// The conversation in progress, and a counter for picking lines.
-    conversation: Option<talk::Conversation>,
-    talks: u64,
+    /// The quest being played, if this region has one, and what is on screen.
+    story: Option<story::Story>,
+    subs: talk::Subtitles,
+    /// An answer clicked on a question, handled next frame.
+    clicked_answer: Option<bool>,
+    /// The Hero is kicking (he stands still until the kick ends).
+    kicking: bool,
     /// Seconds the Hero has stood still, and fidgets played (picks the next).
     hero_standing: f32,
     hero_fidgets: usize,
@@ -940,8 +947,16 @@ impl ViewerApp {
             Subject::Region(name) if sections.is_empty() => terrain::default_sections(name),
             _ => sections,
         };
-        let (scene, camera, status) =
+        let (mut scene, camera, status) =
             Scene::load(&data_dir, &wld, &subject, &sections, &rs.device, &rs.queue)?;
+        // The region's quest, if it has one, with its people placed.
+        let story = match &subject {
+            Subject::Region(name) => story::Story::for_region(name, &sections),
+            Subject::Mesh(_) => None,
+        };
+        if let (Some(story), Scene::Terrain(renderer)) = (&story, &mut scene) {
+            story.place(&mut renderer.npcs);
+        }
         let list = match subject {
             Subject::Region(_) => ListMode::Regions,
             Subject::Mesh(_) => ListMode::Meshes,
@@ -970,8 +985,10 @@ impl ViewerApp {
             gtg,
             pending_exit: None,
             loading: None,
-            conversation: None,
-            talks: 0,
+            story,
+            subs: talk::Subtitles::default(),
+            clicked_answer: None,
+            kicking: false,
             sections,
             reload_sections: None,
             auto_walk: None,
@@ -1073,6 +1090,16 @@ impl ViewerApp {
                 self.subject = subject;
                 self.walker = None;
                 self.want_walk = false;
+                self.subs.clear();
+                self.kicking = false;
+                if let Subject::Region(region) = &self.subject
+                    && self.story.is_none()
+                {
+                    self.story = story::Story::for_region(region, &self.sections);
+                }
+                if let (Some(story), Scene::Terrain(renderer)) = (&self.story, &mut self.scene) {
+                    story.place(&mut renderer.npcs);
+                }
                 if let (Some(hero), Scene::Terrain(renderer)) = (loaded.hero, &mut self.scene) {
                     follow(&mut self.camera, &hero, renderer, self.follow_distance);
                     self.walker = Some(hero);
@@ -1279,15 +1306,13 @@ impl ViewerApp {
             let to = goal - hero.position.truncate();
             if to.length() < 0.3 {
                 self.auto_walk = None;
+                let at = hero.position.truncate();
                 if std::mem::take(&mut self.auto_talk)
-                    && let Some(text) = &self.text
+                    && let (Some(text), Some(story)) = (&self.text, &mut self.story)
+                    && let Some(i) =
+                        story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None)
                 {
-                    self.conversation = talk_to(
-                        &mut renderer.npcs,
-                        hero.position.truncate(),
-                        text,
-                        &mut self.talks,
-                    );
+                    story.talk(&renderer.npcs, i, at, text, &mut self.subs);
                 }
             } else if direction == glam::Vec2::ZERO {
                 direction = to;
@@ -1308,33 +1333,68 @@ impl ViewerApp {
             walk::WALK_SPEED
         });
         let before = hero.position;
-        // E: go on with a conversation, else talk to someone near, else use a door.
-        if ui.input(|i| i.key_pressed(egui::Key::E)) {
-            if let Some(c) = &mut self.conversation {
-                if !c.advance() {
-                    self.conversation = None;
-                }
-            } else if let Some(text) = &self.text
-                && let Some(c) = talk_to(
-                    &mut renderer.npcs,
-                    hero.position.truncate(),
-                    text,
-                    &mut self.talks,
-                )
-            {
-                self.conversation = Some(c);
+        let at = hero.position.truncate();
+        let (talk_key, kick_key, answer_key) = ui.input(|i| {
+            let answer = if i.key_pressed(egui::Key::Y) {
+                Some(true)
+            } else if i.key_pressed(egui::Key::N) {
+                Some(false)
+            } else {
+                None
+            };
+            (
+                i.key_pressed(egui::Key::E),
+                i.key_pressed(egui::Key::F),
+                answer,
+            )
+        });
+        // E: go on with what is being said, else talk to someone near, else use a door.
+        if talk_key && !self.subs.advance() && self.subs.asking().is_none() {
+            let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
+            if let (Some(story), Some(text), Some(i)) = (&mut self.story, &self.text, near) {
+                story.talk(&renderer.npcs, i, at, text, &mut self.subs);
             } else if let Some(d) = door::nearest(&renderer.doors, hero.position) {
                 renderer.doors[d].toggle();
             }
         }
+        // Y/N (or a click): answer the question on screen.
+        if let Some(yes) = answer_key.or(self.clicked_answer.take())
+            && self.subs.asking().is_some()
+            && let (Some(story), Some(text)) = (&mut self.story, &self.text)
+        {
+            story.answer(yes, &renderer.npcs, at, text, &mut self.subs);
+        }
+        // F: kick whoever is in front.
+        if kick_key
+            && !self.kicking
+            && let (Some(kick), Some(animator)) = (renderer.hero_kick, &mut renderer.hero_animator)
+        {
+            animator.play_once(kick, 0.0);
+            self.kicking = true;
+            let facing = glam::Vec2::new(-hero.heading.sin(), hero.heading.cos());
+            if let Some(i) =
+                story::nearest_person(&renderer.npcs, at, story::KICK_REACH, Some(facing))
+            {
+                renderer.npcs[i].flinch();
+                if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
+                    story.hit(&renderer.npcs, i, at, text, &mut self.subs);
+                }
+            }
+        }
+        if self.kicking {
+            direction = glam::Vec2::ZERO;
+        }
         // Walking away ends a conversation.
-        if let Some(c) = &self.conversation
+        if let Some(i) = self.subs.waiting_on()
             && renderer
                 .npcs
-                .get(c.with)
-                .is_none_or(|n| n.position().distance(hero.position.truncate()) > 4.0)
+                .get(i)
+                .is_none_or(|n| n.position().distance(at) > 4.0)
         {
-            self.conversation = None;
+            self.subs.walked_away();
+        }
+        if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
+            story.update(dt, &renderer.npcs, at, text, &mut self.subs);
         }
         let (doors, npcs) = (&renderer.doors, &renderer.npcs);
         hero.step_blocked(direction, speed, dt, walk, heights, |p| {
@@ -1344,9 +1404,18 @@ impl ViewerApp {
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
+        let kick = renderer.hero_kick;
+        let kicking = self.kicking
+            && renderer
+                .hero_animator
+                .as_ref()
+                .is_some_and(|a| Some(a.current()) == kick && !a.finished());
+        self.kicking = kicking;
         let clip = match (moved, run) {
+            _ if kicking => kick.unwrap_or(0),
             (false, _) => hero_idle_clip(
                 renderer.hero_animator.as_ref(),
+                kick.unwrap_or(usize::MAX),
                 &mut self.hero_standing,
                 &mut self.hero_fidgets,
                 dt,
@@ -1365,6 +1434,36 @@ impl ViewerApp {
             Some(connection) if self.exits_armed => self.pending_exit = Some(connection),
             Some(_) => {}
             None => self.exits_armed = true,
+        }
+    }
+
+    /// Applies a quest beat the subtitles reached: someone leaving or coming back,
+    /// or the quest ending (the region reloads in the next quest state, the Hero
+    /// where he stands).
+    fn apply(&mut self, rs: &egui_wgpu::RenderState, beat: engine_script::Beat) {
+        use engine_script::Beat;
+        match beat {
+            Beat::Leave(role) | Beat::Return(role) => {
+                if let Scene::Terrain(renderer) = &mut self.scene {
+                    for npc in &mut renderer.npcs {
+                        if npc.script_name.as_deref() == Some(role) {
+                            npc.hidden = matches!(beat, Beat::Leave(_));
+                        }
+                    }
+                }
+            }
+            Beat::Finish(sections) => {
+                self.story = None;
+                let arrival = self.walker.as_ref().map(|h| {
+                    (
+                        h.position,
+                        glam::Vec3::new(-h.heading.sin(), h.heading.cos(), 0.0),
+                    )
+                });
+                let sections = sections.iter().map(|s| (*s).to_owned()).collect();
+                self.load(rs, self.subject.clone(), arrival, sections);
+            }
+            _ => {}
         }
     }
 
@@ -1523,6 +1622,12 @@ impl eframe::App for ViewerApp {
                     }
                 }
                 self.walk(ui, &rs.queue);
+                let mut effects = Vec::new();
+                self.subs
+                    .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
+                for effect in effects {
+                    self.apply(&rs, effect);
+                }
                 if let Scene::Terrain(renderer) = &mut self.scene
                     && !renderer.npcs.is_empty()
                 {
@@ -1574,28 +1679,14 @@ impl eframe::App for ViewerApp {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
-                // The conversation, as a subtitle at the bottom of the view.
-                if let Some(line) = self
-                    .conversation
-                    .as_ref()
-                    .and_then(talk::Conversation::line)
+                // What is being said, notices, and the Hero's gold and items.
+                if let Some(answer) = self.subs.show(ui.ctx(), rect) {
+                    self.clicked_answer = Some(answer);
+                }
+                if let (Some(story), Some(text), true) =
+                    (&self.story, &self.text, self.walker.is_some())
                 {
-                    let width = (rect.width() * 0.7).min(720.0);
-                    egui::Area::new(egui::Id::new("subtitle"))
-                        .fixed_pos(egui::pos2(
-                            rect.center().x - width / 2.0,
-                            rect.bottom() - 130.0,
-                        ))
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                ui.set_width(width);
-                                if !line.speaker.is_empty() {
-                                    ui.label(egui::RichText::new(&line.speaker).strong());
-                                }
-                                ui.label(egui::RichText::new(&line.text).size(17.0));
-                                ui.label(egui::RichText::new("E to continue").weak().small());
-                            });
-                        });
+                    story.hud(ui.ctx(), rect, text);
                 }
             });
         ui.ctx().request_repaint();

@@ -1,136 +1,15 @@
-//! Talking to people: what a creature says when the Hero talks to it, and the
-//! conversation shown as subtitles.
-//!
-//! Which line a character says is quest logic, which the game data does not
-//! hold: the table below is written from how the Prologue plays. Lines
-//! themselves come from the text bank.
+//! Showing what people say: lines from the text bank, the queue of subtitles
+//! (conversation lines that wait for E, timed remarks, yes/no questions) and
+//! on-screen notices.
 
+use std::collections::VecDeque;
+
+use eframe::egui;
+use engine_script::{Beat, Mode};
 use fable_data::strings::TextBank;
 
-/// How a text group is said.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// Every line in order (a speech: `_10`, `_20`, …).
-    Speech,
-    /// One line, picked at random (alternatives).
-    Pick,
-}
-
-/// What a role says: its first lines, and what it says when talked to again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Role {
-    pub first: (&'static str, Mode),
-    /// Said (one line, picked) on later talks; `None` repeats `first`.
-    pub again: Option<&'static str>,
-}
-
-const fn role(first: &'static str, mode: Mode, again: Option<&'static str>) -> Role {
-    Role {
-        first: (first, mode),
-        again,
-    }
-}
-
-/// What each Prologue role (a creature's `ScriptName`) says when talked to.
-const PROLOGUE: &[(&str, Role)] = &[
-    (
-        "NOVI_LiveFather",
-        role(
-            "TEXT_QST_048_DAD_THERESA_BIRTHDAY_INTRO",
-            Mode::Speech,
-            Some("TEXT_QST_048_DAD_DONE_NOTHING_YET"),
-        ),
-    ),
-    (
-        "NOVI_Theresa",
-        role(
-            "TEXT_QST_048_THERESA_INTRODUCTION",
-            Mode::Speech,
-            Some("TEXT_QST_048_THERESA_GET_PRESENT"),
-        ),
-    ),
-    (
-        "NOVI_Bully",
-        role("TEXT_QST_048_BULLY_GET_LOST", Mode::Pick, None),
-    ),
-    (
-        "NOVI_Victim",
-        role("TEXT_QST_048_VICTIM_PLEA", Mode::Pick, None),
-    ),
-    (
-        "NOVI_TeddyGirl",
-        role(
-            "TEXT_QST_048_TEDDYGIRL_LOST_TEDDY",
-            Mode::Speech,
-            Some("TEXT_QST_048_TEDDYGIRL_REPEAT_PLEA"),
-        ),
-    ),
-    (
-        "NOVI_BarrelMan",
-        role(
-            "TEXT_QST_048_BARRELMAN_FAVOUR",
-            Mode::Speech,
-            Some("TEXT_QST_048_BARRELMAN_NOT_LARKING"),
-        ),
-    ),
-    (
-        "NOVI_BarrelThug",
-        role(
-            "TEXT_QST_048_BARRELTHUG_SMASH",
-            Mode::Pick,
-            Some("TEXT_QST_048_BARRELTHUG_SCRMSG_TEMPT"),
-        ),
-    ),
-    (
-        "NOVI_BookTrader",
-        role(
-            "TEXT_QST_048_TRADER_INTRO",
-            Mode::Speech,
-            Some("TEXT_QST_048_TRADER_ROLL_UP"),
-        ),
-    ),
-    (
-        "NOVI_AffairWife",
-        role("TEXT_QST_048_AFFAIR_WIFE_LAYABOUT", Mode::Pick, None),
-    ),
-    (
-        "NOVI_AffairMan",
-        role("TEXT_QST_048_AFFAIRMAN_SHOO", Mode::Pick, None),
-    ),
-    (
-        "NOVI_AffairWoman",
-        role("TEXT_QST_048_AFFAIRWOMAN_BUSY", Mode::Pick, None),
-    ),
-    (
-        "NOVI_Guard",
-        role("TEXT_QST_048_GUARD_ON_TALK_NEUTRAL", Mode::Pick, None),
-    ),
-    (
-        "NOVI_Villager",
-        role(
-            "TEXT_AI_OPINION_ACT_GREET_TO_HERO_ASBOY",
-            Mode::Pick,
-            Some("TEXT_AI_OPINION_ACT_REGREET_TO_HERO_ASBOY"),
-        ),
-    ),
-];
-
-/// What a creature with this `ScriptName` says, if anything.
-pub fn role_of(script_name: Option<&str>) -> Option<Role> {
-    let name = script_name?;
-    PROLOGUE
-        .iter()
-        .find(|(r, _)| *r == name)
-        .map(|&(_, role)| role)
-}
-
-/// The entry and mode said on this talk (`again`: talked to before).
-pub fn entry(role: Role, again: bool) -> (&'static str, Mode) {
-    match role.again {
-        Some(e) if again => (e, Mode::Pick),
-        _ => role.first,
-    }
-}
+/// How long a notice stays on screen, in seconds.
+const NOTICE_SECONDS: f32 = 6.0;
 
 /// One said line: who says it and what.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,14 +18,18 @@ pub struct Line {
     pub text: String,
 }
 
-/// A speaker code (`HERO FATHER`, `BAD_MAN`, `THUG KID`) as a name: "Hero Father".
-/// Voice-set codes (`LEV1BDT1`, `CM1`: a word mixing letters and digits) name
-/// no one and give "".
+/// A speaker code (`BAD_MAN`, `THUG KID`) as a name: "Thug Kid". The Hero's
+/// family are named without "Hero" (`HERO FATHER` is "Father", as `FATHER`
+/// is). Voice-set codes (`LEV1BDT1`, `CM1`, `VILLAGER1`: a word mixing letters and
+/// digits) name no one and give "".
 pub fn speaker_name(code: &str) -> String {
-    let words: Vec<&str> = code
+    let mut words: Vec<&str> = code
         .split([' ', '_'])
         .filter(|w| !w.is_empty() && !w.chars().all(|c| c.is_ascii_digit()))
         .collect();
+    if words.len() > 1 && words[0] == "HERO" {
+        words.remove(0);
+    }
     if words.iter().any(|w| w.chars().any(|c| c.is_ascii_digit())) {
         return String::new();
     }
@@ -201,24 +84,219 @@ pub fn lines(text: &TextBank, entry: &str, mode: Mode, roll: u64) -> Vec<Line> {
         .collect()
 }
 
-/// A conversation in progress: the lines and which is showing.
-#[derive(Debug, Clone)]
-pub struct Conversation {
-    /// Index of the creature talked to.
-    pub with: usize,
-    pub lines: Vec<Line>,
-    pub at: usize,
+/// A notice's text without its HUD icon tokens (`[HUD_DEED_GOOD_ICON] You …`),
+/// and whether it marks a good (`Some(true)`) or bad (`Some(false)`) deed.
+pub fn notice_text(text: &str) -> (String, Option<bool>) {
+    let mut kind = None;
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("[HUD_") {
+        out.push_str(&rest[..start]);
+        let end = rest[start..]
+            .find(']')
+            .map_or(rest.len(), |e| start + e + 1);
+        let token = &rest[start..end];
+        if token.contains("GOOD") {
+            kind = Some(true);
+        } else if token.contains("BAD") {
+            kind = Some(false);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    (out.trim().to_owned(), kind)
 }
 
-impl Conversation {
-    pub fn line(&self) -> Option<&Line> {
-        self.lines.get(self.at)
+/// Seconds to show a line that does not wait for E.
+fn read_time(text: &str) -> f32 {
+    (1.5 + text.chars().count() as f32 * 0.06).clamp(2.5, 7.0)
+}
+
+/// Something queued to show, in order.
+#[derive(Debug, Clone)]
+pub enum Item {
+    /// A line said by creature `by` (an index into the region's creatures); a
+    /// conversation line waits for E, a remark goes after a while.
+    Line {
+        line: Line,
+        by: Option<usize>,
+        wait: bool,
+    },
+    /// A yes/no question, asked by creature `by`.
+    Ask { text: String, by: Option<usize> },
+    /// A notice, put up when the subtitles reach it (after what is being said).
+    Notice(String),
+    /// A quest beat to apply when the subtitles reach it (someone leaving).
+    Effect(Beat),
+}
+
+/// The subtitles and notices on screen.
+#[derive(Debug, Default)]
+pub struct Subtitles {
+    items: VecDeque<Item>,
+    /// Seconds the first item has been shown.
+    shown: f32,
+    /// Notices (text, good or bad deed) and how long the first has been up.
+    notices: VecDeque<(String, Option<bool>)>,
+    notice_shown: f32,
+}
+
+impl Subtitles {
+    pub fn push(&mut self, item: Item) {
+        self.items.push_back(item);
     }
 
-    /// Moves to the next line; false when the conversation is over.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The line on screen, and whether it waits for E.
+    pub fn line(&self) -> Option<(&Line, bool)> {
+        match self.items.front()? {
+            Item::Line { line, wait, .. } => Some((line, *wait)),
+            _ => None,
+        }
+    }
+
+    /// The question on screen.
+    pub fn asking(&self) -> Option<&str> {
+        match self.items.front()? {
+            Item::Ask { text, .. } => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The creature a waiting line or question on screen is from.
+    pub fn waiting_on(&self) -> Option<usize> {
+        match self.items.front()? {
+            Item::Line { by, wait: true, .. } | Item::Ask { by, .. } => *by,
+            _ => None,
+        }
+    }
+
+    /// E: moves past the line on screen. False if there is none.
     pub fn advance(&mut self) -> bool {
-        self.at += 1;
-        self.at < self.lines.len()
+        if self.line().is_some() {
+            self.items.pop_front();
+            self.shown = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Takes the question on screen down, once answered.
+    pub fn answered(&mut self) {
+        if self.asking().is_some() {
+            self.items.pop_front();
+            self.shown = 0.0;
+        }
+    }
+
+    /// The Hero walked away: drops conversation lines and questions, keeping
+    /// remarks and effects.
+    pub fn walked_away(&mut self) {
+        self.items
+            .retain(|i| !matches!(i, Item::Line { wait: true, .. } | Item::Ask { .. }));
+        self.shown = 0.0;
+    }
+
+    /// Advances time: retires remarks whose time is up and notices, and hands
+    /// over the effects reached, in order.
+    pub fn step(&mut self, dt: f32, effects: &mut Vec<Beat>) {
+        let mut left = dt;
+        loop {
+            match self.items.front() {
+                Some(Item::Effect(beat)) => {
+                    effects.push(*beat);
+                    self.items.pop_front();
+                }
+                Some(Item::Notice(text)) => {
+                    self.notices.push_back(notice_text(text));
+                    self.items.pop_front();
+                }
+                Some(Item::Line {
+                    line, wait: false, ..
+                }) => {
+                    self.shown += left;
+                    left = 0.0;
+                    if self.shown < read_time(&line.text) {
+                        break;
+                    }
+                    self.items.pop_front();
+                    self.shown = 0.0;
+                }
+                _ => break,
+            }
+        }
+        if !self.notices.is_empty() {
+            self.notice_shown += dt;
+            if self.notice_shown >= NOTICE_SECONDS {
+                self.notices.pop_front();
+                self.notice_shown = 0.0;
+            }
+        }
+    }
+
+    /// Draws the subtitle at the bottom of `rect` and the notice at its top.
+    /// Returns the answer if a question's button was clicked.
+    pub fn show(&self, ctx: &egui::Context, rect: egui::Rect) -> Option<bool> {
+        if let Some((text, kind)) = self.notices.front() {
+            // Clear of the HUD in the top right.
+            let width = (rect.width() - 480.0).clamp(240.0, 620.0);
+            egui::Area::new(egui::Id::new("notice"))
+                .fixed_pos(egui::pos2(rect.center().x - width / 2.0, rect.top() + 16.0))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_width(width);
+                        let colour = match kind {
+                            Some(true) => egui::Color32::from_rgb(120, 200, 120),
+                            Some(false) => egui::Color32::from_rgb(220, 110, 100),
+                            None => ui.visuals().strong_text_color(),
+                        };
+                        ui.label(egui::RichText::new(text).size(16.0).color(colour));
+                    });
+                });
+        }
+        let width = (rect.width() * 0.7).min(720.0);
+        let mut answer = None;
+        let (speaker, body, hint) = match self.items.front() {
+            Some(Item::Line { line, wait, .. }) => (
+                line.speaker.as_str(),
+                line.text.as_str(),
+                wait.then_some("E to continue"),
+            ),
+            Some(Item::Ask { text, .. }) => ("", text.as_str(), None),
+            _ => return None,
+        };
+        egui::Area::new(egui::Id::new("subtitle"))
+            .fixed_pos(egui::pos2(
+                rect.center().x - width / 2.0,
+                rect.bottom() - 140.0,
+            ))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(width);
+                    if !speaker.is_empty() {
+                        ui.label(egui::RichText::new(speaker).strong());
+                    }
+                    ui.label(egui::RichText::new(body).size(17.0));
+                    if let Some(hint) = hint {
+                        ui.label(egui::RichText::new(hint).weak().small());
+                    }
+                    if self.asking().is_some() {
+                        ui.horizontal(|ui| {
+                            if ui.button("Yes (Y)").clicked() {
+                                answer = Some(true);
+                            }
+                            if ui.button("No (N)").clicked() {
+                                answer = Some(false);
+                            }
+                        });
+                    }
+                });
+            });
+        answer
     }
 }
 
@@ -228,64 +306,76 @@ mod tests {
 
     #[test]
     fn speaker_codes_read_as_names() {
-        assert_eq!(speaker_name("HERO FATHER"), "Hero Father");
+        assert_eq!(speaker_name("HERO FATHER"), "Father");
+        assert_eq!(speaker_name("HERO"), "Hero");
         assert_eq!(speaker_name("THUG KID"), "Thug Kid");
         assert_eq!(speaker_name("WHORE_SOPHIA_1_5"), "Whore Sophia");
         assert_eq!(speaker_name("LEV1BDT1"), "");
-        assert_eq!(speaker_name("CM1"), "");
+        assert_eq!(speaker_name("MALE VILLAGER1"), "");
         assert_eq!(speaker_name(""), "");
         assert_eq!(role_name("NOVI_Villager"), "Villager");
         assert_eq!(role_name("NOVI_TeddyGirl"), "Teddy Girl");
     }
 
     #[test]
-    fn roles_map_to_their_lines() {
-        let father = role_of(Some("NOVI_LiveFather")).unwrap();
+    fn notices_lose_their_icons() {
         assert_eq!(
-            entry(father, false),
-            ("TEXT_QST_048_DAD_THERESA_BIRTHDAY_INTRO", Mode::Speech)
+            notice_text("[HUD_DEED_GOOD_ICON] You performed a good deed."),
+            ("You performed a good deed.".into(), Some(true))
         );
         assert_eq!(
-            entry(father, true),
-            ("TEXT_QST_048_DAD_DONE_NOTHING_YET", Mode::Pick)
+            notice_text("[HUD_DEED_BAD_ICON] You committed a bad deed."),
+            ("You committed a bad deed.".into(), Some(false))
         );
-        let bully = role_of(Some("NOVI_Bully")).unwrap();
-        assert_eq!(entry(bully, true), entry(bully, false));
-        assert_eq!(role_of(Some("SOMEONE_ELSE")), None);
-        assert_eq!(role_of(None), None);
+        assert_eq!(notice_text("Plain."), ("Plain.".into(), None));
     }
 
-    #[test]
-    fn conversations_step_through_lines() {
-        let line = |t: &str| Line {
-            speaker: "Father".into(),
-            text: t.into(),
-        };
-        let mut c = Conversation {
-            with: 0,
-            lines: vec![line("one"), line("two")],
-            at: 0,
-        };
-        assert_eq!(c.line().unwrap().text, "one");
-        assert!(c.advance());
-        assert_eq!(c.line().unwrap().text, "two");
-        assert!(!c.advance());
-        assert!(c.line().is_none());
-    }
-
-    /// Every line in the table is in the game's text, so no one is silent.
-    #[test]
-    #[ignore = "needs FABLE_DIR"]
-    fn every_role_has_its_lines() {
-        let dir = std::path::PathBuf::from(std::env::var_os("FABLE_DIR").unwrap()).join("data");
-        let text = TextBank::open(&dir, "English").unwrap();
-        for (name, role) in PROLOGUE {
-            for again in [false, true] {
-                let (entry, mode) = entry(*role, again);
-                let said = lines(&text, entry, mode, 7);
-                assert!(!said.is_empty(), "{name}: {entry} has no lines");
-                assert!(said.iter().all(|l| !l.text.is_empty()), "{name}: {entry}");
-            }
+    fn line(text: &str, wait: bool) -> Item {
+        Item::Line {
+            line: Line {
+                speaker: "Father".into(),
+                text: text.into(),
+            },
+            by: Some(0),
+            wait,
         }
+    }
+
+    #[test]
+    fn subtitles_wait_time_out_and_apply_effects_in_order() {
+        let mut s = Subtitles::default();
+        let mut effects = Vec::new();
+        s.push(line("one", true));
+        s.push(Item::Effect(Beat::Leave("NOVI_Bully")));
+        s.push(line("remark", false));
+        s.step(100.0, &mut effects);
+        assert_eq!(s.line().unwrap().0.text, "one", "a conversation line waits");
+        assert!(effects.is_empty());
+        assert!(s.advance());
+        s.step(0.1, &mut effects);
+        assert_eq!(effects, [Beat::Leave("NOVI_Bully")]);
+        assert_eq!(s.line().unwrap().0.text, "remark");
+        s.step(10.0, &mut effects);
+        assert!(s.line().is_none());
+        assert!(!s.advance());
+    }
+
+    #[test]
+    fn walking_away_drops_the_conversation() {
+        let mut s = Subtitles::default();
+        s.push(line("one", true));
+        s.push(Item::Ask {
+            text: "Buy?".into(),
+            by: Some(0),
+        });
+        s.push(Item::Notice("[HUD_DEED_GOOD_ICON] Done.".into()));
+        s.push(Item::Effect(Beat::Return("NOVI_BarrelMan")));
+        assert_eq!(s.waiting_on(), Some(0));
+        s.walked_away();
+        let mut effects = Vec::new();
+        s.step(0.0, &mut effects);
+        assert_eq!(effects, [Beat::Return("NOVI_BarrelMan")]);
+        assert!(s.asking().is_none() && s.line().is_none());
+        assert_eq!(s.notices.front(), Some(&("Done.".to_owned(), Some(true))));
     }
 }

@@ -1,0 +1,95 @@
+//! Quest code: what people say and do as the story goes on.
+//!
+//! The game data names quests and holds their text, but not their logic, so each
+//! quest is written by hand from how the original plays. A quest takes events
+//! (the Hero talks to someone, hits someone, answers a question, time passes)
+//! and answers with [`Beat`]s for the engine to present: lines to say, questions
+//! to ask, notices to show, people leaving or coming back, the quest ending.
+//!
+//! People are known by role: a creature's `ScriptName` in the level files, such
+//! as the Prologue's `NOVI_LiveFather`. Text is named by its text bank entry
+//! (`TEXT_QST_048_DAD_THERESA_BIRTHDAY_INTRO`); the engine looks the lines up.
+//!
+//! No rendering, windowing or platform dependency, so ports can reuse it.
+
+pub mod prologue;
+
+/// How a text entry is said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// A single string, or every line of a group in order (a speech: `_10`, `_20`, …).
+    Speech,
+    /// One line of a group, picked at random (alternatives).
+    Pick,
+}
+
+/// Someone the Hero deals with, as quests see them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Person<'a> {
+    /// The creature's `ScriptName`.
+    pub role: &'a str,
+    /// Generic lines come in male and female versions.
+    pub female: bool,
+}
+
+/// One thing for the engine to present, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Beat {
+    /// Someone says a text entry. `who` is `None` for the person the event was
+    /// about (talked to, hit), else the role of someone else.
+    Say {
+        who: Option<&'static str>,
+        entry: &'static str,
+        mode: Mode,
+    },
+    /// A yes/no question (a text entry); the answer goes to [`Quest::answer`].
+    Ask(&'static str),
+    /// A message on screen, not spoken (deeds done, instructions).
+    Notice(&'static str),
+    /// The person with this role leaves the scene.
+    Leave(&'static str),
+    /// The person with this role comes back.
+    Return(&'static str),
+    /// The quest is over; the world moves on to these quest states (Tng sections).
+    Finish(&'static [&'static str]),
+}
+
+impl Beat {
+    /// The person the event was about says `entry`.
+    pub const fn say(entry: &'static str, mode: Mode) -> Self {
+        Self::Say {
+            who: None,
+            entry,
+            mode,
+        }
+    }
+
+    /// Role `who` says `entry`.
+    pub const fn said_by(who: &'static str, entry: &'static str, mode: Mode) -> Self {
+        Self::Say {
+            who: Some(who),
+            entry,
+            mode,
+        }
+    }
+}
+
+/// What a quest needs to know about the world each update.
+pub trait World {
+    /// How far the Hero is from where the person with `role` was placed (world
+    /// units), if that person is in the region.
+    fn distance_to(&self, role: &str) -> Option<f32>;
+}
+
+/// A quest in progress. Each call appends what happens to `out`.
+pub trait Quest {
+    /// The Hero talks to `who`.
+    fn talk(&mut self, who: Person<'_>, out: &mut Vec<Beat>);
+    /// The Hero hits `who`.
+    fn hit(&mut self, who: Person<'_>, out: &mut Vec<Beat>);
+    /// The Hero answers the last [`Beat::Ask`]. Talking to someone else first
+    /// drops the question.
+    fn answer(&mut self, yes: bool, out: &mut Vec<Beat>);
+    /// `dt` seconds pass.
+    fn update(&mut self, dt: f32, world: &dyn World, out: &mut Vec<Beat>);
+}

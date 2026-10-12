@@ -19,8 +19,12 @@ pub struct Npc {
     pub transform: Mat4,
     /// Its `ScriptName` (its role), for what it says.
     pub script_name: Option<String>,
-    /// Whether the Hero has talked to it.
-    pub talked: bool,
+    /// Sent away by a quest: not drawn, not in the way.
+    pub hidden: bool,
+    /// For lines that come in male and female versions.
+    pub female: bool,
+    /// Its flinch when hit, if it has one.
+    hit_clip: Option<usize>,
     /// Seconds since the creature last fidgeted, and when it fidgets next.
     since_fidget: f32,
     next_fidget: f32,
@@ -142,6 +146,20 @@ impl Npc {
         self.fidget(dt, current, finished)
     }
 
+    /// Plays its flinch once, stopping a stroll.
+    pub fn flinch(&mut self) {
+        let Some(clip) = self.hit_clip else {
+            return;
+        };
+        if let Some(w) = &mut self.walk {
+            w.target = None;
+            w.resting = 0.0;
+        }
+        for (_, animator) in &mut self.parts {
+            animator.play_once(clip, 0.0);
+        }
+    }
+
     /// Where the creature stands.
     pub fn position(&self) -> Vec2 {
         self.transform.w_axis.truncate().truncate()
@@ -242,6 +260,7 @@ pub fn load(
         let ids: Vec<u32> = std::iter::once(base)
             .chain(c.idles.fidgets.iter().copied())
             .chain(walk_id)
+            .chain(c.idles.hit)
             .collect();
         let mut parts = Vec::new();
         for key in meshes_for(c) {
@@ -289,7 +308,9 @@ pub fn load(
         let complete = parts.iter().all(|(_, a)| a.clip_count() == ids.len());
         if !parts.is_empty() {
             let has_walk = walk_id.is_some() && complete;
-            let fidgets = clips.saturating_sub(1 + usize::from(has_walk));
+            let has_hit = c.idles.hit.is_some() && complete;
+            let fidgets = clips.saturating_sub(1 + usize::from(has_walk) + usize::from(has_hit));
+            let walk_clip = 1 + fidgets;
             let walk = has_walk.then(|| {
                 let (_, animator) = &parts[0];
                 let p = c.placement.position;
@@ -301,8 +322,8 @@ pub fn load(
                         layer: 0,
                     },
                     home: p.truncate(),
-                    clip: clips - 1,
-                    speed: animator.speed(clips - 1).unwrap_or(0.0)
+                    clip: walk_clip,
+                    speed: animator.speed(walk_clip).unwrap_or(0.0)
                         * model::MESH_SCALE
                         * animator.stride_ratio(),
                     target: None,
@@ -317,7 +338,11 @@ pub fn load(
             };
             npcs.push(Npc {
                 script_name: c.script_name.clone(),
-                talked: false,
+                hidden: false,
+                female: ["FEMALE", "GIRL", "SISTER"]
+                    .iter()
+                    .any(|k| c.definition.contains(k)),
+                hit_clip: has_hit.then(|| clips - 1),
                 since_fidget: 0.0,
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,

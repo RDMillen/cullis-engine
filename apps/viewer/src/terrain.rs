@@ -342,6 +342,8 @@ pub struct IdleAnimations {
     pub fidgets: Vec<u32>,
     /// Its walk (`ST_WALK`).
     pub walk: Option<u32>,
+    /// Its flinch when hit (`RESPONSE_GENERIC_HIT_RIGHT`).
+    pub hit: Option<u32>,
 }
 
 impl IdleAnimations {
@@ -364,10 +366,12 @@ impl IdleAnimations {
         let base = plain("ST_IDLE_SUBTLE").next();
         fidgets.retain(|&a| Some(a) != base);
         let walk = plain("ST_WALK").next();
+        let hit = plain("RESPONSE_GENERIC_HIT_RIGHT").next();
         Self {
             base,
             fidgets,
             walk,
+            hit,
         }
     }
 }

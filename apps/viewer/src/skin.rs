@@ -350,11 +350,17 @@ impl Animator {
         self.current
     }
 
-    /// Whether the current clip has played through once.
+    /// Whether the current clip has played through once (a clip played once
+    /// holds at its last frame, so it is through on reaching it).
     pub fn finished(&self) -> bool {
-        self.clips
-            .get(self.current)
-            .is_none_or(|c| self.time >= c.duration())
+        self.clips.get(self.current).is_none_or(|c| {
+            let end = if self.once {
+                c.last_frame_time()
+            } else {
+                c.duration()
+            };
+            self.time >= end
+        })
     }
 
     /// Number of clips.
@@ -486,5 +492,31 @@ mod tests {
         deform(&skin, &bind, &matrices, &mut out);
         assert_eq!(out[0].position, [1.0, 1.0, 0.0]);
         assert_eq!(out[0].normal, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn clips_played_once_finish_on_their_last_frame() {
+        let clip = |name: &str| Clip {
+            name: name.into(),
+            fps: 10.0,
+            frames: 5,
+            tracks: Vec::new(),
+            movement: 0.0,
+        };
+        let skin = Skin {
+            morph: Vec::new(),
+            influences: Vec::new(),
+            skeleton: Skeleton::default(),
+        };
+        let mut a = Animator::new(Vec::new(), skin, vec![clip("idle"), clip("kick")]);
+        a.advance(0.45);
+        assert!(!a.finished(), "a loop is through after its full length");
+        a.advance(0.1);
+        assert!(a.finished());
+        a.play_once(1, 0.0);
+        a.advance(0.3);
+        assert!(!a.finished());
+        a.advance(10.0);
+        assert!(a.finished(), "held at the last frame, the kick is over");
     }
 }

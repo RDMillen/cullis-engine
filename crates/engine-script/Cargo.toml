@@ -1,0 +1,12 @@
+[package]
+name = "engine-script"
+version = "0.1.0"
+description = "CullisEngine quest code: what people say and do as the story goes on"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+fable-data = { path = "../fable-data" }

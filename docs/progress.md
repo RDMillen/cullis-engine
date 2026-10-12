@@ -2,6 +2,17 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12 (later): the first Prologue quest
+
+- New crate `engine-script` (no rendering dependency): the quest API (events in: talk, hit, answer, time; `Beat`s out: say, ask, notice, leave, return, finish) and the Prologue birthday quest (`prologue::Birthday`), written from how the Prologue plays. Expected behaviour and the values not yet checked against the game: `docs/quests/prologue-birthday.md`.
+- Viewer: the quest runs in `StartOakVale`. E talks (and goes on), F kicks, Y/N answer questions. Subtitles wait for E; remarks (a kicked bully, the thug's taunts) time out; deed notices show at the top; gold, items and deeds in the top right. People the story sends away vanish and come back. Giving Theresa the sweets reloads Oakvale in the after-the-raid quest state, the Hero where he stood.
+- The boy Hero kicks (`ANIM_HERO_UNARMED_KICK_RIGHT_2_1`, from his `STRIKE_MEDIUM_FRONT` slot); creatures flinch with their `RESPONSE_GENERIC_HIT_RIGHT` animation.
+- Fixed: a clip played once never counted as finished (its time holds at the last frame, short of the clip's length).
+- Tests: the quest's paths (good, bad, leaving the stock, dropped questions); an ignored real-data test plays 2000 random event sequences and checks every text entry the quest names is reached and exists. It found a line that could never be said (the victim's thanks after being hit).
+- Checked in the window, driven with xdotool: the father's speech and tutorial notices; three kicks drive the bully off (good deed, the victim hands over Rosie); the Trader's question with Y; the ending with `--with-present` (a testing option: start with the sweets bought).
+- Not done: smashing barrels, people walking where the story sends them, cutscenes, voices, the raid's look (the post-attack state renders in daylight).
+- Next: compare with the game (timings and amounts above), then the rest of the Prologue (the raid and the escape).
+
 ## 2026-10-12: talking to people
 
 - Viewer: **E** near a Prologue character starts a conversation, shown as a subtitle (speaker and line; E for the next line, walking away ends it). E still uses doors when no one is in reach. `--talk N` prints what the nearest character says N times (screenshot mode) or starts a conversation once `--walk-to` arrives (window).

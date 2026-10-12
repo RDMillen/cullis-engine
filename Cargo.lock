@@ -585,6 +585,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-script"
+version = "0.1.0"
+dependencies = [
+ "fable-data",
+]
+
+[[package]]
 name = "epaint"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2435,6 +2442,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "eframe",
+ "engine-script",
  "fable-data",
  "glam",
  "image",
