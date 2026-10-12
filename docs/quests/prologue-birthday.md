@@ -34,7 +34,13 @@ All placed in the Prologue state, found by their Tng `ScriptName`:
 
 The father pays for good deeds when talked to, and scolds the Hero for new bad deeds. A guard, talked to after bad deeds, reads out the list of crimes (`GUARD_CRIME_*`). Villagers greet the Hero by what he has done, in male or female lines (`VILLAGER_SPOKEN_TO_*`, `VILLAGER_DONE_GOOD_DEEDS_*`, ...).
 
-The ending: Theresa, given the sweets, says `THERESA_HELLO` and `THERESA_BANDITS`, and the region moves to `Q__OakValeIntro_PostAttack`.
+The ending: Theresa, given the sweets, says `THERESA_HELLO`; the raid begins (`CS_048_OIF_10`, a villager's "Bandits!" `CS_048_OIF_20`, then `THERESA_BANDITS`), and the region moves to `Q__OakValeIntro_PostAttack`.
+
+## After the raid
+
+Quest state `Q__OakValeIntro_PostAttack` (code: `prologue::Aftermath`): 38 particle emitters (fires), 14 lights, charred villagers, smashed crates, and the father (`OVI_DeadFather`, `Health 12`) dying where he stood. He is posed with his animation table's `ST_IDLE_SUBTLE` variant for the `MORTALLY_WOUNDED` modifier (`CS_GUILDMASTER_DYING_CYCLE`).
+
+Coming within 3 m of him (or talking to him): his moan (`FATHER_DYING_MOAN`), then the cutscene's lines (`CS_048_OVID_10`: a bandit's roar; `_20` to `_40`: Maze, "We must leave… give me your hand"). Maze takes the Hero to the Heroes' Guild (region `HeroGuildComplexInside`, quest state `Q_GuildTraining`), arriving in the hall beside the Guildmaster (`TheRealGuildmaster`) and Maze (`PreMeleeMaze`). That ends the Prologue; the Guild training is the next quest.
 
 ## Not checked against the game (guesses)
 
@@ -43,9 +49,11 @@ The ending: Theresa, given the sweets, says `THERESA_HELLO` and `THERESA_BANDITS
 - Hitting the victim makes him give up the teddy.
 - The tutorial notices shown after the father's first speech (`INSTRUCTION_HIGHLIGHTING_70`, `_60`, `_40`, `_50`).
 - The father's opening speech (`FATHER_INTRO`, in the game a cutscene when the Prologue starts) is said on first talking to him.
+- Finding the father within 3 m; the arrival spot in the Guild hall.
 
 ## Not yet
 
 - Smashing the worker's barrels (barrels are not breakable objects yet), so `BARRELMAN_LETDOWN_BROKEN` and `GUARD_CRIME_BARREL_BREAKING` go unused.
 - People walking where the story sends them: the bully and the worker vanish and reappear; the wife does not go to her husband.
-- The cutscenes (`CS_009`, `CS_048_OIF`), the diary and other readable objects, voices.
+- The cutscenes as scenes (camera points, the bandit and Maze appearing): only their lines are shown. The diary and other readable objects, voices.
+- The raid's look: night, fires (particle emitters), lights.

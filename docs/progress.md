@@ -2,6 +2,16 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12 (later): the end of the Prologue
+
+- `engine-script`: `prologue::Aftermath` for the after-the-raid state: reaching the dying father plays his moan and the rescue cutscene's lines (a bandit, then Maze), then a new `Beat::Travel` takes the Hero to the Heroes' Guild (`HeroGuildComplexInside`, `Q_GuildTraining`), arriving facing the Guildmaster and Maze. The birthday ending now includes the raid cutscene's lines (`CS_048_OIF`). A quest can pose people (`Quest::mood`: an animation table modifier).
+- Learned: the father after the raid is `OVI_DeadFather` with `Health 12`; his table's `ST_IDLE_SUBTLE` has a `MORTALLY_WOUNDED` variant (`CS_GUILDMASTER_DYING_CYCLE`, a kneeling dying loop). The Guild's `Q_GuildTraining` state places the Guildmaster and Maze together in the hall.
+- Viewer: creatures carry their idle's modifier variants and can be given one (`Npc::set_mood`); screenshot mode now places the region's quest too.
+- Walking: floors raised over the terrain with no step up from open ground (the Guild hall, 1.3 above the terrain) were walked under; the ground layer now seeds those cells from the floor itself. Spawning picks the walk layer nearest a given height (arrivals and region exits). Oakvale walks are unchanged.
+- Checked in the window: the father kneeling, the rescue lines, the Guild loading and the Hero arriving on the hall floor facing the Guildmaster and Maze.
+- Known: walking straight north from the village centre stops at y≈908 (before this change too).
+- Next: the Guild training (`Q_GuildTraining`), or the raid's look (night, fires).
+
 ## 2026-10-12 (later): the first Prologue quest
 
 - New crate `engine-script` (no rendering dependency): the quest API (events in: talk, hit, answer, time; `Beat`s out: say, ask, notice, leave, return, finish) and the Prologue birthday quest (`prologue::Birthday`), written from how the Prologue plays. Expected behaviour and the values not yet checked against the game: `docs/quests/prologue-birthday.md`.

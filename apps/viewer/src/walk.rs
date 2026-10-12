@@ -161,7 +161,9 @@ impl WalkGrid {
 ///   is reached from, the highest within a step of it: the Hero stands on top
 ///   of things, so the layer climbs ramps and steps onto floors and decks. The
 ///   terrain is not a choice where a surface covers it within [`HEADROOM`]. Cells
-///   not reached follow the terrain.
+///   not reached whose terrain is covered that way (a floor with no step up to it
+///   from open ground, such as a hall raised over the terrain) then grow from
+///   that floor, their lowest surface. Cells still not reached follow the terrain.
 /// - Later layers (all `layers` must share one grid): grow from cells with a surface
 ///   within a step of the walking height on an earlier layer at the same spot or up
 ///   to 1 unit away (the ends of a bridge deck, a doorway). Cells not reached are
@@ -236,19 +238,41 @@ pub fn assign_surfaces(
                 queue.push_back(i);
             }
         }
-        while let Some(i) = queue.pop_front() {
-            let h = height[i];
-            for j in layer.neighbours(i).collect::<Vec<_>>() {
-                if !layer.cells[j] || height[j].is_finite() {
-                    continue;
+        for pass in 0..2 {
+            if pass == 1 {
+                if l > 0 {
+                    break;
                 }
-                if let Some(z) = candidates_of(j, &mut candidates)
-                    .into_iter()
-                    .filter(|c| (c - h).abs() <= MAX_STEP)
-                    .max_by(f32::total_cmp)
-                {
-                    height[j] = z;
-                    queue.push_back(j);
+                // Floors not reached from open ground: seed from the floor itself.
+                for i in 0..n {
+                    if !layer.cells[i] || height[i].is_finite() {
+                        continue;
+                    }
+                    let terrain = ground.height(layer.centre(i));
+                    let floor = candidates_of(i, &mut candidates)
+                        .into_iter()
+                        .filter(|&z| z > terrain + 0.05 && z < terrain + HEADROOM)
+                        .min_by(f32::total_cmp);
+                    if let Some(z) = floor {
+                        height[i] = z;
+                        queue.push_back(i);
+                    }
+                }
+            }
+            while let Some(i) = queue.pop_front() {
+                let h = height[i];
+                for j in layer.neighbours(i).collect::<Vec<_>>() {
+                    if !layer.cells[j] || height[j].is_finite() {
+                        continue;
+                    }
+                    if let Some(z) = candidates_of(j, &mut candidates)
+                        .into_iter()
+                        .filter(|c| (c - h).abs() <= MAX_STEP)
+                        .max_by(f32::total_cmp)
+                    {
+                        height[j] = z;
+                        queue.push_back(j);
+                    }
                 }
             }
         }
@@ -517,5 +541,27 @@ mod tests {
         let p = walk.nearest_walkable(Vec2::new(5.2, 9.0)).unwrap();
         assert!(walk.walkable(p));
         assert!((p.y - 5.75).abs() < 1e-4, "{p}");
+    }
+
+    #[test]
+    fn a_raised_hall_floor_is_walked_on() {
+        // Flat ground at 0, walkable along y 4..6. Over x 6..12 a hall floor at
+        // 1.3 with no step up to it (higher than a step above the open ground).
+        let heights = HeightGrid::new(Vec2::ZERO, [13, 11]);
+        let mut ground = WalkGrid::new(Vec2::ZERO, Vec2::new(12.0, 10.0));
+        for x in 0..12 {
+            ground.mark(Vec2::new(x as f32 + 0.5, 5.0), 1.0);
+        }
+        let mut layers = [ground];
+        assign_surfaces(&mut layers, &heights, |p| {
+            if p.x > 6.0 { vec![1.3] } else { Vec::new() }
+        });
+        let at = |x: f32| layers[0].height(Vec2::new(x, 5.0), &heights);
+        assert_eq!(at(2.0), Some(0.0), "open ground");
+        assert_eq!(
+            at(9.0),
+            Some(1.3),
+            "the hall floor, not the terrain under it"
+        );
     }
 }

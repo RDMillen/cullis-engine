@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use engine_script::prologue::{self, Birthday};
+use engine_script::prologue::{self, Aftermath, Birthday};
 use engine_script::{Beat, Person, Quest, World};
 use fable_data::strings::TextBank;
 
@@ -60,6 +60,15 @@ fn explore(runs: u64, events: usize) -> BTreeSet<&'static str> {
             }
         }
         seen.extend(q.items());
+    }
+    // The aftermath: finding the father.
+    let mut q = Aftermath::new();
+    let mut out = Vec::new();
+    q.update(1.0, &At(1.0), &mut out);
+    for beat in out {
+        if let Beat::Say { entry, .. } = beat {
+            seen.insert(entry);
+        }
     }
     seen
 }

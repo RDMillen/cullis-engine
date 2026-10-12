@@ -2,23 +2,37 @@
 //! what it answers is queued as subtitles, notices and effects.
 
 use eframe::egui;
-use engine_script::prologue::{self, Birthday};
+use engine_script::prologue::{self, Aftermath, Birthday};
 use engine_script::{Beat, Person, Quest, World};
 use fable_data::strings::TextBank;
 use glam::Vec2;
 
 use crate::npc::Npc;
+use crate::skin::AnimBank;
 use crate::talk::{self, Item, Subtitles};
 
 /// How near the Hero must be to talk to someone, and to kick them.
 pub const TALK_REACH: f32 = 2.5;
 pub const KICK_REACH: f32 = 1.4;
 
+/// The quest being played.
+pub enum Act {
+    Birthday(Birthday),
+    Aftermath(Aftermath),
+}
+
 pub struct Story {
-    pub quest: Birthday,
+    pub act: Act,
     /// Counts lines said, to vary the alternatives picked.
     rolls: u64,
     beats: Vec<Beat>,
+}
+
+fn quest(act: &mut Act) -> &mut dyn Quest {
+    match act {
+        Act::Birthday(q) => q,
+        Act::Aftermath(q) => q,
+    }
 }
 
 /// Where people are, for the quest.
@@ -61,22 +75,40 @@ pub fn nearest_person(npcs: &[Npc], at: Vec2, reach: f32, facing: Option<Vec2>) 
 impl Story {
     /// The quest played in this region and quest state, if any.
     pub fn for_region(region: &str, sections: &[String]) -> Option<Self> {
-        (region == "StartOakVale" && sections.iter().any(|s| s == prologue::SECTIONS[0])).then(
-            || Self {
-                quest: Birthday::new(),
-                rolls: 0,
-                beats: Vec::new(),
-            },
-        )
+        let has = |section: &str| sections.iter().any(|s| s == section);
+        let act = match region {
+            "StartOakVale" if has(prologue::SECTIONS[0]) => Act::Birthday(Birthday::new()),
+            "StartOakVale" if has(prologue::AFTER[0]) => Act::Aftermath(Aftermath::new()),
+            _ => return None,
+        };
+        Some(Self {
+            act,
+            rolls: 0,
+            beats: Vec::new(),
+        })
     }
 
-    /// Hides the people the quest has sent away (after a region loads).
-    pub fn place(&self, npcs: &mut [Npc]) {
+    /// After a region loads: hides the people the quest has sent away and
+    /// poses those it poses.
+    pub fn place(&mut self, npcs: &mut [Npc], data_dir: &std::path::Path) {
+        let mut bank = None;
         for npc in npcs {
-            npc.hidden = npc
-                .script_name
-                .as_deref()
-                .is_some_and(|r| self.quest.away(r));
+            let Some(role) = npc.script_name.clone() else {
+                continue;
+            };
+            npc.hidden = matches!(&self.act, Act::Birthday(q) if q.away(&role));
+            if let Some(mood) = quest(&mut self.act).mood(&role) {
+                if bank.is_none() {
+                    bank = AnimBank::open(data_dir)
+                        .map_err(|e| eprintln!("animations: {e}"))
+                        .ok();
+                }
+                if let Some(bank) = &mut bank
+                    && !npc.set_mood(bank, mood)
+                {
+                    eprintln!("{role}: no {mood} idle");
+                }
+            }
         }
     }
 
@@ -90,7 +122,7 @@ impl Story {
         subs: &mut Subtitles,
     ) {
         if let Some(who) = person(&npcs[i]) {
-            self.quest.talk(who, &mut self.beats);
+            quest(&mut self.act).talk(who, &mut self.beats);
         }
         self.present(Some(i), true, npcs, hero, text, subs);
     }
@@ -105,7 +137,7 @@ impl Story {
         subs: &mut Subtitles,
     ) {
         if let Some(who) = person(&npcs[i]) {
-            self.quest.hit(who, &mut self.beats);
+            quest(&mut self.act).hit(who, &mut self.beats);
         }
         self.present(Some(i), false, npcs, hero, text, subs);
     }
@@ -121,7 +153,7 @@ impl Story {
     ) {
         let by = subs.waiting_on();
         subs.answered();
-        self.quest.answer(yes, &mut self.beats);
+        quest(&mut self.act).answer(yes, &mut self.beats);
         self.present(by, true, npcs, hero, text, subs);
     }
 
@@ -133,8 +165,7 @@ impl Story {
         text: &TextBank,
         subs: &mut Subtitles,
     ) {
-        self.quest
-            .update(dt, &People { npcs, hero }, &mut self.beats);
+        quest(&mut self.act).update(dt, &People { npcs, hero }, &mut self.beats);
         self.present(None, false, npcs, hero, text, subs);
     }
 
@@ -193,7 +224,9 @@ impl Story {
 
     /// The Hero's gold, items and deeds, in the top right of `rect`.
     pub fn hud(&self, ctx: &egui::Context, rect: egui::Rect, text: &TextBank) {
-        let q = &self.quest;
+        let Act::Birthday(q) = &self.act else {
+            return;
+        };
         egui::Area::new(egui::Id::new("hud"))
             .fixed_pos(egui::pos2(rect.right() - 200.0, rect.top() + 16.0))
             .show(ctx, |ui| {

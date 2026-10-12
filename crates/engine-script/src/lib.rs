@@ -33,7 +33,7 @@ pub struct Person<'a> {
 }
 
 /// One thing for the engine to present, in order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Beat {
     /// Someone says a text entry. `who` is `None` for the person the event was
     /// about (talked to, hit), else the role of someone else.
@@ -52,6 +52,15 @@ pub enum Beat {
     Return(&'static str),
     /// The quest is over; the world moves on to these quest states (Tng sections).
     Finish(&'static [&'static str]),
+    /// The quest is over and the Hero is taken to another region, in these quest
+    /// states, appearing near world position `at` (x, y, and the height of the
+    /// floor he stands on) facing towards world point `facing` (x, y).
+    Travel {
+        region: &'static str,
+        sections: &'static [&'static str],
+        at: [f32; 3],
+        facing: [f32; 2],
+    },
 }
 
 impl Beat {
@@ -92,4 +101,12 @@ pub trait Quest {
     fn answer(&mut self, yes: bool, out: &mut Vec<Beat>);
     /// `dt` seconds pass.
     fn update(&mut self, dt: f32, world: &dyn World, out: &mut Vec<Beat>);
+
+    /// How the person with `role` is posed, as an animation table modifier
+    /// (`MORTALLY_WOUNDED`: their idle's variant with that modifier), if the
+    /// quest poses them.
+    fn mood(&self, role: &str) -> Option<&'static str> {
+        let _ = role;
+        None
+    }
 }

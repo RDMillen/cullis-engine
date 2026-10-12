@@ -344,6 +344,9 @@ pub struct IdleAnimations {
     pub walk: Option<u32>,
     /// Its flinch when hit (`RESPONSE_GENERIC_HIT_RIGHT`).
     pub hit: Option<u32>,
+    /// Variants of its idle by animation table modifier (`MORTALLY_WOUNDED`),
+    /// for quests that pose it.
+    pub moods: Vec<(String, u32)>,
 }
 
 impl IdleAnimations {
@@ -367,11 +370,17 @@ impl IdleAnimations {
         fidgets.retain(|&a| Some(a) != base);
         let walk = plain("ST_WALK").next();
         let hit = plain("RESPONSE_GENERIC_HIT_RIGHT").next();
+        let moods = slots
+            .iter()
+            .filter(|s| s.slot == "ST_IDLE_SUBTLE")
+            .filter_map(|s| Some((s.modifier.clone().filter(|m| m != "STAND")?, s.animation)))
+            .collect();
         Self {
             base,
             fidgets,
             walk,
             hit,
+            moods,
         }
     }
 }

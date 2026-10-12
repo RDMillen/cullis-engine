@@ -25,6 +25,10 @@ pub struct Npc {
     pub female: bool,
     /// Its flinch when hit, if it has one.
     hit_clip: Option<usize>,
+    /// The clip it stands in (its base idle, or a quest's mood).
+    base: usize,
+    /// Its idle's variants by modifier (bank ids), for [`Npc::set_mood`].
+    moods: Vec<(String, u32)>,
     /// Seconds since the creature last fidgeted, and when it fidgets next.
     since_fidget: f32,
     next_fidget: f32,
@@ -85,12 +89,12 @@ impl Npc {
     /// base idle when it ends.
     fn fidget(&mut self, dt: f32, current: usize, finished: bool) -> Option<usize> {
         self.since_fidget += dt;
-        if current == 0 && self.fidgets > 0 && self.since_fidget >= self.next_fidget {
+        if current == self.base && self.fidgets > 0 && self.since_fidget >= self.next_fidget {
             Some(1 + (self.random() as usize) % self.fidgets)
         } else if current != 0 && finished {
             self.since_fidget = 0.0;
             self.next_fidget = 6.0 + (self.random() % 9) as f32;
-            Some(0)
+            Some(self.base)
         } else {
             None
         }
@@ -106,6 +110,7 @@ impl Npc {
         blocked: &dyn Fn(Vec2) -> bool,
     ) -> Option<usize> {
         let roll = self.random();
+        let base = self.base;
         let w = self.walk.as_mut().unwrap();
         if let Some(goal) = w.target {
             let to = goal - w.body.position.truncate();
@@ -113,7 +118,7 @@ impl Npc {
                 w.target = None;
                 w.resting = 0.0;
                 w.next_stroll = 8.0 + (roll % 15) as f32;
-                return Some(0);
+                return Some(base);
             }
             let before = w.body.position;
             w.body
@@ -128,7 +133,7 @@ impl Npc {
             return (current != w.clip).then_some(w.clip);
         }
         w.resting += dt;
-        if current == 0 && w.resting >= w.next_stroll {
+        if current == base && w.resting >= w.next_stroll {
             // A walkable spot within the radius, if one turns up in a few tries.
             for k in 0..8u64 {
                 let r = roll.wrapping_mul(k + 1).wrapping_mul(0x9e37_79b9);
@@ -144,6 +149,31 @@ impl Npc {
             w.resting = 0.0;
         }
         self.fidget(dt, current, finished)
+    }
+
+    /// Poses it in its idle's variant with animation table modifier `modifier`
+    /// (`MORTALLY_WOUNDED`), staying put. False if it has no such variant.
+    pub fn set_mood(&mut self, bank: &mut AnimBank, modifier: &str) -> bool {
+        let Some(&(_, id)) = self.moods.iter().find(|(m, _)| m == modifier) else {
+            return false;
+        };
+        let mut clips = Vec::new();
+        for (_, animator) in &self.parts {
+            match bank.clip(id, animator.skeleton()) {
+                Ok(clip) => clips.push(clip),
+                Err(e) => {
+                    eprintln!("mood {modifier} ({id}): {e}");
+                    return false;
+                }
+            }
+        }
+        for ((_, animator), clip) in self.parts.iter_mut().zip(clips) {
+            self.base = animator.add_clip(clip);
+            animator.play(self.base);
+        }
+        self.fidgets = 0;
+        self.walk = None;
+        true
     }
 
     /// Plays its flinch once, stopping a stroll.
@@ -343,6 +373,8 @@ pub fn load(
                     .iter()
                     .any(|k| c.definition.contains(k)),
                 hit_clip: has_hit.then(|| clips - 1),
+                base: 0,
+                moods: c.idles.moods.clone(),
                 since_fidget: 0.0,
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,

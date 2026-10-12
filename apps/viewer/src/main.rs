@@ -324,6 +324,14 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.show_nav = args.nav;
     }
+    // The region's quest, with its people placed and posed.
+    let mut story = match subject {
+        Subject::Region(region) => story::Story::for_region(region, &sections),
+        Subject::Mesh(_) => None,
+    };
+    if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
+        story.place(&mut renderer.npcs, data_dir);
+    }
     if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
         camera = OrbitCamera {
             target: glam::Vec3::new(x, y, z),
@@ -340,6 +348,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             &device,
             &queue,
             camera.target.truncate(),
+            args.camera.map(|c| c[2]),
         )?
     {
         if let Some([x, y]) = args.walk_to {
@@ -390,11 +399,6 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         if args.talk > 0 {
             let text = fable_data::strings::TextBank::open(data_dir, "English")?;
-            let region = match subject {
-                Subject::Region(r) => r.as_str(),
-                Subject::Mesh(_) => "",
-            };
-            let mut story = story::Story::for_region(region, &sections);
             let mut subs = talk::Subtitles::default();
             let at = hero.position.truncate();
             for _ in 0..args.talk {
@@ -445,8 +449,15 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         let Scene::Terrain(renderer) = &mut scene else {
             return Err("not a region".into());
         };
-        let mut hero = spawn_hero(renderer, data_dir, &device, &queue, at.truncate())?
-            .ok_or("nowhere walkable at the entrance")?;
+        let mut hero = spawn_hero(
+            renderer,
+            data_dir,
+            &device,
+            &queue,
+            at.truncate(),
+            Some(at.z),
+        )?
+        .ok_or("nowhere walkable at the entrance")?;
         hero.heading = (-forward.x).atan2(forward.y);
         camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
         if let Some((_, transform)) = &mut renderer.hero {
@@ -622,18 +633,39 @@ fn spawn_hero(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     near: glam::Vec2,
+    height: Option<f32>,
 ) -> Result<Option<walk::Hero>, Error> {
-    let (Some(walk), Some(heights)) = (renderer.walk.first(), &renderer.heights) else {
+    let Some(heights) = &renderer.heights else {
         return Ok(None);
     };
-    let Some(at) = walk.nearest_walkable(near) else {
+    // The walkable spot nearest `near` on each layer, standing on its walking
+    // surface (a floor, not the terrain under it). Given a height, the layer
+    // whose spot is nearest it (an upper floor); else the ground layer.
+    let Some((_, layer, at, z)) = renderer
+        .walk
+        .iter()
+        .enumerate()
+        .filter_map(|(layer, grid)| {
+            let at = grid.nearest_walkable(near)?;
+            let z = match grid.height(at, heights) {
+                Some(z) => z,
+                None if layer == 0 => heights.height(at),
+                None => return None,
+            };
+            let off = match height {
+                Some(h) => (z - h).abs(),
+                None if layer == 0 => 0.0,
+                None => return None,
+            };
+            Some((at.distance(near) + off, layer, at, z))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+    else {
         return Ok(None);
     };
     let mut hero = walk::Hero::new(at, heights);
-    // Stand on the walking surface there (a floor), not the terrain under it.
-    if let Some(z) = walk.height(at, heights) {
-        hero.position.z = z;
-    }
+    hero.position.z = z;
+    hero.layer = layer;
     let (model, skin) = model::hero_model(data_dir)?;
     renderer.hero = Some((
         ModelRenderer::new(device, queue, &model),
@@ -821,8 +853,10 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     app.want_walk = args.walk;
                     app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
                     app.auto_talk = args.talk > 0;
-                    if let (true, Some(story)) = (args.with_present, &mut app.story) {
-                        story.quest.skip_to_present();
+                    if let (true, Some(story)) = (args.with_present, &mut app.story)
+                        && let story::Act::Birthday(quest) = &mut story.act
+                    {
+                        quest.skip_to_present();
                     }
                     app
                 })
@@ -954,8 +988,9 @@ impl ViewerApp {
             Subject::Region(name) => story::Story::for_region(name, &sections),
             Subject::Mesh(_) => None,
         };
-        if let (Some(story), Scene::Terrain(renderer)) = (&story, &mut scene) {
-            story.place(&mut renderer.npcs);
+        let mut story = story;
+        if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
+            story.place(&mut renderer.npcs, &data_dir);
         }
         let list = match subject {
             Subject::Region(_) => ListMode::Regions,
@@ -1033,8 +1068,15 @@ impl ViewerApp {
                     Scene::load(&data_dir, &wld, &job, &sections, &device, &queue)?;
                 let mut hero = None;
                 if let (Some((at, forward)), Scene::Terrain(renderer)) = (arrival, &mut scene) {
-                    let mut h = spawn_hero(renderer, &data_dir, &device, &queue, at.truncate())?
-                        .ok_or("nowhere walkable at the entrance")?;
+                    let mut h = spawn_hero(
+                        renderer,
+                        &data_dir,
+                        &device,
+                        &queue,
+                        at.truncate(),
+                        Some(at.z),
+                    )?
+                    .ok_or("nowhere walkable at the entrance")?;
                     h.heading = (-forward.x).atan2(forward.y);
                     if let Some((_, transform)) = &mut renderer.hero {
                         *transform = hero_transform(&h);
@@ -1097,8 +1139,9 @@ impl ViewerApp {
                 {
                     self.story = story::Story::for_region(region, &self.sections);
                 }
-                if let (Some(story), Scene::Terrain(renderer)) = (&self.story, &mut self.scene) {
-                    story.place(&mut renderer.npcs);
+                if let (Some(story), Scene::Terrain(renderer)) = (&mut self.story, &mut self.scene)
+                {
+                    story.place(&mut renderer.npcs, &self.data_dir);
                 }
                 if let (Some(hero), Scene::Terrain(renderer)) = (loaded.hero, &mut self.scene) {
                     follow(&mut self.camera, &hero, renderer, self.follow_distance);
@@ -1252,6 +1295,7 @@ impl ViewerApp {
                     &rs.device,
                     &rs.queue,
                     self.camera.target.truncate(),
+                    None,
                 ) {
                     Ok(Some(hero)) => {
                         follow(&mut self.camera, &hero, renderer, self.follow_distance);
@@ -1462,6 +1506,25 @@ impl ViewerApp {
                 });
                 let sections = sections.iter().map(|s| (*s).to_owned()).collect();
                 self.load(rs, self.subject.clone(), arrival, sections);
+            }
+            Beat::Travel {
+                region,
+                sections,
+                at: [x, y, z],
+                facing: [fx, fy],
+            } => {
+                self.story = None;
+                let forward = (glam::Vec2::new(fx, fy) - glam::Vec2::new(x, y))
+                    .normalize_or(glam::Vec2::Y)
+                    .extend(0.0);
+                let arrival = (glam::Vec3::new(x, y, z), forward);
+                let sections = sections.iter().map(|s| (*s).to_owned()).collect();
+                self.load(
+                    rs,
+                    Subject::Region(region.to_owned()),
+                    Some(arrival),
+                    sections,
+                );
             }
             _ => {}
         }

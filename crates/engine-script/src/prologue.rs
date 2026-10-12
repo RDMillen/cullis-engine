@@ -1,7 +1,12 @@
-//! The Prologue's birthday quest (`StartOakVale`, quest state
-//! `Q_NewOakValeIntro_PreAttack`): the young Hero earns gold with good deeds,
-//! buys his sister Theresa a present from the Trader and gives it to her; then
-//! the bandits come.
+//! The Prologue in Oakvale (`StartOakVale`).
+//!
+//! [`Birthday`] (quest state `Q_NewOakValeIntro_PreAttack`): the young Hero earns
+//! gold with good deeds, buys his sister Theresa a present from the Trader and
+//! gives it to her; then the bandits come.
+//!
+//! [`Aftermath`] (quest state `Q__OakValeIntro_PostAttack`): the Hero finds his
+//! father dying in the burnt village; a bandit comes for him and Maze takes him
+//! away to the Heroes' Guild, which ends the Prologue.
 //!
 //! Written from how the Prologue plays. The people and their lines come from the
 //! game data (roles from the Tng `ScriptName`s, text from `TEXT_QST_048_*`);
@@ -60,6 +65,18 @@ pub const ROLES: &[&str] = &[
 /// bandit raid's aftermath.
 pub const SECTIONS: &[&str] = &["Q_NewOakValeIntro_PreAttack"];
 pub const AFTER: &[&str] = &["Q__OakValeIntro_PostAttack"];
+
+/// The father after the raid.
+pub const DEAD_FATHER: &str = "OVI_DeadFather";
+/// Where Maze takes the Hero: the Heroes' Guild in its training state, beside
+/// the Guildmaster and Maze (`TheRealGuildmaster`, `PreMeleeMaze`).
+pub const GUILD: &str = "HeroGuildComplexInside";
+pub const GUILD_SECTIONS: &[&str] = &["Q_GuildTraining"];
+pub const GUILD_ARRIVAL: [f32; 3] = [4648.0, 3668.0, 21.3];
+/// The Guildmaster's spot, which the Hero arrives facing.
+pub const GUILDMASTER: [f32; 2] = [4646.3, 3670.2];
+/// How near the father the Hero must come to find him. Guess.
+const FIND_REACH: f32 = 3.0;
 
 /// What the sweets cost (the Trader says three gold pieces).
 pub const SWEETS_PRICE: u32 = 3;
@@ -608,6 +625,9 @@ impl Quest for Birthday {
                 self.chocolates = false;
                 self.finished = true;
                 say(out, t!("THERESA_HELLO"));
+                // The raid begins (the cutscene's lines, then Theresa's).
+                say(out, "TEXT_CS_048_OIF_10");
+                say(out, "TEXT_CS_048_OIF_20");
                 say(out, t!("THERESA_BANDITS"));
                 out.push(Beat::Finish(AFTER));
             }
@@ -659,6 +679,70 @@ impl Quest for Birthday {
             ));
             self.good(out);
         }
+    }
+}
+
+/// After the raid: finding the dying father ends the Prologue.
+#[derive(Debug, Clone, Default)]
+pub struct Aftermath {
+    found: bool,
+}
+
+impl Aftermath {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the Hero has found his father (and is being taken away).
+    pub fn finished(&self) -> bool {
+        self.found
+    }
+
+    fn find_father(&mut self, out: &mut Vec<Beat>) {
+        if std::mem::replace(&mut self.found, true) {
+            return;
+        }
+        out.push(Beat::said_by(DEAD_FATHER, t!("FATHER_DYING_MOAN"), Speech));
+        // A bandit comes for the boy; Maze saves him (the cutscene's lines).
+        for entry in [
+            "TEXT_CS_048_OVID_10",
+            "TEXT_CS_048_OVID_20",
+            "TEXT_CS_048_OVID_30",
+            "TEXT_CS_048_OVID_40",
+        ] {
+            out.push(Beat::say(entry, Speech));
+        }
+        out.push(Beat::Travel {
+            region: GUILD,
+            sections: GUILD_SECTIONS,
+            at: GUILD_ARRIVAL,
+            facing: GUILDMASTER,
+        });
+    }
+}
+
+impl Quest for Aftermath {
+    fn talk(&mut self, who: Person<'_>, out: &mut Vec<Beat>) {
+        if who.role == DEAD_FATHER {
+            self.find_father(out);
+        }
+    }
+
+    fn hit(&mut self, _: Person<'_>, _: &mut Vec<Beat>) {}
+
+    fn answer(&mut self, _: bool, _: &mut Vec<Beat>) {}
+
+    fn update(&mut self, _: f32, world: &dyn World, out: &mut Vec<Beat>) {
+        if world
+            .distance_to(DEAD_FATHER)
+            .is_some_and(|d| d < FIND_REACH)
+        {
+            self.find_father(out);
+        }
+    }
+
+    fn mood(&self, role: &str) -> Option<&'static str> {
+        (role == DEAD_FATHER).then_some("MORTALLY_WOUNDED")
     }
 }
 
@@ -808,6 +892,30 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn finding_the_father_ends_the_prologue_at_the_guild() {
+        let mut q = Aftermath::new();
+        assert_eq!(q.mood(DEAD_FATHER), Some("MORTALLY_WOUNDED"));
+        let mut out = Vec::new();
+        q.update(1.0, &At(10.0), &mut out);
+        assert!(out.is_empty() && !q.finished());
+        q.update(1.0, &At(2.0), &mut out);
+        assert!(says(&out, "TEXT_CS_048_OVID_40"));
+        assert_eq!(
+            out.last(),
+            Some(&Beat::Travel {
+                region: GUILD,
+                sections: GUILD_SECTIONS,
+                at: GUILD_ARRIVAL,
+                facing: GUILDMASTER,
+            })
+        );
+        let before = out.len();
+        q.update(1.0, &At(2.0), &mut out);
+        q.talk(person(DEAD_FATHER), &mut out);
+        assert_eq!(out.len(), before, "found once");
     }
 
     #[test]
