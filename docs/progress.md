@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12 (later): routes on foot
+
+- The stop at y≈908 north of the village centre is a fence: the game's navigation leaves the cells beyond it unwalkable (a rail at 14.3 above ground at 13.0). It only stopped straight-line test walks; Theresa is reachable round it, over the covered bridge.
+- `walk::route`: A* over the walk cells of every layer, with the walking step rule (each move within 0.6 of the last, no corner cutting past unwalkable cells, layers joined where their surfaces meet). It avoids closed doors and people, keeping a margin round them, and ends beside a goal that someone is standing on. `walk::steer` aims at the farthest next point in clear sight; a point counts as reached only at the Hero's height (within 0.2), so a steep climb is not skipped. `walk::Follow` plans the route and plans again from where the Hero is after a second without progress.
+- `--walk-to` follows routes, headless and in the window. From the father, all nine Prologue characters are reached on foot (Theresa, the Trader, the bully, the teddy girl, the warehouse worker and the thug, the husband, the wife, a guard); in the window the Hero walked himself to Theresa and her introduction started.
+- Fixed on the way: walks grazed people the route passed close by, and the follower dropped route points on a ramp he had not climbed yet.
+- Next: voices (`Dialogue.lut`), the Guild training, or the raid's look.
+
 ## 2026-10-12 (later): stairs, and the README
 
 - Ross saw the Hero catch on house steps in Oakvale. Cause: walk cells were 0.5 units, wider than a stair tread, so a cell could skip a tread and sit two risers (about 0.65) above its neighbour, over the 0.6 step limit. Walk cells are now 0.25 units, and each cell samples surfaces at its centre and four nearby points (a ray at the centre alone slipped through a seam in one step's mesh, leaving a cell at ground height). Walking straight up and down the Hero's house steps on three lines: the old grid stopped partway on three of six walks, the new one on none. Oakvale still loads in about 2 s.

@@ -395,25 +395,42 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                         None => eprintln!("no door within reach"),
                     }
                 }
-                for _ in 0..3000 {
-                    let to = goal - hero.position.truncate();
-                    if to.length() < 0.3 {
+                // Follow a route there, or head straight for it if there is none.
+                let mut follow = walk::Follow::new(goal);
+                for _ in 0..6000 {
+                    let Some(heights) = &renderer.heights else {
                         break;
-                    }
-                    if let Some(heights) = &renderer.heights {
-                        let (doors, npcs) = (&renderer.doors, &renderer.npcs);
-                        hero.step_blocked(
-                            to,
-                            walk::WALK_SPEED,
-                            1.0 / 30.0,
-                            &renderer.walk,
-                            heights,
-                            |p| blocked_for_hero(doors, npcs, p),
-                        );
-                    }
+                    };
+                    let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+                    let Some(to) = follow.direction(
+                        &hero,
+                        &renderer.walk,
+                        heights,
+                        1.0 / 30.0,
+                        |p| blocked_for_route(doors, npcs, p),
+                        |p| blocked_for_hero(doors, npcs, p),
+                    ) else {
+                        break;
+                    };
+                    hero.step_blocked(
+                        to,
+                        walk::WALK_SPEED,
+                        1.0 / 30.0,
+                        &renderer.walk,
+                        heights,
+                        |p| blocked_for_hero(doors, npcs, p),
+                    );
                     highest = highest.max(hero.position.z);
                 }
                 eprintln!("walk pass {pass} ended at {}", hero.position);
+                eprintln!(
+                    "{}",
+                    if follow.routed() {
+                        "followed a route"
+                    } else {
+                        "no route; walked straight"
+                    }
+                );
             }
             camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
             eprintln!(
@@ -540,6 +557,15 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
 
 /// How wide a person is, for keeping the Hero and creatures apart.
 const PERSON_RADIUS: f32 = 0.35;
+
+/// Where a route should not go: where the Hero may not stand, with a margin
+/// around people so that walking between the route's points does not graze them.
+fn blocked_for_route(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+    blocked_for_hero(doors, npcs, p)
+        || npcs
+            .iter()
+            .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0 + walk::CELL)
+}
 
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
 fn blocked_for_hero(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
@@ -878,7 +904,9 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                         };
                     }
                     app.want_walk = args.walk;
-                    app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
+                    app.auto_walk = args
+                        .walk_to
+                        .map(|g| walk::Follow::new(glam::Vec2::from_array(g)));
                     app.auto_talk = args.talk > 0;
                     if let (true, Some(story)) = (args.with_present, &mut app.story)
                         && let story::Act::Birthday(quest) = &mut story.act
@@ -960,7 +988,7 @@ struct ViewerApp {
     hero_standing: f32,
     hero_fidgets: usize,
     /// A point the Hero walks himself towards (`--walk-to`), until he is there.
-    auto_walk: Option<glam::Vec2>,
+    auto_walk: Option<walk::Follow>,
     /// Talk to whoever is near once `auto_walk` arrives (`--talk`).
     auto_talk: bool,
     data_dir: PathBuf,
@@ -1373,20 +1401,31 @@ impl ViewerApp {
             .normalize_or_zero();
         let side = glam::Vec2::new(view.y, -view.x);
         let mut direction = view * forward + side * right;
-        if let Some(goal) = self.auto_walk {
-            let to = goal - hero.position.truncate();
-            if to.length() < 0.3 {
-                self.auto_walk = None;
-                let at = hero.position.truncate();
-                if std::mem::take(&mut self.auto_talk)
-                    && let (Some(text), Some(story)) = (&self.text, &mut self.story)
-                    && let Some(i) =
-                        story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None)
-                {
-                    story.talk(&renderer.npcs, i, at, text, &mut self.subs);
+        // A walk to a point (`--walk-to`) along a route, while no key steers.
+        if direction == glam::Vec2::ZERO
+            && let Some(follow) = &mut self.auto_walk
+        {
+            let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+            match follow.direction(
+                hero,
+                walk,
+                heights,
+                dt,
+                |p| blocked_for_route(doors, npcs, p),
+                |p| blocked_for_hero(doors, npcs, p),
+            ) {
+                Some(to) => direction = to,
+                None => {
+                    self.auto_walk = None;
+                    let at = hero.position.truncate();
+                    if std::mem::take(&mut self.auto_talk)
+                        && let (Some(text), Some(story)) = (&self.text, &mut self.story)
+                        && let Some(i) =
+                            story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None)
+                    {
+                        story.talk(&renderer.npcs, i, at, text, &mut self.subs);
+                    }
                 }
-            } else if direction == glam::Vec2::ZERO {
-                direction = to;
             }
         }
         // The clips' own movement sets the speed, so the feet do not slide.

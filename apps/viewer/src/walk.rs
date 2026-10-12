@@ -363,6 +363,277 @@ impl HeightGrid {
     }
 }
 
+/// A route on foot from `from` (standing on `layer`) to the walkable spot
+/// nearest `to`, as world points from start to goal. A* over the walk cells of
+/// every layer (all layers share one grid): to the 8 neighbours on a layer (a
+/// diagonal only where both sides are walkable, so it does not cut corners),
+/// each within a step of the last; and between layers where their surfaces meet
+/// within a step. Points `blocked` returns true for (closed doors, people) are
+/// avoided; when the goal itself is blocked (a person), the route ends beside
+/// it. None if no route reaches the goal.
+pub fn route(
+    layers: &[WalkGrid],
+    ground: &HeightGrid,
+    from: Vec3,
+    layer: usize,
+    to: Vec2,
+    blocked: impl Fn(Vec2) -> bool,
+) -> Option<Vec<Vec2>> {
+    use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
+
+    let first = layers.first()?;
+    let n = first.cells.len();
+    let w = first.size[0] as i64;
+    let h = first.size[1] as i64;
+    let height = |node: usize| -> Option<f32> {
+        let (l, i) = (node / n, node % n);
+        let grid = layers.get(l)?;
+        if !grid.cells[i] {
+            return None;
+        }
+        grid.height(grid.centre(i), ground)
+    };
+    let start = layer * n + layers.get(layer)?.index(from.truncate())?;
+    height(start)?;
+    // The goal: the walkable cell nearest `to` on any layer.
+    let goal_cell = first.index(layers.iter().find_map(|g| g.nearest_walkable(to))?)?;
+    let goal_point = first.centre(goal_cell);
+    // How near the goal counts as there: beside it if it is taken.
+    let within = if blocked(goal_point) { 1.2 } else { CELL * 0.5 };
+
+    #[derive(PartialEq)]
+    struct Open(f32, usize);
+    impl Eq for Open {}
+    impl PartialOrd for Open {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Open {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other.0.total_cmp(&self.0)
+        }
+    }
+    let total = n * layers.len();
+    let mut cost = vec![f32::INFINITY; total];
+    let mut came = vec![usize::MAX; total];
+    let mut open = BinaryHeap::new();
+    cost[start] = 0.0;
+    open.push(Open(0.0, start));
+    let mut reached = None;
+    while let Some(Open(_, node)) = open.pop() {
+        let (l, i) = (node / n, node % n);
+        if first.centre(i).distance(goal_point) <= within {
+            reached = Some(node);
+            break;
+        }
+        let z = height(node).unwrap_or(f32::NAN);
+        let (x, y) = ((i as i64) % w, (i as i64) / w);
+        let mut next: Vec<(usize, f32)> = Vec::with_capacity(8 + layers.len());
+        for (dx, dy) in [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ] {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                continue;
+            }
+            let j = (ny * w + nx) as usize;
+            let reachable = |k: usize| {
+                height(l * n + k).is_some_and(|zk| (zk - z).abs() <= MAX_STEP)
+                    && !blocked(first.centre(k))
+            };
+            if dx != 0
+                && dy != 0
+                && !(reachable((y * w + nx) as usize) && reachable((ny * w + x) as usize))
+            {
+                continue;
+            }
+            if reachable(j) {
+                let step = if dx != 0 && dy != 0 {
+                    std::f32::consts::SQRT_2
+                } else {
+                    1.0
+                };
+                next.push((l * n + j, step * CELL));
+            }
+        }
+        for other in (0..layers.len()).filter(|&o| o != l) {
+            if height(other * n + i).is_some_and(|zo| (zo - z).abs() <= MAX_STEP) {
+                next.push((other * n + i, 0.01));
+            }
+        }
+        for (m, c) in next {
+            let new = cost[node] + c;
+            if new < cost[m] {
+                cost[m] = new;
+                came[m] = node;
+                let guess = first.centre(m % n).distance(goal_point);
+                open.push(Open(new + guess, m));
+            }
+        }
+    }
+    let mut node = reached?;
+    let mut points = vec![first.centre(node % n)];
+    while came[node] != usize::MAX {
+        node = came[node];
+        points.push(first.centre(node % n));
+    }
+    points.reverse();
+    Some(points)
+}
+
+/// Where `hero` should head along `path` (a [`route`]): drops the points
+/// already reached (or passed), at his height, and returns the farthest of the
+/// next ones within `ahead` units that he can walk to in a straight line, so
+/// the walk cuts the grid's corners without catching on them. None once the
+/// path is done.
+pub fn steer(
+    path: &mut std::collections::VecDeque<Vec2>,
+    hero: &Hero,
+    layers: &[WalkGrid],
+    ground: &HeightGrid,
+    ahead: f32,
+    blocked: impl Fn(Vec2) -> bool,
+) -> Option<Vec2> {
+    let at = hero.position.truncate();
+    let z = hero.position.z;
+    // A point is reached only where the Hero is at its height, not beside it
+    // on a lower or higher surface (or below it on a steep climb).
+    let level = |q: Vec2| {
+        layers
+            .iter()
+            .filter_map(|g| g.height(q, ground))
+            .any(|h| (h - z).abs() <= 0.2)
+    };
+    while path
+        .front()
+        .is_some_and(|p| p.distance(at) < 0.3 && level(*p))
+        || (path.len() > 1 && path[1].distance(at) < path[0].distance(at) && level(path[1]))
+    {
+        path.pop_front();
+    }
+    // Walkable in a straight line: every half cell along the way is free and
+    // within a step of the last, on some layer (as `Hero::step_blocked` moves).
+    let clear = |to: Vec2| {
+        let samples = (at.distance(to) / (CELL * 0.5)).ceil().max(1.0) as usize;
+        let mut z = z;
+        (1..=samples).all(|k| {
+            let q = at.lerp(to, k as f32 / samples as f32);
+            if blocked(q) {
+                return false;
+            }
+            let next = layers
+                .iter()
+                .filter_map(|g| g.height(q, ground))
+                .filter(|h| (h - z).abs() <= MAX_STEP)
+                .min_by(|a, b| (a - z).abs().total_cmp(&(b - z).abs()));
+            next.map(|h| z = h).is_some()
+        })
+    };
+    path.iter()
+        .take_while(|p| p.distance(at) <= ahead)
+        .filter(|p| clear(**p))
+        .last()
+        .or(path.front())
+        .copied()
+}
+
+/// Walks the Hero to a goal along routes, planning a new route from where he is
+/// when he makes no progress for a second (someone in the way, a corner).
+#[derive(Debug, Clone)]
+pub struct Follow {
+    pub goal: Vec2,
+    path: std::collections::VecDeque<Vec2>,
+    planned: bool,
+    routed: bool,
+    last: Option<Vec2>,
+    stuck: f32,
+    replans: u32,
+}
+
+impl Follow {
+    /// Seconds without progress before planning again, and how often to try.
+    const STUCK: f32 = 1.0;
+    const REPLANS: u32 = 5;
+
+    pub fn new(goal: Vec2) -> Self {
+        Self {
+            goal,
+            path: Default::default(),
+            planned: false,
+            routed: false,
+            last: None,
+            stuck: 0.0,
+            replans: 0,
+        }
+    }
+
+    /// The direction to walk this frame (`dt` seconds since the last), or None
+    /// once there or given up. `route_blocked` is what routes avoid (with a
+    /// margin), `walk_blocked` what stops the Hero.
+    #[allow(clippy::too_many_arguments)]
+    pub fn direction(
+        &mut self,
+        hero: &Hero,
+        layers: &[WalkGrid],
+        ground: &HeightGrid,
+        dt: f32,
+        route_blocked: impl Fn(Vec2) -> bool,
+        walk_blocked: impl Fn(Vec2) -> bool,
+    ) -> Option<Vec2> {
+        let at = hero.position.truncate();
+        if let Some(last) = self.last {
+            self.stuck = if last.distance(at) < 0.02 {
+                self.stuck + dt
+            } else {
+                0.0
+            };
+        }
+        self.last = Some(at);
+        if self.stuck > Self::STUCK {
+            if self.replans >= Self::REPLANS {
+                return None;
+            }
+            self.replans += 1;
+            self.planned = false;
+            self.stuck = 0.0;
+        }
+        if !self.planned {
+            self.planned = true;
+            self.path = route(
+                layers,
+                ground,
+                hero.position,
+                hero.layer,
+                self.goal,
+                &route_blocked,
+            )
+            .map(Into::into)
+            .unwrap_or_default();
+            self.routed = !self.path.is_empty();
+        }
+        if self.routed {
+            let next = steer(&mut self.path, hero, layers, ground, 1.5, walk_blocked)?;
+            return Some(next - at);
+        }
+        let to = self.goal - at;
+        (to.length() >= 0.3).then_some(to)
+    }
+
+    /// Whether a route was found (else the Hero heads straight for the goal).
+    pub fn routed(&self) -> bool {
+        self.routed
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Hero {
     pub position: Vec3,
@@ -599,5 +870,69 @@ mod tests {
             Some(1.3),
             "the hall floor, not the terrain under it"
         );
+    }
+
+    #[test]
+    fn routes_go_around_a_wall() {
+        // An open 10x10 area with a wall along y = 5 from x 0 to 8: from below it
+        // to above it, the route goes round the wall's end at x 8..10.
+        let heights = HeightGrid::new(Vec2::ZERO, [11, 11]);
+        let mut walk = WalkGrid::new(Vec2::ZERO, Vec2::splat(10.0));
+        for y in 0..10 {
+            for x in 0..10 {
+                if !(y == 5 && x < 8) {
+                    walk.mark(Vec2::new(x as f32 + 0.5, y as f32 + 0.5), 1.0);
+                }
+            }
+        }
+        let layers = [walk];
+        let path = route(
+            &layers,
+            &heights,
+            Vec3::new(2.0, 2.0, 0.0),
+            0,
+            Vec2::new(2.0, 8.0),
+            |_| false,
+        )
+        .expect("a route round the wall");
+        assert!(path.iter().any(|p| p.x > 8.0), "goes round the end");
+        assert!(path.last().unwrap().distance(Vec2::new(2.0, 8.0)) < CELL);
+        // Someone standing at the wall's end and someone at the goal: round the
+        // first, ending beside the second.
+        let person = |p: Vec2| {
+            p.distance(Vec2::new(9.0, 5.5)) < 0.6 || p.distance(Vec2::new(2.0, 8.0)) < 0.6
+        };
+        let around = route(
+            &layers,
+            &heights,
+            Vec3::new(2.0, 2.0, 0.0),
+            0,
+            Vec2::new(2.0, 8.0),
+            person,
+        )
+        .expect("a route round them");
+        assert!(around.iter().all(|&p| !person(p)), "never through a person");
+        let end = around.last().unwrap().distance(Vec2::new(2.0, 8.0));
+        assert!(end > 0.5 && end <= 1.2, "beside the goal: {end}");
+        // Walled right across: no route.
+        let mut closed = layers[0].clone();
+        for x in 0..10 {
+            for k in 0..(1.0 / CELL) as usize {
+                let i = closed
+                    .index(Vec2::new(x as f32 + (k as f32 + 0.5) * CELL, 5.5))
+                    .unwrap();
+                closed.cells[i] = false;
+            }
+        }
+        let goal = Vec2::new(2.0, 8.0);
+        let path = route(
+            &[closed],
+            &heights,
+            Vec3::new(2.0, 2.0, 0.0),
+            0,
+            goal,
+            |_| false,
+        );
+        assert!(path.is_none(), "no way across");
     }
 }
