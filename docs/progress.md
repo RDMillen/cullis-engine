@@ -2,6 +2,17 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12 (later): voices, first look (unfinished)
+
+- `lang/English/*.lut` (Dialogue, Dialogue2, ScriptDialogue, ScriptDialogue2) are chunked audio banks. Each chunk is a 32-byte zero-padded name then a u32 size:
+  - `LiOnHeAdLHAudioBankCompData` (at 0): the sounds back to back, each a 36-byte header then a complete RIFF WAVE file. Header: u32 sound id, u16 1, u16 22050, u32 (40000 or 105536), bytes 01 01 06 xx, u16 100, f32, f32, u32 (500 or 1000), i32 -1; meanings not yet known.
+  - The WAVE files use format tag 0x69 (Xbox ADPCM): mono, 22,050 Hz, 4-bit, 36-byte blocks of 64 samples (fmt extra = 64).
+  - `LHAudioBankLookupTable`: u32 (1000 or 500), u32 count, then count records of (u32 sound id, u32 length, u32 offset into the data chunk). ScriptDialogue: 5,310 sounds with ids 1..5310.
+  - `LHFileSegmentBankInfo` (0x20c bytes): "\Generated bank for Fable", "NoFPNameYet", then u32 4.
+- Text entries name only their voice bank (`ScriptDialogue.lug`), and their ids (such as 8828) are not sound ids. `Defs/RetailHeaders/*_lipsync.h` just number the sounds (`ScriptDialogue_1 = 1`). `lang/English/dialogue.big` has lipsync banks (`LIPSYNC_ENGLISH_MAIN`, `_SCRIPT`, ...), one entry per sound (`ScriptDialogue_1`) with a speaker source (`SPEAKER_FEMALE1`) and a 4-byte float info (probably the duration). The link from a text line to its sound id is not found yet.
+- New examples: `text_ids` (text entries with their ids and voice banks), `big_list` (a BIG archive's banks and entries).
+- Next: find the text-to-sound link (look inside the lipsync entries' data, and the text bank's entries for a sound index); write the `.lut` parser and an Xbox ADPCM decoder, checked against ffmpeg's decoding of the same RIFF files; then an `engine-audio` crate and playback in the viewer.
+
 ## 2026-10-12 (later): routes on foot
 
 - The stop at y≈908 north of the village centre is a fence: the game's navigation leaves the cells beyond it unwalkable (a rail at 14.3 above ground at 13.0). It only stopped straight-line test walks; Theresa is reachable round it, over the covered bridge.
