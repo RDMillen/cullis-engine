@@ -49,6 +49,8 @@ struct Args {
     camera: Option<[f32; 6]>,
     /// Draw the navigation overlay.
     nav: bool,
+    /// Print ledges in the walk grid near the camera target (diagnostic).
+    ledges: bool,
     /// Place the young Hero near the camera target (screenshots).
     walk: bool,
     /// Then walk him towards this point (x, y) before the screenshot.
@@ -80,6 +82,7 @@ fn parse_args() -> Result<Args, Error> {
         screenshot: None,
         camera: None,
         nav: false,
+        ledges: false,
         walk: false,
         walk_to: None,
         sections: Vec::new(),
@@ -99,6 +102,7 @@ fn parse_args() -> Result<Args, Error> {
             "--mesh" => args.subject = Subject::Mesh(value()?),
             "--screenshot" => args.screenshot = Some(value()?.into()),
             "--nav" => args.nav = true,
+            "--ledges" => args.ledges = true,
             "--walk" => args.walk = true,
             "--section" => args.sections.push(value()?),
             "--anim" => {
@@ -323,6 +327,29 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         Scene::load(data_dir, wld, subject, &sections, &device, &queue)?;
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.show_nav = args.nav;
+        if let (true, Some(heights)) = (args.ledges, &renderer.heights) {
+            let near = args.camera.map(|c| glam::Vec2::new(c[0], c[1]));
+            for (layer, grid) in renderer.walk.iter().enumerate() {
+                if let (Some(n), Some(colliders), 0) = (near, &renderer.colliders, layer) {
+                    for dy in -6..=6 {
+                        for dx in -6..=6 {
+                            let p = n + glam::Vec2::new(dx as f32, dy as f32) * walk::CELL;
+                            eprintln!(
+                                "cell {p}: terrain {:.2}, walks at {:?}, surfaces {:?}",
+                                heights.height(p),
+                                grid.height(p, heights),
+                                colliders.surfaces(p)
+                            );
+                        }
+                    }
+                }
+                for (p, lo, hi) in grid.ledges(heights) {
+                    if near.is_none_or(|n| n.distance(p) < 12.0) {
+                        eprintln!("ledge layer {layer} at {p}: {lo:.2} .. {hi:.2}");
+                    }
+                }
+            }
+        }
     }
     // The region's quest, with its people placed and posed.
     let mut story = match subject {

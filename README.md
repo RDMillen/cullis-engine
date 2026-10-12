@@ -6,18 +6,27 @@ Requires the original game. CullisEngine ships no game data. It reads files from
 
 ## Status
 
-Early. Nothing is playable yet. The desktop viewer draws any region from the original data: textured terrain, sea, and its buildings and objects placed and textured; or any static mesh on its own. The `fable-data` crate reads:
+Early, but the Prologue can be played through in the desktop viewer:
 
-- the bank and archive containers (`.wad`, `.stb`, `.big`) and their indexes
-- the world layout (`.wld`): 398 maps and 141 regions
-- LZO1X-compressed data
-- Lev heightmaps
-- textures (DXT1/3/5 and uncompressed), exportable to PNG
-- static meshes (all levels of detail; skinned meshes not yet)
-- Tng thing placement and compiled game definitions (definition to mesh)
-- terrain themes, the sound map and navigation (walkable areas, shown with `--nav`)
+- any region renders from the original data: textured terrain, sea, buildings and objects, doors, and creatures with their idle animations
+- the young Hero walks and runs through Oakvale with collision, a following camera, walkable building floors and bridge decks, doors to open, and region exits to the next region
+- the Prologue's quests: Theresa's birthday (good and bad deeds, gold, the Trader's sweets), the bandit raid's aftermath, and Maze taking the boy to the Heroes' Guild
+- conversations from the game's own text, shown as subtitles with yes/no questions
 
-See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+Not yet: combat beyond a kick, voices and sound, cutscenes, lighting and particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+
+## Crates
+
+- `fable-data` reads the game's files:
+  - the bank and archive containers (`.wad`, `.stb`, `.big`) and their indexes, and LZO1X-compressed data
+  - the world layout (`.wld`, `.gtg`): 398 maps, 141 regions, region entrances
+  - Lev heightmaps, terrain themes, the sound map and navigation
+  - textures (DXT1/3/5 and uncompressed), exportable to PNG
+  - static and skinned meshes, skeletons, bone configs and animations
+  - Tng thing placement and compiled game definitions
+  - the text bank (`lang/<language>/text.big`)
+- `engine-script` holds the quest API and the quests, written by hand from how the game plays (the data has no quest logic). No rendering dependency.
+- `apps/viewer` is the desktop viewer (egui and wgpu), where everything is tried out.
 
 ## Building
 
@@ -34,16 +43,40 @@ Tests that need the game data are ignored by default. Point `FABLE_DIR` at your 
 FABLE_DIR=/path/to/Fable cargo test --release -- --ignored
 ```
 
-To open the viewer (drag to orbit, right-drag to pan, scroll to zoom, pick a region on the left):
+## The viewer
 
 ```sh
 FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --region StartOakVale
 FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --mesh MESH_OAKVALE_HOUSE_02
 ```
 
-The side panel switches between regions (with the game's names), meshes, textures and the game's text, with a search box. In a region, "Show navigation" draws the walkable area and "Walk" puts the young Hero on it, animated (WASD to walk, Shift to run, the scroll wheel sets the camera distance; the camera keeps out of walls and buildings; bridge decks and building floors are walkable, and walking into a region exit loads the next region). Villagers, guards, children and chickens play their own idle animations and now and then fidget; background villagers and chickens stroll around (stand-in behaviour until creature AI is understood). Going indoors hides the building's roof. Doors block the way until opened with **E**, and people can't be walked through. In Oakvale the Prologue's birthday quest can be played: **E** talks to people (their lines from the game's text appear as subtitles, E for the next line), **F** kicks, **Y**/**N** answer questions. Good deeds earn gold from the father, the Trader sells the sweets, and giving them to Theresa brings the bandit raid; in the burnt village, finding the dying father ends the Prologue as Maze takes the boy to the Heroes' Guild (see `docs/quests/prologue-birthday.md`). Regions load in the background behind a loading screen. The side panel's "Quest state" list shows things from other quest states (the Prologue raid's aftermath, village events); `--section NAME` does the same for screenshots. For screenshots, `--walk` places the Hero and `--walk-to x,y` walks him towards a point first, and `--anim ANIM_HERO_RUN --anim-time 0.2` poses him with an animation. Character meshes are listed with the others and drawn in their bind pose.
+The side panel switches between regions (with the game's names), meshes, textures and the game's text, each with a search box. In a region, "Show navigation" draws the walkable area, "Walk" puts the young Hero in it, and "Quest state" adds things from other quest states (the raid's aftermath, village events). Regions load in the background behind a loading screen.
 
-Add `--screenshot out.png --size 1280x800` to render one frame to a file without opening a window.
+| Key | Action |
+| --- | --- |
+| Drag, right-drag, scroll | Orbit, pan, zoom (scroll sets the camera distance while walking) |
+| W A S D, Shift | Walk, run |
+| E | Talk to someone, go on with what they say, or open a door |
+| F | Kick |
+| Y, N | Answer a question |
+
+The Prologue starts in Oakvale (`StartOakVale`): talk to the Hero's father near the house at the top of the village. Its expected behaviour, and the values not yet checked against the game, are in [docs/quests/prologue-birthday.md](docs/quests/prologue-birthday.md).
+
+Command-line options:
+
+| Option | Effect |
+| --- | --- |
+| `--region NAME`, `--mesh NAME` | What to show |
+| `--section NAME` | Show a quest state (repeatable), such as `Q__OakValeIntro_PostAttack` |
+| `--camera x,y,z,distance,yaw,pitch` | Where the camera looks (and where `--walk` places the Hero) |
+| `--walk`, `--walk-to x,y` | Place the Hero; walk him towards a point first |
+| `--talk N` | On arrival, talk to the nearest person (N times, printed, with `--screenshot`) |
+| `--use` | After `--walk-to`, use the nearest door, then walk on |
+| `--npc-time S` | Let the creatures move for S seconds before a screenshot |
+| `--with-present` | Start the birthday quest with the sweets bought (to test the ending) |
+| `--anim NAME --anim-time T` | Pose the Hero with an animation |
+| `--nav`, `--ledges` | Draw the walkable area; print walk-grid ledges near the camera (diagnostics) |
+| `--screenshot out.png --size 1280x800` | Render one frame to a file without opening a window |
 
 To print a survey of your install's banks and regions:
 
@@ -54,6 +87,7 @@ FABLE_DIR=/path/to/Fable cargo run --release -p fable-data --example survey
 ## Documentation
 
 - [docs/formats/](docs/formats/): file formats, written from observation of the data files
+- [docs/quests/](docs/quests/): each quest's expected behaviour, from playthroughs
 - [docs/inventory.md](docs/inventory.md) and [docs/survey.md](docs/survey.md): what the reference install contains
 
 ## Clean-room policy

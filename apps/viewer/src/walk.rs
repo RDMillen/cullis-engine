@@ -7,8 +7,9 @@
 
 use glam::{Vec2, Vec3};
 
-/// Side of a walkability cell in world units (the smallest navigation leaf).
-pub const CELL: f32 = 0.5;
+/// Side of a walkability cell in world units: half the smallest navigation leaf,
+/// so a cell never skips a stair tread (a 0.5 cell could, rising two risers at once).
+pub const CELL: f32 = 0.25;
 /// Walking speed in world units (metres) per second.
 pub const WALK_SPEED: f32 = 4.0;
 pub const RUN_SPEED: f32 = 8.0;
@@ -66,6 +67,29 @@ impl WalkGrid {
         self.index(p)
             .and_then(|i| self.surface.as_ref().map(|s| s[i].is_finite()))
             .unwrap_or(false)
+    }
+
+    /// Ledges: neighbouring walkable cells, at least one on a surface, whose
+    /// heights differ by more than a step (where the Hero is stopped). Each as
+    /// (the cells' midpoint, the lower height, the higher).
+    pub fn ledges(&self, ground: &HeightGrid) -> Vec<(Vec2, f32, f32)> {
+        let mut out = Vec::new();
+        for i in (0..self.cells.len()).filter(|&i| self.cells[i]) {
+            let (Some(a), true) = (
+                self.height(self.centre(i), ground),
+                self.on_surface(self.centre(i)),
+            ) else {
+                continue;
+            };
+            for j in self.neighbours(i).filter(|&j| self.cells[j]) {
+                if let Some(b) = self.height(self.centre(j), ground)
+                    && (a - b).abs() > MAX_STEP
+                {
+                    out.push(((self.centre(i) + self.centre(j)) / 2.0, a.min(b), a.max(b)));
+                }
+            }
+        }
+        out
     }
 
     fn centre(&self, i: usize) -> Vec2 {
@@ -185,7 +209,14 @@ pub fn assign_surfaces(
             candidates[i]
                 .get_or_insert_with(|| {
                     let p = layer.centre(i);
-                    let mut c = surfaces(p);
+                    // The centre and four points around it, so a seam in a mesh
+                    // (a ray slipping between a step's triangles) leaves no hole.
+                    let mut c: Vec<f32> = [Vec2::ZERO, Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y]
+                        .iter()
+                        .flat_map(|d| surfaces(p + *d * CELL * 0.3))
+                        .collect();
+                    c.sort_by(f32::total_cmp);
+                    c.dedup_by(|a, b| (*a - *b).abs() < 0.01);
                     // The terrain counts unless something covers it too low to
                     // stand under (a deck or floor laid over it).
                     let terrain = ground.height(p);
@@ -212,13 +243,12 @@ pub fn assign_surfaces(
             } else {
                 // The same spot or up to 1 unit away on an earlier layer: layers
                 // meet side by side at doorways rather than overlapping.
-                let near =
-                    [Vec2::ZERO, Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y].map(|d| p + d * 2.0 * CELL);
+                let near = [Vec2::ZERO, Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y].map(|d| p + d);
                 let near = near
                     .iter()
                     .chain(
                         [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y]
-                            .map(|d| p + d * CELL)
+                            .map(|d| p + d * 0.5)
                             .iter(),
                     )
                     .copied()
@@ -498,7 +528,12 @@ mod tests {
             x if (3.0..9.0).contains(&x) => vec![5.4],
             _ => vec![],
         });
-        assert_eq!(layers[1].walkable_cells(), 24, "deck cells all reached");
+        // Six 1x1 deck squares.
+        assert_eq!(
+            layers[1].walkable_cells(),
+            (6.0 / (CELL * CELL)) as usize,
+            "deck cells all reached"
+        );
         let mut hero = Hero::new(Vec2::new(1.0, 5.0), &heights);
         let mut highest_in_ravine = f32::NEG_INFINITY;
         for _ in 0..60 {
@@ -540,7 +575,8 @@ mod tests {
         let (walk, _) = corridor();
         let p = walk.nearest_walkable(Vec2::new(5.2, 9.0)).unwrap();
         assert!(walk.walkable(p));
-        assert!((p.y - 5.75).abs() < 1e-4, "{p}");
+        // The centre of the top row of cells in the strip (y 4..6).
+        assert!((p.y - (6.0 - CELL / 2.0)).abs() < 1e-4, "{p}");
     }
 
     #[test]

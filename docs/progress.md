@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12 (later): stairs, and the README
+
+- Ross saw the Hero catch on house steps in Oakvale. Cause: walk cells were 0.5 units, wider than a stair tread, so a cell could skip a tread and sit two risers (about 0.65) above its neighbour, over the 0.6 step limit. Walk cells are now 0.25 units, and each cell samples surfaces at its centre and four nearby points (a ray at the centre alone slipped through a seam in one step's mesh, leaving a cell at ground height). Walking straight up and down the Hero's house steps on three lines: the old grid stopped partway on three of six walks, the new one on none. Oakvale still loads in about 2 s.
+- New diagnostic `--ledges`: prints walk-grid ledges (neighbouring walkable cells more than a step apart), and with `--camera` the cell heights and surfaces around that point. The remaining small ledges in Oakvale are straight platform edges at one height (an upper floor at 3486, 829; a dock at 3600, 816), left as they are.
+- README restructured: status as a list, the crates, and the viewer's keys and options as tables.
+
 ## 2026-10-12 (later): the end of the Prologue
 
 - `engine-script`: `prologue::Aftermath` for the after-the-raid state: reaching the dying father plays his moan and the rescue cutscene's lines (a bandit, then Maze), then a new `Beat::Travel` takes the Hero to the Heroes' Guild (`HeroGuildComplexInside`, `Q_GuildTraining`), arriving facing the Guildmaster and Maze. The birthday ending now includes the raid cutscene's lines (`CS_048_OIF`). A quest can pose people (`Quest::mood`: an animation table modifier).
