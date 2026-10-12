@@ -329,6 +329,8 @@ pub struct CreaturePlacement {
     /// `NOVI_AffairWife`), which its quest moves, so it does not wander. Generic
     /// background roles (`NOVI_Villager`) do not count.
     pub scripted: bool,
+    /// Its `ScriptName` (its role), if any.
+    pub script_name: Option<String>,
     pub placement: Placement,
 }
 
@@ -551,6 +553,7 @@ fn load_placements(
                 idles: IdleAnimations::default(),
                 morphs: Vec::new(),
                 scripted: t.script_name().is_some_and(|n| !n.ends_with("_Villager")),
+                script_name: t.script_name().map(str::to_owned),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,

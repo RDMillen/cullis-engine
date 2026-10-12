@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-12: talking to people
+
+- Viewer: **E** near a Prologue character starts a conversation, shown as a subtitle (speaker and line; E for the next line, walking away ends it). E still uses doors when no one is in reach. `--talk N` prints what the nearest character says N times (screenshot mode) or starts a conversation once `--walk-to` arrives (window).
+- What each role (`ScriptName`) says is a table in `apps/viewer/src/talk.rs`, written from how the Prologue plays: the father's birthday speech (`TEXT_QST_048_DAD_THERESA_BIRTHDAY_INTRO`, four lines), Theresa's introduction, the bully, the victim, the teddy girl, the barrel man and thug, the trader, the affair trio, guards and villagers (`TEXT_AI_OPINION_ACT_GREET_TO_HERO_ASBOY`). Talking again gives a short follow-up where the text has one. All 13 roles placed in `StartOakVale`'s Prologue state are covered; an ignored real-data test checks every line exists.
+- Learned: generic lines are spoken by voice sets (speaker codes such as `LEV1BDT1`, `CM1`), so they name no character; the viewer names those speakers by role ("Villager"). A group of alternatives mixes voices, so a villager may answer in a voice that doesn't match them.
+- Not yet: voice audio (`.lut`), choices (`[Unspoken]`/`[NONE]` question lines such as "Give the chocolates to your sister?"), and the quest state that changes what people say.
+- Next: the first Prologue quest (good deeds for the father's gold, the trader's chocolates, Theresa), which needs quest state, gold and a choice prompt.
+
 ## 2026-10-10 (later): textured terrain
 
 - Grid point bytes 10–14 are two theme slots and their weights (plus a third slot); themes are `ENGINE_THEME` definitions naming a base (flat) and a cliff texture (`Def::theme_textures`). Every grid point uses a listed slot; 343 of 344 themes have textures.

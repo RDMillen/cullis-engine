@@ -13,6 +13,7 @@ mod model;
 mod npc;
 mod render;
 mod skin;
+mod talk;
 mod terrain;
 mod themes;
 mod walk;
@@ -62,6 +63,9 @@ struct Args {
     npc_time: f32,
     /// After walking (`--walk-to`), use the nearest door, then walk again.
     use_door: bool,
+    /// After walking, talk to the nearest creature this many times, printing
+    /// what it says.
+    talk: u32,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -79,6 +83,7 @@ fn parse_args() -> Result<Args, Error> {
         anim_time: 0.0,
         npc_time: 0.0,
         use_door: false,
+        talk: 0,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -98,6 +103,7 @@ fn parse_args() -> Result<Args, Error> {
             "--anim-time" => args.anim_time = value()?.parse()?,
             "--npc-time" => args.npc_time = value()?.parse()?,
             "--use" => args.use_door = true,
+            "--talk" => args.talk = value()?.parse()?,
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -376,6 +382,26 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 *transform = hero_transform(&hero);
             }
         }
+        if args.talk > 0 {
+            let text = fable_data::strings::TextBank::open(data_dir, "English")?;
+            let mut talks = 0;
+            for _ in 0..args.talk {
+                match talk_to(
+                    &mut renderer.npcs,
+                    hero.position.truncate(),
+                    &text,
+                    &mut talks,
+                ) {
+                    Some(c) => {
+                        let who = renderer.npcs[c.with].script_name.as_deref().unwrap_or("?");
+                        for line in &c.lines {
+                            eprintln!("{who}: {}: {}", line.speaker, line.text);
+                        }
+                    }
+                    None => eprintln!("nobody to talk to"),
+                }
+            }
+        }
         pending_exit = exit_at(renderer, &hero);
         if pending_exit.is_none() {
             pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
@@ -457,6 +483,39 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
 
 /// How wide a person is, for keeping the Hero and creatures apart.
 const PERSON_RADIUS: f32 = 0.35;
+
+/// Talks to the nearest creature within reach of `at` that has something to say,
+/// starting a conversation. `talks` counts conversations, to vary the lines.
+fn talk_to(
+    npcs: &mut [npc::Npc],
+    at: glam::Vec2,
+    text: &fable_data::strings::TextBank,
+    talks: &mut u64,
+) -> Option<talk::Conversation> {
+    let (i, role) = npcs
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (i, n, n.position().distance(at)))
+        .filter(|&(_, _, d)| d < door::REACH)
+        .filter_map(|(i, n, d)| talk::role_of(n.script_name.as_deref()).map(|r| (i, r, d)))
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(i, r, _)| (i, r))?;
+    let (entry, mode) = talk::entry(role, npcs[i].talked);
+    npcs[i].talked = true;
+    *talks += 1;
+    let roll = talks.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 20;
+    let mut lines = talk::lines(text, entry, mode, roll);
+    // Lines in a voice set rather than a character's name say who by role.
+    let name = talk::role_name(npcs[i].script_name.as_deref().unwrap_or_default());
+    for line in lines.iter_mut().filter(|l| l.speaker.is_empty()) {
+        line.speaker.clone_from(&name);
+    }
+    (!lines.is_empty()).then_some(talk::Conversation {
+        with: i,
+        lines,
+        at: 0,
+    })
+}
 
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
 fn blocked_for_hero(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
@@ -761,6 +820,7 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     }
                     app.want_walk = args.walk;
                     app.auto_walk = args.walk_to.map(glam::Vec2::from_array);
+                    app.auto_talk = args.talk > 0;
                     app
                 })
                 .map_err(|e| e.to_string())?,
@@ -825,11 +885,16 @@ struct ViewerApp {
     reload_sections: Option<Vec<String>>,
     /// A scene being loaded in the background, shown as a loading screen.
     loading: Option<Loading>,
+    /// The conversation in progress, and a counter for picking lines.
+    conversation: Option<talk::Conversation>,
+    talks: u64,
     /// Seconds the Hero has stood still, and fidgets played (picks the next).
     hero_standing: f32,
     hero_fidgets: usize,
     /// A point the Hero walks himself towards (`--walk-to`), until he is there.
     auto_walk: Option<glam::Vec2>,
+    /// Talk to whoever is near once `auto_walk` arrives (`--talk`).
+    auto_talk: bool,
     data_dir: PathBuf,
     wld: Wld,
     mesh_names: Vec<String>,
@@ -905,9 +970,12 @@ impl ViewerApp {
             gtg,
             pending_exit: None,
             loading: None,
+            conversation: None,
+            talks: 0,
             sections,
             reload_sections: None,
             auto_walk: None,
+            auto_talk: false,
             hero_standing: 0.0,
             hero_fidgets: 0,
             exits_armed: false,
@@ -1211,6 +1279,16 @@ impl ViewerApp {
             let to = goal - hero.position.truncate();
             if to.length() < 0.3 {
                 self.auto_walk = None;
+                if std::mem::take(&mut self.auto_talk)
+                    && let Some(text) = &self.text
+                {
+                    self.conversation = talk_to(
+                        &mut renderer.npcs,
+                        hero.position.truncate(),
+                        text,
+                        &mut self.talks,
+                    );
+                }
             } else if direction == glam::Vec2::ZERO {
                 direction = to;
             }
@@ -1230,10 +1308,33 @@ impl ViewerApp {
             walk::WALK_SPEED
         });
         let before = hero.position;
-        if ui.input(|i| i.key_pressed(egui::Key::E))
-            && let Some(d) = door::nearest(&renderer.doors, hero.position)
+        // E: go on with a conversation, else talk to someone near, else use a door.
+        if ui.input(|i| i.key_pressed(egui::Key::E)) {
+            if let Some(c) = &mut self.conversation {
+                if !c.advance() {
+                    self.conversation = None;
+                }
+            } else if let Some(text) = &self.text
+                && let Some(c) = talk_to(
+                    &mut renderer.npcs,
+                    hero.position.truncate(),
+                    text,
+                    &mut self.talks,
+                )
+            {
+                self.conversation = Some(c);
+            } else if let Some(d) = door::nearest(&renderer.doors, hero.position) {
+                renderer.doors[d].toggle();
+            }
+        }
+        // Walking away ends a conversation.
+        if let Some(c) = &self.conversation
+            && renderer
+                .npcs
+                .get(c.with)
+                .is_none_or(|n| n.position().distance(hero.position.truncate()) > 4.0)
         {
-            renderer.doors[d].toggle();
+            self.conversation = None;
         }
         let (doors, npcs) = (&renderer.doors, &renderer.npcs);
         hero.step_blocked(direction, speed, dt, walk, heights, |p| {
@@ -1473,6 +1574,29 @@ impl eframe::App for ViewerApp {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
+                // The conversation, as a subtitle at the bottom of the view.
+                if let Some(line) = self
+                    .conversation
+                    .as_ref()
+                    .and_then(talk::Conversation::line)
+                {
+                    let width = (rect.width() * 0.7).min(720.0);
+                    egui::Area::new(egui::Id::new("subtitle"))
+                        .fixed_pos(egui::pos2(
+                            rect.center().x - width / 2.0,
+                            rect.bottom() - 130.0,
+                        ))
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                ui.set_width(width);
+                                if !line.speaker.is_empty() {
+                                    ui.label(egui::RichText::new(&line.speaker).strong());
+                                }
+                                ui.label(egui::RichText::new(&line.text).size(17.0));
+                                ui.label(egui::RichText::new("E to continue").weak().small());
+                            });
+                        });
+                }
             });
         ui.ctx().request_repaint();
     }

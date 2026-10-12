@@ -17,6 +17,10 @@ use glam::Vec2;
 pub struct Npc {
     pub parts: Vec<(ModelRenderer, Animator)>,
     pub transform: Mat4,
+    /// Its `ScriptName` (its role), for what it says.
+    pub script_name: Option<String>,
+    /// Whether the Hero has talked to it.
+    pub talked: bool,
     /// Seconds since the creature last fidgeted, and when it fidgets next.
     since_fidget: f32,
     next_fidget: f32,
@@ -312,6 +316,8 @@ pub fn load(
                 None => c.placement.transform(),
             };
             npcs.push(Npc {
+                script_name: c.script_name.clone(),
+                talked: false,
                 since_fidget: 0.0,
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,
