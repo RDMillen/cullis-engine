@@ -11,9 +11,9 @@ Early, but the Prologue can be played through in the desktop viewer:
 - any region renders from the original data: textured terrain, sea, buildings and objects, doors, and creatures with their idle animations
 - the young Hero walks and runs through Oakvale with collision, a following camera, walkable building floors and bridge decks, doors to open, and region exits to the next region
 - the Prologue's quests: Theresa's birthday (good and bad deeds, gold, the Trader's sweets), the bandit raid's aftermath, and Maze taking the boy to the Heroes' Guild
-- conversations from the game's own text, shown as subtitles with yes/no questions
+- conversations from the game's own text, spoken in the original voices and shown as subtitles with yes/no questions
 
-Not yet: combat beyond a kick, voices and sound, cutscenes, lighting and particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+Not yet: combat beyond a kick, music and sound effects, The Lost Chapters' voices, cutscenes, lighting and particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 
 ## Crates
 
@@ -24,7 +24,8 @@ Not yet: combat beyond a kick, voices and sound, cutscenes, lighting and particl
   - textures (DXT1/3/5 and uncompressed), exportable to PNG
   - static and skinned meshes, skeletons, bone configs and animations
   - Tng thing placement and compiled game definitions
-  - the text bank (`lang/<language>/text.big`)
+  - the text bank (`lang/<language>/text.big`) and the voice banks (`*.lut`, Xbox ADPCM), with which line is which sound
+- `engine-audio` mixes sounds for an output device; no platform dependency.
 - `engine-script` holds the quest API and the quests, written by hand from how the game plays (the data has no quest logic). No rendering dependency.
 - `apps/viewer` is the desktop viewer (egui and wgpu), where everything is tried out.
 

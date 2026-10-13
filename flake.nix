@@ -27,6 +27,7 @@
           mesa # lavapipe software Vulkan for the VM
           ffmpeg # cinematic conversion in fable-convert
           python3
+          alsa-lib # cpal (sound output)
         ] ++ runtimeLibs;
 
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;

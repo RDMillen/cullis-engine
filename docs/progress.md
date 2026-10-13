@@ -2,6 +2,16 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-13: voices
+
+- `fable_data::lut` reads the voice banks (`lang/English/*.lut`: chunks, lookup table, 36-byte sound headers, RIFF WAVE files) and `fable_data::adpcm` decodes their Xbox ADPCM (64 samples per 36-byte block: the header sample and 63 codes). Checked sample for sample against ffmpeg's `adpcm_ima_xbox`; decoded lengths match the lipsync durations in `dialogue.big`. Format page: `docs/formats/lut.md`.
+- Which line is which sound is not in the data. Measured instead: within a bank, sounds follow the spoken lines in case-insensitive name order, with gaps where lines were added or cut. `fable_data::voices` aligns the two lists by how well each line's length fits a sound's duration (banded dynamic programming). 17,403 lines voiced (Dialogue and ScriptDialogue); about 87% fit their sound against about 52% for a deliberately wrong pairing. `ScriptDialogue2` (The Lost Chapters) follows neither name nor id order and is left unvoiced.
+- Ruled out on the way: the text entry's index info (it is the speaker's number), the lipsync headers (they only number sounds), the sound headers (identical apart from the id), text id order.
+- New crate `engine-audio`: a mixer with no platform dependency (one voice at a time, linear resampling, no allocation while mixing). The viewer plays it through cpal, preferring PulseAudio (ALSA's PulseAudio plugin underran), and speaks each line as its subtitle appears, keeping remarks up while they are said.
+- Checked: the father's first line, recorded from the sound card's monitor, matches the decoded sound (correlation 0.87, against 0.10 for another sound). Key presses sent with xdotool no longer reach the window on this display (mouse events do), so later lines were not checked in the window; the queue's voicing is unit-tested.
+- New examples: `big_entry`, `voice_banks`, `voice_map`, `voice_align`, `voice_wav`.
+- Next: Ross to listen (are the right lines spoken by the right voices?); ScriptDialogue2's order; ambient sound banks (`Sound/*.lug`, `*.met`) and music (`Sound/*.ogg`).
+
 ## 2026-10-12 (later): voices, first look (unfinished)
 
 - `lang/English/*.lut` (Dialogue, Dialogue2, ScriptDialogue, ScriptDialogue2) are chunked audio banks. Each chunk is a 32-byte zero-padded name then a u32 size:

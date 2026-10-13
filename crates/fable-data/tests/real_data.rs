@@ -959,3 +959,105 @@ fn every_navigation_section_parses_exactly() {
     eprintln!("{sections} navigation sections, {layers} layers, {leaves} leaves");
     assert!(sections > 0);
 }
+
+#[test]
+#[ignore]
+fn voice_banks_decode_to_their_lipsync_lengths() {
+    use fable_data::lut::SoundBank;
+    let lang = data_dir().join("lang/English");
+    let slots = fable_data::voices::lipsync_slots(&lang.join("dialogue.big")).unwrap();
+    for name in ["Dialogue", "Dialogue2", "ScriptDialogue", "ScriptDialogue2"] {
+        let mut file = BufReader::new(File::open(lang.join(format!("{name}.lut"))).unwrap());
+        let bank = SoundBank::read(&mut file).unwrap();
+        assert!(!bank.sounds.is_empty(), "{name}");
+        assert!(
+            bank.sounds.windows(2).all(|w| w[0].id < w[1].id),
+            "{name}: ids in order"
+        );
+        // Every sound has a lipsync entry with a length, and sounds spread
+        // across the bank decode to that length.
+        let lengths: std::collections::HashMap<u32, f64> = slots[name]
+            .iter()
+            .filter_map(|&(id, d)| Some((id, d?)))
+            .collect();
+        let step = (bank.sounds.len() / 40).max(1);
+        for entry in bank.sounds.iter().step_by(step) {
+            let sound = bank.read_sound(&mut file, *entry).unwrap();
+            assert_eq!(sound.id, entry.id);
+            assert_eq!(
+                u32::from(sound.header_sample_rate()),
+                sound.wave.sample_rate
+            );
+            let pcm = sound.wave.decode().unwrap();
+            let seconds = pcm.len() as f64
+                / f64::from(sound.wave.sample_rate)
+                / f64::from(sound.wave.channels);
+            let expected = lengths[&entry.id];
+            assert!(
+                (seconds - expected).abs() < 0.05,
+                "{name} sound {}: {seconds:.3} s decoded, lipsync says {expected:.3} s",
+                entry.id
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn spoken_lines_find_sounds_that_fit_them() {
+    use fable_data::strings::TextBank;
+    use fable_data::voices::{BANKS, VoiceIndex, spoken};
+    let dir = data_dir();
+    let text = TextBank::open(&dir, "English").unwrap();
+    let slots = fable_data::voices::lipsync_slots(&dir.join("lang/English/dialogue.big")).unwrap();
+    let voices = VoiceIndex::from_parts(&text, &slots);
+    let mut lines = 0;
+    let (mut voiced, mut fitting) = (0, 0);
+    for name in text.names() {
+        let id = text.id(name).unwrap();
+        let Some(e) = text.strings.get(&id) else {
+            continue;
+        };
+        let Some(bank) = e.sound_bank.strip_suffix(".lug") else {
+            continue;
+        };
+        if !spoken(&e.speaker) || !BANKS.contains(&bank) {
+            continue;
+        }
+        lines += 1;
+        let Some(v) = voices.get(id) else { continue };
+        assert_eq!(v.bank, bank);
+        voiced += 1;
+        let d = slots[bank]
+            .iter()
+            .find(|s| s.0 == v.sound)
+            .and_then(|s| s.1)
+            .unwrap();
+        let expected = 0.4 + e.text.chars().count() as f64 / 14.0;
+        if ((d + 0.5) / (expected + 0.5)).ln().abs() < 0.4 {
+            fitting += 1;
+        }
+    }
+    assert!(
+        voiced * 100 > lines * 95,
+        "{voiced} of {lines} lines voiced"
+    );
+    assert!(
+        fitting * 100 > voiced * 80,
+        "{fitting} of {voiced} fit their sound"
+    );
+    // Two lines whose order decides between byte and case-insensitive sorting:
+    // the father's short line gets the shorter sound.
+    let sound = |n: &str| voices.get(text.id(n).unwrap()).unwrap().sound;
+    let length = |id: u32| {
+        slots["ScriptDialogue"]
+            .iter()
+            .find(|s| s.0 == id)
+            .and_then(|s| s.1)
+            .unwrap()
+    };
+    assert!(
+        length(sound("TEXT_QST_048_DAD_DO_MORE"))
+            < length(sound("TEXT_QST_048_DAD_DONE_NOTHING_YET"))
+    );
+}

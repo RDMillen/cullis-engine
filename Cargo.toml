@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/fable-data", "crates/engine-script", "apps/viewer"]
+members = ["crates/fable-data", "crates/engine-audio", "crates/engine-script", "apps/viewer"]
 
 [workspace.package]
 edition = "2024"

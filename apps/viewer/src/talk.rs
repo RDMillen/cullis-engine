@@ -16,6 +16,8 @@ const NOTICE_SECONDS: f32 = 6.0;
 pub struct Line {
     pub speaker: String,
     pub text: String,
+    /// The text entry's id (for its voice).
+    pub id: u32,
 }
 
 /// A speaker code (`BAD_MAN`, `THUG KID`) as a name: "Thug Kid". The Hero's
@@ -76,10 +78,11 @@ pub fn lines(text: &TextBank, entry: &str, mode: Mode, roll: u64) -> Vec<Line> {
         (None, _) => vec![id],
     };
     ids.iter()
-        .filter_map(|i| text.strings.get(i))
-        .map(|e| Line {
+        .filter_map(|&i| Some((i, text.strings.get(&i)?)))
+        .map(|(id, e)| Line {
             speaker: speaker_name(&e.speaker),
             text: e.text.clone(),
+            id,
         })
         .collect()
 }
@@ -139,9 +142,32 @@ pub struct Subtitles {
     /// Notices (text, good or bad deed) and how long the first has been up.
     notices: VecDeque<(String, Option<bool>)>,
     notice_shown: f32,
+    /// Whether the line on screen has been handed out to be voiced, and the
+    /// least time to show it (its voice's length).
+    voiced: bool,
+    hold: f32,
 }
 
 impl Subtitles {
+    /// Takes the first item down.
+    fn pop(&mut self) {
+        self.items.pop_front();
+        self.shown = 0.0;
+        self.voiced = false;
+        self.hold = 0.0;
+    }
+
+    /// The text id of a line newly on screen, once, so its voice can start.
+    pub fn next_to_voice(&mut self) -> Option<u32> {
+        let id = self.line()?.0.id;
+        (!std::mem::replace(&mut self.voiced, true)).then_some(id)
+    }
+
+    /// Keeps the line on screen for at least `seconds` (while it is spoken).
+    pub fn hold_for(&mut self, seconds: f32) {
+        self.hold = seconds;
+    }
+
     pub fn push(&mut self, item: Item) {
         self.items.push_back(item);
     }
@@ -177,8 +203,7 @@ impl Subtitles {
     /// E: moves past the line on screen. False if there is none.
     pub fn advance(&mut self) -> bool {
         if self.line().is_some() {
-            self.items.pop_front();
-            self.shown = 0.0;
+            self.pop();
             true
         } else {
             false
@@ -188,8 +213,7 @@ impl Subtitles {
     /// Takes the question on screen down, once answered.
     pub fn answered(&mut self) {
         if self.asking().is_some() {
-            self.items.pop_front();
-            self.shown = 0.0;
+            self.pop();
         }
     }
 
@@ -199,6 +223,8 @@ impl Subtitles {
         self.items
             .retain(|i| !matches!(i, Item::Line { wait: true, .. } | Item::Ask { .. }));
         self.shown = 0.0;
+        self.voiced = false;
+        self.hold = 0.0;
     }
 
     /// Advances time: retires remarks whose time is up and notices, and hands
@@ -209,22 +235,23 @@ impl Subtitles {
             match self.items.front() {
                 Some(Item::Effect(beat)) => {
                     effects.push(*beat);
-                    self.items.pop_front();
+                    self.pop();
                 }
                 Some(Item::Notice(text)) => {
-                    self.notices.push_back(notice_text(text));
-                    self.items.pop_front();
+                    let notice = notice_text(text);
+                    self.notices.push_back(notice);
+                    self.pop();
                 }
                 Some(Item::Line {
                     line, wait: false, ..
                 }) => {
+                    let needed = read_time(&line.text).max(self.hold);
                     self.shown += left;
                     left = 0.0;
-                    if self.shown < read_time(&line.text) {
+                    if self.shown < needed {
                         break;
                     }
-                    self.items.pop_front();
-                    self.shown = 0.0;
+                    self.pop();
                 }
                 _ => break,
             }
@@ -335,6 +362,7 @@ mod tests {
             line: Line {
                 speaker: "Father".into(),
                 text: text.into(),
+                id: 7,
             },
             by: Some(0),
             wait,
@@ -377,5 +405,19 @@ mod tests {
         assert_eq!(effects, [Beat::Return("NOVI_BarrelMan")]);
         assert!(s.asking().is_none() && s.line().is_none());
         assert_eq!(s.notices.front(), Some(&("Done.".to_owned(), Some(true))));
+    }
+
+    #[test]
+    fn a_line_is_voiced_once_and_held_while_spoken() {
+        let mut s = Subtitles::default();
+        let mut effects = Vec::new();
+        s.push(line("remark", false));
+        assert_eq!(s.next_to_voice(), Some(7));
+        assert_eq!(s.next_to_voice(), None, "once");
+        s.hold_for(10.0);
+        s.step(5.0, &mut effects);
+        assert!(s.line().is_some(), "held while its voice plays");
+        s.step(6.0, &mut effects);
+        assert!(s.line().is_none());
     }
 }

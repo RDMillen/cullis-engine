@@ -2,6 +2,7 @@
 //!
 //! Written clean-room from file observation. Each format has a page in `docs/formats/`.
 
+pub mod adpcm;
 pub mod anim;
 pub mod bank;
 pub mod bbbb;
@@ -12,6 +13,7 @@ pub mod dxt;
 mod error;
 pub mod gtg;
 pub mod lev;
+pub mod lut;
 pub mod lzo;
 pub mod mesh;
 pub mod nav;
@@ -21,6 +23,7 @@ pub mod strings;
 mod text;
 pub mod texture;
 pub mod tng;
+pub mod voices;
 pub mod wld;
 
 pub use error::{Error, Result};

@@ -6,6 +6,7 @@
 //! FABLE_DIR=... viewer [--region NAME | --mesh NAME] [--nav] [--screenshot OUT.png] [--size WxH] [--camera x,y,z,distance,yaw,pitch]
 //! ```
 
+mod audio;
 mod camera;
 mod collide;
 mod door;
@@ -980,6 +981,9 @@ struct ViewerApp {
     /// The quest being played, if this region has one, and what is on screen.
     story: Option<story::Story>,
     subs: talk::Subtitles,
+    /// Sound output and the voices of lines, if they could be opened.
+    audio: Option<audio::Audio>,
+    voices: Option<audio::Voices>,
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
     /// The Hero is kicking (he stands still until the kick ends).
@@ -1055,6 +1059,17 @@ impl ViewerApp {
         let text = fable_data::strings::TextBank::open(&data_dir, "English")
             .map_err(|e| eprintln!("text: {e}"))
             .ok();
+        let audio = audio::Audio::start()
+            .map_err(|e| eprintln!("audio: {e}"))
+            .ok();
+        let voices = text.as_ref().and_then(|t| {
+            audio::Voices::open(&data_dir, t)
+                .map_err(|e| eprintln!("voices: {e}"))
+                .ok()
+        });
+        if let Some(v) = &voices {
+            eprintln!("voices: {} lines voiced", v.len());
+        }
         let text_names = text
             .as_ref()
             .map(|t| t.names().into_iter().map(str::to_owned).collect())
@@ -1077,6 +1092,8 @@ impl ViewerApp {
             loading: None,
             story,
             subs: talk::Subtitles::default(),
+            audio,
+            voices,
             clicked_answer: None,
             kicking: false,
             sections,
@@ -1547,6 +1564,25 @@ impl ViewerApp {
         }
     }
 
+    /// Speaks a line newly on screen (holding it there while it is said), and
+    /// stops speaking when no line is.
+    fn speak(&mut self) {
+        let Some(audio) = &self.audio else {
+            return;
+        };
+        if let Some(id) = self.subs.next_to_voice() {
+            match self.voices.as_mut().and_then(|v| v.sound(id)) {
+                Some(sound) => {
+                    self.subs.hold_for(sound.seconds() + 0.3);
+                    audio.say(sound);
+                }
+                None => audio.hush(),
+            }
+        } else if self.subs.line().is_none() {
+            audio.hush();
+        }
+    }
+
     /// Applies a quest beat the subtitles reached: someone leaving or coming back,
     /// or the quest ending (the region reloads in the next quest state, the Hero
     /// where he stands).
@@ -1754,6 +1790,7 @@ impl eframe::App for ViewerApp {
                 let mut effects = Vec::new();
                 self.subs
                     .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
+                self.speak();
                 for effect in effects {
                     self.apply(&rs, effect);
                 }
