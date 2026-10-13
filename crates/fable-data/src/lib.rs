@@ -4,6 +4,7 @@
 
 pub mod adpcm;
 pub mod anim;
+pub mod atmos;
 pub mod bank;
 pub mod bbbb;
 pub mod big;
@@ -13,6 +14,7 @@ pub mod dxt;
 mod error;
 pub mod gtg;
 pub mod lev;
+pub mod lug;
 pub mod lut;
 pub mod lzo;
 pub mod mesh;

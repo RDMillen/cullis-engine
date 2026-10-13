@@ -2,6 +2,17 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-13 (later): music and ambience
+
+- `Defs/atmos_types.h` (a C header shipped with the game) numbers the music sets and atmospheres; `fable_data::atmos` reads it. Region definitions hold their music set after field hash `0xcab1fa53` (found by matching regions to their music: 34 of 47); sound themes their atmosphere after `0xe001b756`. Oakvale: `MUSIC_SET_OAKVALE` → `Sound/OAKVALE.OGG`.
+- The Lev sound map's block value counts from 1 into the map's sound theme names: Oakvale's village is `SOUND_THEME_COUNTRY`, its north edge `SOUND_THEME_SHORE` and `SOUND_THEME_OCEAN`, the memorial garden's stream `SOUND_THEME_RIVER`.
+- `fable_data::lug` reads the ambient banks: `.met` lists the sounds (each a complete WAVE file in the `.lug`, Xbox ADPCM, matching ffmpeg) and playback records (sound, day or night group, looping bed or one-shot, volume, a frequency weight). All 50 banks parse and every sound decodes (real-data test). First tries got this wrong twice: the `.lug` sounds are WAVE files, not raw ADPCM, and playback records are not one per sound and carry names.
+- `engine-audio`: music and ambience channels (any number at once), per-sound volume, pan and looping, fades, and Ogg Vorbis decoding (`lewton`, pure Rust). The viewer loops the region's music (crossfading over 2 s) and plays the ambience of the block under the Hero: its beds, and day spot sounds now and then, picked by weight and panned at random (a stand-in; what the unknown fields mean is not known). Changes of ambience fade over 1.5 s once wanted for 0.75 s.
+- Checked: walking from the father to Theresa, the ambience goes country → shore → country → shore → ocean; the output (recorded from the sound card's monitor) never clips; levels follow the music and the ambience.
+- Also found: `Defs/*dialoguesnds*.bin` map 32-bit keys to voice sound ids, but no hash of names, text or ids tried matches the keys (see `lut.md`); the voice alignment stays.
+- Not yet: night sounds, positioned sounds (fountains, the windmill), danger music, the raid's ambience (`SOUND_THEME_OAKVALE_RAID` is in the theme list but no block uses it).
+- Next: Ross to listen and judge the mix; then the Guild training or the raid's look.
+
 ## 2026-10-13: voices
 
 - `fable_data::lut` reads the voice banks (`lang/English/*.lut`: chunks, lookup table, 36-byte sound headers, RIFF WAVE files) and `fable_data::adpcm` decodes their Xbox ADPCM (64 samples per 36-byte block: the header sample and 63 codes). Checked sample for sample against ffmpeg's `adpcm_ima_xbox`; decoded lengths match the lipsync durations in `dialogue.big`. Format page: `docs/formats/lut.md`.

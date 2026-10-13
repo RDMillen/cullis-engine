@@ -101,6 +101,8 @@ pub struct TerrainRenderer {
     pub hero_animator: Option<crate::skin::Animator>,
     /// The Hero's kick among his clips, if it loaded.
     pub hero_kick: Option<usize>,
+    /// The region's music and ambience.
+    pub soundscape: crate::soundscape::Soundscape,
     /// The region's quest-state sections (for choosing which are shown).
     pub sections: Vec<String>,
     /// Region exits in the region's own maps.
@@ -406,6 +408,7 @@ impl TerrainRenderer {
             hero: None,
             hero_animator: None,
             hero_kick: None,
+            soundscape: Default::default(),
             hero_animations: Default::default(),
             hero_morphs: Vec::new(),
             npcs: Vec::new(),

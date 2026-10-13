@@ -33,6 +33,35 @@ pub const SEA_LEVEL: f32 = 3.0;
 /// then such regions get a plane at [`SEA_LEVEL`] if their ground dips below it.
 const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
 
+/// One map's sound map: per 4x4-unit block, row by row from the map's origin,
+/// the sound theme it plays (`SOUND_THEME_COUNTRY`). A block's value counts
+/// from 1 into the map's list of sound themes.
+#[derive(Debug, Clone)]
+pub struct SoundArea {
+    pub origin: Vec2,
+    /// Blocks per row.
+    pub columns: usize,
+    pub themes: Vec<Option<String>>,
+}
+
+/// Side of a sound map block in world units.
+pub const SOUND_BLOCK: f32 = 4.0;
+
+impl SoundArea {
+    /// The theme of the block at world point `p`, if `p` is on this map.
+    pub fn theme_at(&self, p: Vec2) -> Option<&str> {
+        let local = (p - self.origin) / SOUND_BLOCK;
+        if local.x < 0.0 || local.y < 0.0 || self.columns == 0 {
+            return None;
+        }
+        let (x, y) = (local.x as usize, local.y as usize);
+        if x >= self.columns {
+            return None;
+        }
+        self.themes.get(y * self.columns + x)?.as_deref()
+    }
+}
+
 /// World units: x and y as in the `.wld`, z is height.
 #[derive(Debug, Default)]
 pub struct TerrainMesh {
@@ -56,6 +85,9 @@ pub struct TerrainMesh {
     pub nav_indices: Vec<u32>,
     /// Navigation leaves: world centre, side and layer (0 = the ground).
     pub nav_cells: Vec<(Vec2, f32, usize)>,
+    /// The sound map of each map the region contains: which sound theme each
+    /// 4x4-unit block plays.
+    pub sound_areas: Vec<SoundArea>,
     /// Where a Hero can walk, one grid per navigation layer, and the ground height,
     /// once the region is loaded. Layers above the ground get their surface heights
     /// later, from the placed meshes.
@@ -461,6 +493,21 @@ pub fn load_region(
         )?;
         placements.extend(placed);
         if region.contains_maps.contains(level) {
+            let lev = &maps.last().expect("just pushed").0;
+            if let Ok(tail) = lev.parse_tail(&data) {
+                mesh.sound_areas.push(SoundArea {
+                    origin: origin.truncate(),
+                    columns: (lev.width / 4) as usize,
+                    themes: tail
+                        .sound_map
+                        .iter()
+                        .map(|b| {
+                            let i = usize::from(b.value()).checked_sub(1)?;
+                            lev.sound_themes.get(i).cloned()
+                        })
+                        .collect(),
+                });
+            }
             mesh.exits.extend(exits);
             mesh.creatures.extend(creatures);
             mesh.doors.extend(doors);
@@ -700,5 +747,20 @@ mod tests {
         mesh.add_map(&flat_lev(1, 1, |_, _| 0.0), 1.0, 0.0);
         assert_eq!(mesh.maps, 2);
         assert_eq!(*mesh.indices.iter().max().unwrap(), 7);
+    }
+
+    #[test]
+    fn sound_blocks_are_four_units_row_by_row() {
+        let area = SoundArea {
+            origin: Vec2::new(100.0, 200.0),
+            columns: 2,
+            themes: vec![Some("A".into()), Some("B".into()), None, Some("D".into())],
+        };
+        assert_eq!(area.theme_at(Vec2::new(101.0, 201.0)), Some("A"));
+        assert_eq!(area.theme_at(Vec2::new(105.0, 203.9)), Some("B"));
+        assert_eq!(area.theme_at(Vec2::new(103.0, 205.0)), None);
+        assert_eq!(area.theme_at(Vec2::new(107.0, 207.0)), Some("D"));
+        assert_eq!(area.theme_at(Vec2::new(109.0, 201.0)), None, "past the row");
+        assert_eq!(area.theme_at(Vec2::new(99.0, 201.0)), None);
     }
 }

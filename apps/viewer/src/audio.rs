@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use engine_audio::{Channel, Mixer, Sound};
+use engine_audio::{Channel, Mixer, Settings, Sound, SoundId};
 use fable_data::lut::SoundBank;
 use fable_data::strings::TextBank;
 use fable_data::voices::VoiceIndex;
@@ -33,7 +33,10 @@ impl Audio {
             .ok_or("no audio output device")?;
         let config = device.default_output_config().map_err(|e| e.to_string())?;
         let channels = usize::from(config.channels());
-        let mixer = Arc::new(Mutex::new(Mixer::new(config.sample_rate())));
+        let mut m = Mixer::new(config.sample_rate());
+        m.set_channel_volume(Channel::Music, crate::soundscape::MUSIC_VOLUME);
+        m.set_channel_volume(Channel::Ambience, crate::soundscape::AMBIENCE_VOLUME);
+        let mixer = Arc::new(Mutex::new(m));
         let shared = mixer.clone();
         let error = |e: cpal::Error| eprintln!("audio: {e}");
         let stream = match config.sample_format() {
@@ -74,6 +77,18 @@ impl Audio {
             mixer,
             _stream: stream,
         })
+    }
+
+    /// Starts `sound` on `channel`.
+    pub fn play(&self, sound: Sound, channel: Channel, settings: Settings) -> Option<SoundId> {
+        Some(self.mixer.lock().ok()?.play_with(sound, channel, settings))
+    }
+
+    /// Fades a sound out over `seconds`, then stops it.
+    pub fn fade_out(&self, id: SoundId, seconds: f32) {
+        if let Ok(mut m) = self.mixer.lock() {
+            m.fade_out(id, seconds);
+        }
     }
 
     /// Speaks `sound`, cutting off any line still being said.

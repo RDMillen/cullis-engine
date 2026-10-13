@@ -48,7 +48,7 @@ count x { u32-length name, u32 offset }      sections, e.g. NULL, Q_NewOakValeIn
 sections        each runs from its offset to the next section's offset (the last to the end of the file)
 ```
 
-**Sound map records**: `u32` 11, then 7 bytes ending in a value with only a few distinct values per map (9, 21 and 37 in StartOakValeWest; 33 all over the Arena; 3 in the prison cells). Probably an index into the map's sound themes.
+**Sound map records**: `u32` 11, then 7 bytes ending in a value with only a few distinct values per map (9, 21 and 37 in StartOakValeWest; 33 all over the Arena; 3 in the prison cells). The value counts from 1 into the map's sound theme names: in StartOakValeWest 9 is `SOUND_THEME_COUNTRY`, 21 `SOUND_THEME_OCEAN` and 37 `SOUND_THEME_SHORE`, where the village, the sea and the shore are. Blocks run row by row from the map's origin, 4 units each. See `lug.md` for what the themes play.
 
 **Sections**: one per map state. `NULL` is the default; others are named after quest states that change the map (StartOakValeWest has `Q_NewOakValeIntro_PreAttack` and `Q__OakValeIntro_PostAttack` for the Prologue raid; the Arena has `Q_Arena`). Filler and background maps have none: 233 sections over 398 maps. Each section starts:
 

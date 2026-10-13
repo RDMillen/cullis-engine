@@ -1061,3 +1061,70 @@ fn spoken_lines_find_sounds_that_fit_them() {
             < length(sound("TEXT_QST_048_DAD_DONE_NOTHING_YET"))
     );
 }
+
+#[test]
+#[ignore]
+fn ambient_banks_parse_and_their_sounds_decode() {
+    use fable_data::lug::AmbientBank;
+    let sound_dir = data_dir().join("Sound");
+    let mut banks = 0;
+    for entry in std::fs::read_dir(&sound_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if !path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("met"))
+        {
+            continue;
+        }
+        banks += 1;
+        let bank = AmbientBank::parse_met(&std::fs::read(&path).unwrap())
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert!(!bank.sounds.is_empty(), "{}", path.display());
+        let mut lug = BufReader::new(File::open(path.with_extension("lug")).unwrap());
+        for play in &bank.plays {
+            assert!(play.group <= 2, "{}: group {}", path.display(), play.group);
+            assert!(
+                play.volume <= 200,
+                "{}: volume {}",
+                path.display(),
+                play.volume
+            );
+        }
+        for s in &bank.sounds {
+            let samples = bank
+                .read_samples(&mut lug, s)
+                .unwrap_or_else(|e| panic!("{}: {}: {e}", path.display(), s.file_name()));
+            assert!(!samples.is_empty(), "{}", s.file_name());
+        }
+    }
+    assert!(banks > 10, "{banks} banks");
+}
+
+#[test]
+#[ignore]
+fn oakvale_plays_its_music_and_country_ambience() {
+    use fable_data::atmos::{self, Enums};
+    use fable_data::defs::{Defs, Names};
+    let dir = data_dir();
+    let names = Names::parse(&std::fs::read(dir.join("CompiledDefs/names.bin")).unwrap()).unwrap();
+    let defs = Defs::parse(
+        &std::fs::read(dir.join("CompiledDefs/game.bin")).unwrap(),
+        &names,
+    )
+    .unwrap();
+    let enums = Enums::open(&dir).unwrap();
+    let set = atmos::region_music_set(defs.get("REGION_OAK_VALE_INTRO").unwrap()).unwrap();
+    let set = enums.name("EMusicSetType", i64::from(set)).unwrap();
+    assert_eq!(set, "MUSIC_SET_OAKVALE");
+    let music = atmos::music_file(&dir.join("Sound"), set).unwrap();
+    assert!(
+        music
+            .file_name()
+            .unwrap()
+            .eq_ignore_ascii_case("OAKVALE.OGG")
+    );
+    let a = atmos::theme_atmos(defs.get("SOUND_THEME_COUNTRY").unwrap()).unwrap();
+    let a = enums.name("EAtmosType", i64::from(a)).unwrap();
+    assert_eq!(a, "ATMOS_COUNTRY");
+    assert!(atmos::atmos_bank(&dir.join("Sound"), a).is_some());
+}

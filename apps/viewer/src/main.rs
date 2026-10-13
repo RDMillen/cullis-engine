@@ -14,6 +14,7 @@ mod model;
 mod npc;
 mod render;
 mod skin;
+mod soundscape;
 mod story;
 mod talk;
 mod terrain;
@@ -197,6 +198,23 @@ impl Scene {
                     None => None,
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
+                if let Some(r) = wld.region(name) {
+                    renderer.soundscape = soundscape::Soundscape::resolve(
+                        data_dir,
+                        &r.region_def,
+                        &defs,
+                        std::mem::take(&mut mesh.sound_areas),
+                    );
+                    eprintln!(
+                        "sound: music {:?}, ambience {:?}",
+                        renderer
+                            .soundscape
+                            .music
+                            .as_ref()
+                            .and_then(|m| m.file_name()),
+                        renderer.soundscape.bank_names()
+                    );
+                }
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
                 let resolve = |object: &str| {
@@ -984,6 +1002,8 @@ struct ViewerApp {
     /// Sound output and the voices of lines, if they could be opened.
     audio: Option<audio::Audio>,
     voices: Option<audio::Voices>,
+    music: soundscape::Music,
+    ambience: soundscape::Ambience,
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
     /// The Hero is kicking (he stands still until the kick ends).
@@ -1094,6 +1114,8 @@ impl ViewerApp {
             subs: talk::Subtitles::default(),
             audio,
             voices,
+            music: Default::default(),
+            ambience: Default::default(),
             clicked_answer: None,
             kicking: false,
             sections,
@@ -1564,6 +1586,33 @@ impl ViewerApp {
         }
     }
 
+    /// Plays the region's music and the ambience where the Hero (or, when not
+    /// walking, the camera) is.
+    fn play_soundscape(&mut self, dt: f32) {
+        let Some(audio) = &self.audio else {
+            return;
+        };
+        // While a region loads, what plays carries on.
+        if self.loading.is_some() {
+            return;
+        }
+        let (music, bank) = match (&self.scene, false) {
+            (Scene::Terrain(r), false) => {
+                let at = self
+                    .walker
+                    .as_ref()
+                    .map_or(self.camera.target.truncate(), |h| h.position.truncate());
+                (
+                    r.soundscape.music.clone(),
+                    r.soundscape.bank_at(at).cloned(),
+                )
+            }
+            _ => (None, None),
+        };
+        self.music.update(music.as_deref(), audio);
+        self.ambience.update(dt, bank.as_deref(), audio);
+    }
+
     /// Speaks a line newly on screen (holding it there while it is said), and
     /// stops speaking when no line is.
     fn speak(&mut self) {
@@ -1791,6 +1840,7 @@ impl eframe::App for ViewerApp {
                 self.subs
                     .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
                 self.speak();
+                self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));
                 for effect in effects {
                     self.apply(&rs, effect);
                 }

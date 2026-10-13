@@ -41,7 +41,9 @@ A BIG archive with banks `LIPSYNC_ENGLISH_MAIN`, `_MAIN_2`, `_SCRIPT`, `_SCRIPT_
 
 ## Which line is which sound
 
-Nothing in the data links them directly. A text entry (`text.big`) names its voice bank (`ScriptDialogue.lug`) but no sound, and its index info is the speaker's number. What holds, by measurement:
+`Defs/dialoguesnds.bin`, `dialoguesnds2.bin`, `scriptdialoguesnds.bin` and `scriptdialoguesnds2.bin` hold, per bank, a u32 count (the bank's sound count) and that many pairs (u32 key, u32 sound id), sorted by key; every sound id appears once. The keys span all 32 bits, so they look like hashes, but no hash tried matches (CRC-32 variants, FNV-1/1a, djb2 and sdbm of the line names, their text, their ids, upper and lower case, Latin-1 and UTF-16), so the key's input is not known. Perhaps the original recording file names.
+
+So nothing usable in the data links them directly. A text entry (`text.big`) names its voice bank (`ScriptDialogue.lug`) but no sound, and its index info is the speaker's number. What holds, by measurement:
 
 - Within a bank, sounds follow the bank's spoken lines in name order compared without case (so `_` sorts before letters: `TEXT_QST_048_DAD_DO_MORE` before `TEXT_QST_048_DAD_DONE_NOTHING_YET`). Spoken means a speaker other than none, `NONE` or `UNSPOKEN`; the banks also tag menu texts and object descriptions that have no sound.
 - Lines were added and cut after the banks were built, so the two lists drift apart by a few to a few dozen places, both ways.
