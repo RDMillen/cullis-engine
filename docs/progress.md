@@ -8,6 +8,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Framings come from the lines' `CAM:` tags where they have them (18 lines): `(SPEAKER,IN_FRONT_OF_FACE)(SPEAKER,FOCUS_FACE)` (a close-up), `(SPEAKER,BEHIND_RIGHT_SHOULDER_NEAR)(SPEAKEE,FOCUS_FACE)` (over the speaker's shoulder onto the Hero), `(SPEAKEE,IN_FRONT_OF_FACE)(SPEAKEE,FOCUS_FACE)`. Other lines use over the Hero's right shoulder onto the speaker. Distances and face heights (adults 1.6, children 1.05) are set by eye, to compare with the original.
 - Creatures can turn (`Npc::turn_towards`; their heading is kept from placement), which also stops a stroll.
 - Checked in the window: talking to the father frames him over the Hero's shoulder, facing the Hero, mid-gesture, between the bars, with the subtitle in the lower bar.
+- Ross: the Hero should not move during these scenes. Now, while a conversation line or question is on screen, or lines lead up to a quest's end (Theresa's raid lines, Maze's rescue), WASD, the walk to a point and the kick are ignored; E and Y/N still work (`Subtitles::in_scene`). Unit-tested; key presses could not be sent to the window here to try it.
 - Next: the interaction highlight (the last of issue #1's items).
 
 ## 2026-10-16 (later): gestures while talking

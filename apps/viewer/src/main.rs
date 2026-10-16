@@ -1506,7 +1506,13 @@ impl ViewerApp {
         let side = glam::Vec2::new(view.y, -view.x);
         let mut direction = view * forward + side * right;
         // A walk to a point (`--walk-to`) along a route, while no key steers.
+        // In a conversation or a quest's closing scene the Hero stays put.
+        let held = self.subs.in_scene();
+        if held {
+            direction = glam::Vec2::ZERO;
+        }
         if direction == glam::Vec2::ZERO
+            && !held
             && let Some(follow) = &mut self.auto_walk
         {
             let (doors, npcs) = (&renderer.doors, &renderer.npcs);
@@ -1580,6 +1586,7 @@ impl ViewerApp {
         }
         // F: kick whoever is in front.
         if kick_key
+            && !held
             && !self.kicking
             && let (Some(kick), Some(animator)) = (renderer.hero_kick, &mut renderer.hero_animator)
         {

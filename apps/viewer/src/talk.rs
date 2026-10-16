@@ -241,6 +241,17 @@ impl Subtitles {
         }
     }
 
+    /// Whether a scene is playing that the Hero must not walk away from: a
+    /// conversation line or question on screen, or lines leading up to the end
+    /// of a quest (its finish or a journey still queued).
+    pub fn in_scene(&self) -> bool {
+        self.waiting_on().is_some()
+            || self
+                .items
+                .iter()
+                .any(|i| matches!(i, Item::Effect(Beat::Finish(_) | Beat::Travel { .. })))
+    }
+
     /// E: moves past the line on screen. False if there is none.
     pub fn advance(&mut self) -> bool {
         if self.line().is_some() {
@@ -475,5 +486,21 @@ mod tests {
             gesture_of(&tags(&["CONVERSATION_ATTITUDE_SADNESS", "ANIM:ST_POINT"])),
             (Some("ST_POINT"), "CONVERSATION_SAD")
         );
+    }
+
+    #[test]
+    fn conversations_and_quest_endings_hold_the_hero() {
+        let mut s = Subtitles::default();
+        assert!(!s.in_scene());
+        s.push(line("remark", false));
+        assert!(!s.in_scene(), "a passing remark does not");
+        s.push(line("one", true));
+        s.step(100.0, &mut Vec::new());
+        assert!(s.in_scene(), "a conversation line does");
+        s.advance();
+        assert!(!s.in_scene());
+        s.push(line("bandits!", false));
+        s.push(Item::Effect(Beat::Finish(&["AFTER"])));
+        assert!(s.in_scene(), "lines before a quest's end do");
     }
 }
