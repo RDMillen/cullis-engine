@@ -33,7 +33,7 @@ const BED_FADE: f32 = 1.5;
 const AMBIENCE_SETTLE: f32 = 0.75;
 
 /// Mix levels of the channels against the voices (1).
-pub const MUSIC_VOLUME: f32 = 0.35;
+pub const MUSIC_VOLUME: f32 = 0.25;
 pub const AMBIENCE_VOLUME: f32 = 0.5;
 
 /// What plays where in a region.

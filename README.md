@@ -46,6 +46,21 @@ Tests that need the game data are ignored by default. Point `FABLE_DIR` at your 
 FABLE_DIR=/path/to/Fable cargo test --release -- --ignored
 ```
 
+### The game data
+
+`FABLE_DIR` is the **install folder itself**, the one that contains `data` (with `Levels`, `graphics`, `lang`, `Sound` and so on inside), not the `data` folder. Pointed at `data`, every data test fails at once, which looks like an incompatible version but isn't.
+
+The DVD and Steam releases of The Lost Chapters both work: the Steam release (app 204030, Windows depot) has the DVD's layout, and the parsers and every data test pass on it.
+
+To get the Steam release on macOS with SteamCMD:
+
+- If SteamCMD from Homebrew reports `Breakpad.framework` as damaged (so `steamconsole.dylib` fails to load), the cask is quarantined: clear the quarantine attribute on the cask's folder (`xattr -dr com.apple.quarantine <folder>`).
+- Ask for the Windows depot, and set the install folder before logging in: `steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir <folder> +login <user> +app_update 204030 validate +quit`.
+
+### Platforms
+
+Developed on Linux x86-64 (Vulkan). Reported working unchanged on macOS on Apple Silicon (Metal) with the Steam release, all tests passing: thanks to Romane Donnet for testing it ([#1](https://github.com/RDMillen/cullis-engine/issues/1)).
+
 ## The viewer
 
 ```sh
@@ -53,7 +68,7 @@ FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --region StartOakVale
 FABLE_DIR=/path/to/Fable cargo run --release -p viewer -- --mesh MESH_OAKVALE_HOUSE_02
 ```
 
-The side panel switches between regions (with the game's names), meshes, textures and the game's text, each with a search box. In a region, "Show navigation" draws the walkable area, "Walk" puts the young Hero in it, and "Quest state" adds things from other quest states (the raid's aftermath, village events). Regions load in the background behind a loading screen.
+The side panel switches between regions (with the game's names), meshes, textures and the game's text, each with a search box. In a region, "Show navigation" draws the walkable area, "Walk" puts the young Hero in it, "Sound" sets the overall, voice, music and ambience volumes, and "Quest state" adds things from other quest states (the raid's aftermath, village events). Regions load in the background behind a loading screen.
 
 | Key | Action |
 | --- | --- |

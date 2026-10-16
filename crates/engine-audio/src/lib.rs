@@ -108,6 +108,21 @@ struct Playing {
     fade_rate: f32,
 }
 
+/// Level below which the output passes unchanged; above it, peaks are rounded
+/// off towards full scale instead of clipped.
+const KNEE: f32 = 0.75;
+
+/// A soft limiter: unchanged up to [`KNEE`], then a smooth curve (a scaled
+/// `tanh`, with the same slope at the knee) that never quite reaches 1.
+fn limit(x: f32) -> f32 {
+    let a = x.abs();
+    if a <= KNEE {
+        return x;
+    }
+    let room = 1.0 - KNEE;
+    (KNEE + room * ((a - KNEE) / room).tanh()).copysign(x)
+}
+
 /// Mixes playing sounds to an output rate.
 pub struct Mixer {
     output_rate: u32,
@@ -264,8 +279,13 @@ impl Mixer {
             !faded_out && (p.settings.looping || (p.position as usize) < p.sound.frames())
         });
         for s in out.iter_mut() {
-            *s = s.clamp(-1.0, 1.0);
+            *s = limit(*s);
         }
+    }
+
+    /// A channel's volume.
+    pub fn channel_volume(&self, channel: Channel) -> f32 {
+        self.channel_volume[channel.index()]
     }
 }
 
@@ -314,27 +334,24 @@ mod tests {
             looping: true,
             ..Settings::default()
         };
-        let bed = mixer.play_with(
-            Sound::new(vec![16384, 0], 10, 1),
-            Channel::Ambience,
-            looping,
-        );
+        let bed = mixer.play_with(Sound::new(vec![8192, 0], 10, 1), Channel::Ambience, looping);
         let left = Settings {
             pan: -1.0,
             ..Settings::default()
         };
-        let spot = mixer.play_with(Sound::new(vec![8192], 10, 1), Channel::Ambience, left);
+        let spot = mixer.play_with(Sound::new(vec![4096], 10, 1), Channel::Ambience, left);
         assert!(mixer.is_playing(bed) && mixer.is_playing(spot), "both play");
         let mut out = [0.0f32; 8];
         mixer.fill(&mut out, 2);
-        // Frame 0: bed 0.5 on both sides (centred), spot 0.25 * sqrt(2) left only.
+        // Frame 0: bed 0.25 on both sides (centred), spot 0.125 * sqrt(2) left
+        // only (below the limiter's knee).
         assert!(
-            (out[0] - (0.5 + 0.25 * std::f32::consts::SQRT_2)).abs() < 1e-4,
+            (out[0] - (0.25 + 0.125 * std::f32::consts::SQRT_2)).abs() < 1e-4,
             "{out:?}"
         );
-        assert!((out[1] - 0.5).abs() < 1e-4, "{out:?}");
+        assert!((out[1] - 0.25).abs() < 1e-4, "{out:?}");
         // The bed loops: frame 2 is its first sample again.
-        assert!((out[4] - 0.5).abs() < 1e-4, "{out:?}");
+        assert!((out[4] - 0.25).abs() < 1e-4, "{out:?}");
         assert!(mixer.is_playing(bed) && !mixer.is_playing(spot));
         mixer.set_channel_volume(Channel::Ambience, 0.0);
         mixer.fill(&mut out, 2);
@@ -373,5 +390,26 @@ mod tests {
         let a = mixer.play(Sound::new(vec![1; 10], 10, 1), Channel::Music);
         let b = mixer.play(Sound::new(vec![1; 10], 10, 1), Channel::Music);
         assert!(mixer.is_playing(a) && mixer.is_playing(b));
+    }
+
+    #[test]
+    fn loud_mixes_are_rounded_off_not_clipped() {
+        assert_eq!(limit(0.5), 0.5, "quiet passes unchanged");
+        assert_eq!(limit(-0.75), -0.75);
+        let mut last = KNEE;
+        for k in 1..=40 {
+            let x = KNEE + k as f32 * 0.1;
+            let y = limit(x);
+            assert!(y >= last && y <= 1.0, "{x} -> {y}");
+            assert_eq!(limit(-x), -y);
+            last = y;
+        }
+        // Two full-scale sounds together stay below full scale.
+        let mut mixer = Mixer::new(10);
+        mixer.play(Sound::new(vec![32767], 10, 1), Channel::Music);
+        mixer.play(Sound::new(vec![32767], 10, 1), Channel::Ambience);
+        let mut out = [0.0f32; 1];
+        mixer.fill(&mut out, 1);
+        assert!(out[0] > 0.9 && out[0] <= 1.0, "{out:?}");
     }
 }

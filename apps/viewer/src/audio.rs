@@ -84,6 +84,20 @@ impl Audio {
         Some(self.mixer.lock().ok()?.play_with(sound, channel, settings))
     }
 
+    /// Sets the overall volume (0..=1).
+    pub fn set_volume(&self, volume: f32) {
+        if let Ok(mut m) = self.mixer.lock() {
+            m.volume = volume;
+        }
+    }
+
+    /// Sets a channel's volume (0..=1).
+    pub fn set_channel_volume(&self, channel: Channel, volume: f32) {
+        if let Ok(mut m) = self.mixer.lock() {
+            m.set_channel_volume(channel, volume);
+        }
+    }
+
     /// Fades a sound out over `seconds`, then stops it.
     pub fn fade_out(&self, id: SoundId, seconds: f32) {
         if let Ok(mut m) = self.mixer.lock() {

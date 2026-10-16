@@ -2,6 +2,15 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16: feedback from issue #1
+
+- Issue #1 (Romane Donnet): CullisEngine builds unchanged on macOS on Apple Silicon (Metal), and every test passes against the Steam release, so the parsers handle it and an ARM CPU. Their notes taken up:
+  - Volume: the viewer's side panel has a "Sound" section with overall, voice, music and ambience sliders (`Audio::set_volume`, `set_channel_volume`). Music's default is down from 35% to 25%, since it felt loud.
+  - The mixer had a hard clip at full scale; it now has a soft limiter (unchanged up to 0.75, then a scaled `tanh` that never exceeds full scale).
+  - README: `FABLE_DIR` is the install folder, not its `data` folder; the Steam release works; SteamCMD on macOS (quarantine, Windows depot); platforms tested.
+  - Roadmap (PLAN.md, phase 4): the conversation camera with letterbox bars, speakers gesturing while they talk, and the interaction highlight. Checked: the `highlight` and `outline` the report found in the code are tutorial text names and navigation outlines, so there is no highlight yet.
+- Checked in the window: the Sound section's sliders, with the new defaults. Clicks sent with xdotool do not reach the window (pointer movement does), so the sliders were captured with the section opened by default in a test build.
+
 ## 2026-10-13 (later): music and ambience
 
 - `Defs/atmos_types.h` (a C header shipped with the game) numbers the music sets and atmospheres; `fable_data::atmos` reads it. Region definitions hold their music set after field hash `0xcab1fa53` (found by matching regions to their music: 34 of 47); sound themes their atmosphere after `0xe001b756`. Oakvale: `MUSIC_SET_OAKVALE` → `Sound/OAKVALE.OGG`.

@@ -1004,6 +1004,8 @@ struct ViewerApp {
     voices: Option<audio::Voices>,
     music: soundscape::Music,
     ambience: soundscape::Ambience,
+    /// Volumes set in the side panel: overall, voices, music, ambience.
+    volumes: [f32; 4],
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
     /// The Hero is kicking (he stands still until the kick ends).
@@ -1116,6 +1118,12 @@ impl ViewerApp {
             voices,
             music: Default::default(),
             ambience: Default::default(),
+            volumes: [
+                1.0,
+                1.0,
+                soundscape::MUSIC_VOLUME,
+                soundscape::AMBIENCE_VOLUME,
+            ],
             clicked_answer: None,
             kicking: false,
             sections,
@@ -1275,6 +1283,25 @@ impl ViewerApp {
         if let Scene::Terrain(renderer) = &mut self.scene {
             ui.checkbox(&mut renderer.show_nav, "Show navigation");
             ui.checkbox(&mut self.want_walk, "Walk (WASD, Shift runs)");
+            if let Some(audio) = &self.audio {
+                egui::CollapsingHeader::new("Sound").show(ui, |ui| {
+                    let labels = ["Overall", "Voices", "Music", "Ambience"];
+                    for (k, label) in labels.iter().enumerate() {
+                        let slider = egui::Slider::new(&mut self.volumes[k], 0.0..=1.0)
+                            .text(*label)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0));
+                        if ui.add(slider).changed() {
+                            let v = self.volumes[k];
+                            match k {
+                                0 => audio.set_volume(v),
+                                1 => audio.set_channel_volume(engine_audio::Channel::Voice, v),
+                                2 => audio.set_channel_volume(engine_audio::Channel::Music, v),
+                                _ => audio.set_channel_volume(engine_audio::Channel::Ambience, v),
+                            }
+                        }
+                    }
+                });
+            }
             if !renderer.sections.is_empty() {
                 egui::CollapsingHeader::new("Quest state (Tng sections)").show(ui, |ui| {
                     for section in &renderer.sections {
