@@ -1685,6 +1685,40 @@ impl ViewerApp {
         self.ambience.update(dt, bank.as_deref(), audio);
     }
 
+    /// Picks what glows as usable: whoever E would talk to (someone the quest
+    /// has something for, in reach), else the door E would use. Green, gently
+    /// pulsing; nothing during a scene or when not walking. Also tells the
+    /// renderer where the camera is.
+    fn choose_highlight(&mut self, time: f32) {
+        let eye = self.shown_camera().eye();
+        let Scene::Terrain(renderer) = &mut self.scene else {
+            return;
+        };
+        renderer.eye = eye;
+        renderer.highlight = None;
+        let Some(hero) = &self.walker else {
+            return;
+        };
+        if self.subs.in_scene() || self.subs.asking().is_some() {
+            return;
+        }
+        let at = hero.position.truncate();
+        let person = self.story.as_ref().and_then(|story| {
+            story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None).filter(|&i| {
+                renderer.npcs[i]
+                    .script_name
+                    .as_deref()
+                    .is_some_and(|r| story.knows(r))
+            })
+        });
+        let what = match person {
+            Some(i) => Some(render::Highlight::Npc(i)),
+            None => door::nearest(&renderer.doors, hero.position).map(render::Highlight::Door),
+        };
+        let strength = 0.5 + 0.15 * (time * 4.0).sin();
+        renderer.highlight = what.map(|w| (w, [0.3, 1.0, 0.4, strength]));
+    }
+
     /// The camera the view uses: the orbit or follow camera, eased towards the
     /// conversation camera while someone talks to the Hero.
     fn shown_camera(&self) -> OrbitCamera {
@@ -2037,6 +2071,7 @@ impl eframe::App for ViewerApp {
                 self.speak();
                 self.gesture(ui.input(|i| i.stable_dt.min(0.1)));
                 self.frame_conversation(ui.input(|i| i.stable_dt.min(0.1)));
+                self.choose_highlight(ui.input(|i| i.time) as f32);
                 self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));
                 for effect in effects {
                     self.apply(&rs, effect);

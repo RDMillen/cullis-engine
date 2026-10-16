@@ -73,6 +73,13 @@ impl Geometry {
     }
 }
 
+/// Something that can glow as usable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Highlight {
+    Npc(usize),
+    Door(usize),
+}
+
 pub struct TerrainRenderer {
     terrain_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
@@ -103,6 +110,10 @@ pub struct TerrainRenderer {
     pub hero_kick: Option<usize>,
     /// The region's music and ambience.
     pub soundscape: crate::soundscape::Soundscape,
+    /// What glows as usable (a creature or door) and its colour and strength,
+    /// and where the camera is (for the glow's rim).
+    pub highlight: Option<(Highlight, [f32; 4])>,
+    pub eye: Vec3,
     /// The region's quest-state sections (for choosing which are shown).
     pub sections: Vec<String>,
     /// Region exits in the region's own maps.
@@ -409,6 +420,8 @@ impl TerrainRenderer {
             hero_animator: None,
             hero_kick: None,
             soundscape: Default::default(),
+            highlight: None,
+            eye: Vec3::ZERO,
             hero_animations: Default::default(),
             hero_morphs: Vec::new(),
             npcs: Vec::new(),
@@ -456,13 +469,29 @@ impl TerrainRenderer {
         if let Some((hero, transform)) = &self.hero {
             hero.prepare(queue, view_proj * *transform);
         }
-        for npc in self.npcs.iter().filter(|n| !n.hidden) {
+        let glow = |what: Highlight| match self.highlight {
+            Some((h, colour)) if h == what => colour,
+            _ => [0.0; 4],
+        };
+        for (i, npc) in self.npcs.iter().enumerate().filter(|(_, n)| !n.hidden) {
             for (part, _) in &npc.parts {
-                part.prepare(queue, view_proj * npc.transform);
+                part.prepare_placed(
+                    queue,
+                    view_proj,
+                    npc.transform,
+                    self.eye,
+                    glow(Highlight::Npc(i)),
+                );
             }
         }
-        for door in &self.doors {
-            door.renderer.prepare(queue, view_proj * door.transform);
+        for (i, door) in self.doors.iter().enumerate() {
+            door.renderer.prepare_placed(
+                queue,
+                view_proj,
+                door.transform,
+                self.eye,
+                glow(Highlight::Door(i)),
+            );
         }
 
         let mut encoder = device.create_command_encoder(&Default::default());

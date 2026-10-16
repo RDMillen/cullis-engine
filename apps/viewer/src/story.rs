@@ -88,6 +88,15 @@ impl Story {
         })
     }
 
+    /// Whether the quest has something for the person with `role` (so they
+    /// glow when in reach).
+    pub fn knows(&self, role: &str) -> bool {
+        match &self.act {
+            Act::Birthday(_) => prologue::ROLES.contains(&role),
+            Act::Aftermath(_) => role == prologue::DEAD_FATHER,
+        }
+    }
+
     /// After a region loads: hides the people the quest has sent away and
     /// poses those it poses.
     pub fn place(&mut self, npcs: &mut [Npc], data_dir: &std::path::Path) {

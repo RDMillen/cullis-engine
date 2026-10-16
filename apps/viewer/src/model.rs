@@ -631,6 +631,8 @@ impl TextureBank {
 struct Uniforms {
     view_proj: [[f32; 4]; 4],
     sun: [f32; 4],
+    eye: [f32; 4],
+    highlight: [f32; 4],
 }
 
 pub struct ModelRenderer {
@@ -865,10 +867,31 @@ impl ModelRenderer {
 
     /// Writes the uniforms for this frame; call before [`ModelRenderer::draw`].
     pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4) {
+        self.write(queue, view_proj, Vec3::ZERO, [0.0; 4]);
+    }
+
+    /// As [`ModelRenderer::prepare`] for a model placed by `model`, seen from
+    /// `eye` (world space), glowing with `highlight` (rgb, strength; strength 0
+    /// for none).
+    pub fn prepare_placed(
+        &self,
+        queue: &wgpu::Queue,
+        view_proj: Mat4,
+        model: Mat4,
+        eye: Vec3,
+        highlight: [f32; 4],
+    ) {
+        let local_eye = model.inverse().transform_point3(eye);
+        self.write(queue, view_proj * model, local_eye, highlight);
+    }
+
+    fn write(&self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3, highlight: [f32; 4]) {
         let sun = Vec3::new(-0.4, -0.5, 0.75).normalize();
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             sun: sun.extend(0.0).to_array(),
+            eye: eye.extend(1.0).to_array(),
+            highlight,
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }

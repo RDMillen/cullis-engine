@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16 (later): the interaction highlight
+
+- Whoever E would talk to (someone in reach the current quest has something for, `Story::knows`), else the door E would use, glows green and gently pulses; nothing during a conversation or a quest's closing scene. The model shader adds a rim glow (strongest where the surface turns away from the camera) and a faint tint, from a per-model highlight colour and the camera's position in the model's space (`ModelRenderer::prepare_placed`). Strength set by eye after a first try that tinted the whole figure.
+- Checked in the window: walking up to the father, he glows at his edges.
+- Not yet: the original's red highlight on someone about to be hit (there is no targeting yet).
+- That completes issue #1's three items (gestures, the conversation camera, the highlight). Next: lighting, the issue's most visible gap.
+
 ## 2026-10-16 (later): the conversation camera
 
 - While a conversation line or question is on screen, the view eases (half a second) from the follow camera into a framed shot, letterbox bars slide in, the HUD hides, and the speaker and the Hero turn to face each other; afterwards it eases back. Module `apps/viewer/src/conversation.rs`.
