@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16 (later): gestures while talking
+
+- Lines carry delivery tags (now in `docs/formats/strings.md`): `CONVERSATION_ATTITUDE_<mood>` on about 1,000 spoken lines, `ANIM:<slot>` naming an animation to play, and `CAM:(…)(…)` camera framing (for the conversation camera next). Creatures' tables have `CONV_GENERAL` gestures per mood modifier (`CONVERSATION_HAPPY`, `_ANGRY`, `_SAD`, `_FEAR`, `_BELLIGERENT`; four each for villagers).
+- Viewer: whoever says the line on screen gestures while saying it: the slot the line names, else a random `CONV_GENERAL` gesture for its mood (untagged lines, most of them, count as happy: a guess), another as each ends, until the line has been said (its voice's length, or a reading time). Gestures load on first use from one animation bank; the speaker then returns to their idle. Creatures keep their whole animation table for this.
+- Checked: headless screenshots with the new `--gesture NOVI_LiveFather` option show the father raising his arm through the gesture and back in his idle by 6 s; in the window, the log showed him playing a happy gesture as his first line started (the scene is too dark to see it there).
+- Not yet: speakers turning to face the Hero; the Hero's own reactions.
+- Next: the conversation camera with letterbox bars (using the `CAM:` tags where lines have them).
+
 ## 2026-10-16: feedback from issue #1
 
 - Issue #1 (Romane Donnet): CullisEngine builds unchanged on macOS on Apple Silicon (Metal), and every test passes against the Steam release, so the parsers handle it and an ARM CPU. Their notes taken up:

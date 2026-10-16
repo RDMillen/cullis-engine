@@ -74,6 +74,9 @@ struct Args {
     /// Start the Prologue quest with Theresa's present bought (for testing the
     /// ending).
     with_present: bool,
+    /// Make the creature with this role start a happy conversation gesture
+    /// before `--npc-time` runs (for checking gestures in screenshots).
+    gesture: Option<String>,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -94,6 +97,7 @@ fn parse_args() -> Result<Args, Error> {
         use_door: false,
         talk: 0,
         with_present: false,
+        gesture: None,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -116,6 +120,7 @@ fn parse_args() -> Result<Args, Error> {
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
             "--with-present" => args.with_present = true,
+            "--gesture" => args.gesture = Some(value()?),
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -171,8 +176,9 @@ impl Scene {
                     terrain::load_region(data_dir, wld, name, &defs, sections)?;
                 for c in &mut mesh.creatures {
                     if let Some(def) = defs.get(&c.definition) {
-                        c.idles =
-                            terrain::IdleAnimations::from_slots(&defs.animation_slots(def, &names));
+                        let slots = defs.animation_slots(def, &names);
+                        c.idles = terrain::IdleAnimations::from_slots(&slots);
+                        c.slots = std::sync::Arc::new(slots);
                         c.morphs = defs.skeletal_morphs(def, &names);
                     }
                 }
@@ -527,6 +533,21 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             *transform = hero_transform(&hero);
         }
         pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
+    }
+    if let (Some(role), Scene::Terrain(renderer)) = (&args.gesture, &mut scene) {
+        let mut bank = skin::AnimBank::open(data_dir)?;
+        match renderer
+            .npcs
+            .iter_mut()
+            .find(|n| n.script_name.as_deref() == Some(role.as_str()))
+        {
+            Some(npc) => {
+                let ids = npc.gesture_ids(None, "CONVERSATION_HAPPY");
+                let played = ids.first().is_some_and(|&id| npc.gesture(&mut bank, id));
+                eprintln!("gesture {role}: {ids:?}, played {played}");
+            }
+            None => eprintln!("gesture: no creature with role {role}"),
+        }
     }
     if let Scene::Terrain(renderer) = &mut scene {
         let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
@@ -1006,6 +1027,13 @@ struct ViewerApp {
     ambience: soundscape::Ambience,
     /// Volumes set in the side panel: overall, voices, music, ambience.
     volumes: [f32; 4],
+    /// Animations, opened when first needed (gestures).
+    anim_bank: Option<skin::AnimBank>,
+    /// Someone gesturing as they speak: the creature, the line's id, the
+    /// gestures to pick from, and seconds since the line began; and a counter
+    /// for picking.
+    talking: Option<(usize, u32, Vec<u32>, f32)>,
+    gesture_picks: u64,
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
     /// The Hero is kicking (he stands still until the kick ends).
@@ -1118,6 +1146,9 @@ impl ViewerApp {
             voices,
             music: Default::default(),
             ambience: Default::default(),
+            anim_bank: None,
+            talking: None,
+            gesture_picks: 0,
             volumes: [
                 1.0,
                 1.0,
@@ -1640,6 +1671,61 @@ impl ViewerApp {
         self.ambience.update(dt, bank.as_deref(), audio);
     }
 
+    /// Has whoever says the line on screen gesture while they say it: a gesture
+    /// the line asks for, or one for its mood, then another as each ends, until
+    /// the line is done.
+    fn gesture(&mut self, dt: f32) {
+        let Scene::Terrain(renderer) = &mut self.scene else {
+            return;
+        };
+        let line = self.subs.line().map(|(l, _)| (l.id, l.tags.clone()));
+        let speaker = self.subs.speaker();
+        // A new line: who says it, and the gestures to pick from.
+        if let (Some((id, tags)), Some(i)) = (&line, speaker)
+            && self.talking.as_ref().is_none_or(|t| t.1 != *id)
+            && let Some(npc) = renderer.npcs.get(i)
+        {
+            let (slot, mood) = talk::gesture_of(tags);
+            self.talking = Some((i, *id, npc.gesture_ids(slot, mood), 0.0));
+            // A fresh line starts a fresh gesture.
+            self.gesture_picks += 1;
+        }
+        let saying = self.subs.saying_time();
+        let Some((i, id, choices, since)) = &mut self.talking else {
+            return;
+        };
+        if line.as_ref().is_none_or(|(l, _)| l != id) {
+            self.talking = None;
+            return;
+        }
+        // No new gesture once the line has been said (a line waiting for E stays
+        // on screen after).
+        *since += dt;
+        if *since >= saying {
+            return;
+        }
+        let Some(npc) = renderer.npcs.get_mut(*i) else {
+            return;
+        };
+        if choices.is_empty() || npc.gesturing() {
+            return;
+        }
+        if self.anim_bank.is_none() {
+            self.anim_bank = skin::AnimBank::open(&self.data_dir)
+                .map_err(|e| eprintln!("animations: {e}"))
+                .ok();
+        }
+        let Some(bank) = &mut self.anim_bank else {
+            return;
+        };
+        self.gesture_picks = self
+            .gesture_picks
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let pick = choices[(self.gesture_picks >> 33) as usize % choices.len()];
+        npc.gesture(bank, pick);
+    }
+
     /// Speaks a line newly on screen (holding it there while it is said), and
     /// stops speaking when no line is.
     fn speak(&mut self) {
@@ -1867,6 +1953,7 @@ impl eframe::App for ViewerApp {
                 self.subs
                     .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
                 self.speak();
+                self.gesture(ui.input(|i| i.stable_dt.min(0.1)));
                 self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));
                 for effect in effects {
                     self.apply(&rs, effect);

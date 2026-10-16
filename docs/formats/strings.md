@@ -23,6 +23,12 @@ The string entries' 4-byte info block is a small number (0 on-screen help, 1 ban
 | tag count | u32 | |
 | tags | count x (u32 0, NUL-terminated name) | `CONVERSATION_ATTITUDE_ANGER`, `…_SADNESS` |
 
+Tags (on about a quarter of the spoken lines) say how a line is delivered:
+
+- `CONVERSATION_ATTITUDE_<mood>`: `ANGER` (508 lines), `FEAR` (234), `SADNESS` (136), `HAPPY` (37), `GLEE`, `NEUTRAL`, `RIDICULE`, `LOVE`, `FRIENDLY`, `BELLIGERENT`, `HOLDING_SWORD`. Creatures' animation tables have `CONV_GENERAL` gestures under the modifiers `CONVERSATION_HAPPY`, `_ANGRY`, `_SAD`, `_FEAR`, `_BELLIGERENT` (four each for the villagers).
+- `ANIM:<slot>`: an animation table slot to play with the line (`ST_OPINION_DISAPPROVAL_POINT_AT`, `CS_CONV_HAPPY_BR1`, `STANDARD_HEAD_SCRATCH`, `GIVE_MONEY`).
+- `CAM:(<who>,<where>)(<who>,<where>)`: camera framing for the line, as two pairs, apparently where the camera stands and what it looks at (`(SPEAKER,IN_FRONT_OF_FACE)(SPEAKER,FOCUS_FACE)`, `(SPEAKER,BEHIND_RIGHT_SHOULDER_NEAR)(SPEAKEE,FOCUS_FACE)`).
+
 ## Group (type 1)
 
 `u32` count, then that many `u32` string entry ids.
@@ -31,4 +37,4 @@ The string entries' 4-byte info block is a small number (0 on-screen help, 1 ban
 
 No data; its info block is a `u32` count (379) and NUL-terminated speaker names: `NONE`, `THERESA`, `GUILD_MASTER`, `HERO FATHER`, `BANDIT1`, ….
 
-The voice lines themselves are in `Dialogue.lut`, `ScriptDialogue.lut` and `ScriptDialogue2.lut` (the `.lug` names), not decoded.
+The voice lines themselves are in `Dialogue.lut`, `ScriptDialogue.lut` and `ScriptDialogue2.lut` (the `.lug` names); see `lut.md`.

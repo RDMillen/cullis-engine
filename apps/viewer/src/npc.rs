@@ -29,6 +29,10 @@ pub struct Npc {
     base: usize,
     /// Its idle's variants by modifier (bank ids), for [`Npc::set_mood`].
     moods: Vec<(String, u32)>,
+    /// Its animation table, and the clips of gestures loaded so far (bank id
+    /// to each part's clip index).
+    slots: std::sync::Arc<Vec<fable_data::defs::AnimationSlot>>,
+    gestures: HashMap<u32, Vec<usize>>,
     /// Seconds since the creature last fidgeted, and when it fidgets next.
     since_fidget: f32,
     next_fidget: f32,
@@ -174,6 +178,78 @@ impl Npc {
         self.fidgets = 0;
         self.walk = None;
         true
+    }
+
+    /// Bank ids of the gestures to go with a line: animation slot `slot` if
+    /// the line names one (its plain variant), else its `CONV_GENERAL`
+    /// animations for modifier `mood` (`CONVERSATION_ANGRY`), else its happy
+    /// ones.
+    pub fn gesture_ids(&self, slot: Option<&str>, mood: &str) -> Vec<u32> {
+        let find = |name: &str, modifier: Option<&str>| -> Vec<u32> {
+            let mut ids: Vec<u32> = self
+                .slots
+                .iter()
+                .filter(|s| s.slot == name && s.modifier.as_deref() == modifier)
+                .map(|s| s.animation)
+                .collect();
+            ids.dedup();
+            ids
+        };
+        if let Some(slot) = slot {
+            let ids = find(slot, None);
+            if !ids.is_empty() {
+                return ids;
+            }
+        }
+        let ids = find("CONV_GENERAL", Some(mood));
+        if ids.is_empty() {
+            find("CONV_GENERAL", Some("CONVERSATION_HAPPY"))
+        } else {
+            ids
+        }
+    }
+
+    /// Plays animation `id` (from its table) once, loading it first; it then
+    /// returns to its idle. Stops a stroll. False if the animation cannot load.
+    pub fn gesture(&mut self, bank: &mut AnimBank, id: u32) -> bool {
+        if !self.gestures.contains_key(&id) {
+            let mut clips = Vec::new();
+            for (_, animator) in &self.parts {
+                match bank.clip(id, animator.skeleton()) {
+                    Ok(clip) => clips.push(clip),
+                    Err(e) => {
+                        eprintln!("gesture {id}: {e}");
+                        return false;
+                    }
+                }
+            }
+            let indices = self
+                .parts
+                .iter_mut()
+                .zip(clips)
+                .map(|((_, animator), clip)| animator.add_clip(clip))
+                .collect();
+            self.gestures.insert(id, indices);
+        }
+        if let Some(w) = &mut self.walk {
+            w.target = None;
+            w.resting = 0.0;
+        }
+        let indices = &self.gestures[&id];
+        for ((_, animator), &clip) in self.parts.iter_mut().zip(indices) {
+            animator.play_once(clip, 0.0);
+        }
+        true
+    }
+
+    /// Whether it is in the middle of a gesture.
+    pub fn gesturing(&self) -> bool {
+        self.parts.first().is_some_and(|(_, a)| {
+            self.gestures
+                .values()
+                .any(|g| g.first() == Some(&a.current()))
+                && !a.finished()
+        })
     }
 
     /// Plays its flinch once, stopping a stroll.
@@ -375,6 +451,8 @@ pub fn load(
                 hit_clip: has_hit.then(|| clips - 1),
                 base: 0,
                 moods: c.idles.moods.clone(),
+                slots: c.slots.clone(),
+                gestures: HashMap::new(),
                 since_fidget: 0.0,
                 next_fidget: 3.0 + (c.uid % 11) as f32,
                 rng: c.uid | 1,

@@ -18,6 +18,28 @@ pub struct Line {
     pub text: String,
     /// The text entry's id (for its voice).
     pub id: u32,
+    /// The text entry's tags (`CONVERSATION_ATTITUDE_ANGER`,
+    /// `ANIM:STANDARD_HEAD_SCRATCH`, `CAM:(…)`).
+    pub tags: Vec<String>,
+}
+
+/// How a line is said, from its tags: the animation slot it asks for
+/// (`ANIM:STANDARD_HEAD_SCRATCH`), if any, and its mood as the `CONV_GENERAL`
+/// modifier (`CONVERSATION_ATTITUDE_ANGER` → `CONVERSATION_ANGRY`). Lines with
+/// no mood (most) count as happy, a guess.
+pub fn gesture_of(tags: &[String]) -> (Option<&str>, &'static str) {
+    let slot = tags.iter().find_map(|t| t.strip_prefix("ANIM:"));
+    let mood = tags
+        .iter()
+        .find_map(|t| t.strip_prefix("CONVERSATION_ATTITUDE_"))
+        .map_or("CONVERSATION_HAPPY", |a| match a {
+            "ANGER" => "CONVERSATION_ANGRY",
+            "FEAR" => "CONVERSATION_FEAR",
+            "SADNESS" => "CONVERSATION_SAD",
+            "BELLIGERENT" | "RIDICULE" => "CONVERSATION_BELLIGERENT",
+            _ => "CONVERSATION_HAPPY",
+        });
+    (slot, mood)
 }
 
 /// A speaker code (`BAD_MAN`, `THUG KID`) as a name: "Thug Kid". The Hero's
@@ -83,6 +105,7 @@ pub fn lines(text: &TextBank, entry: &str, mode: Mode, roll: u64) -> Vec<Line> {
             speaker: speaker_name(&e.speaker),
             text: e.text.clone(),
             id,
+            tags: e.tags.clone(),
         })
         .collect()
 }
@@ -161,6 +184,24 @@ impl Subtitles {
     pub fn next_to_voice(&mut self) -> Option<u32> {
         let id = self.line()?.0.id;
         (!std::mem::replace(&mut self.voiced, true)).then_some(id)
+    }
+
+    /// The creature saying the line on screen, if it is one of the region's.
+    pub fn speaker(&self) -> Option<usize> {
+        match self.items.front()? {
+            Item::Line { by, .. } => *by,
+            _ => None,
+        }
+    }
+
+    /// How long the line on screen takes to say: its voice's length when it
+    /// has one ([`Subtitles::hold_for`]), else a reading time.
+    pub fn saying_time(&self) -> f32 {
+        match self.items.front() {
+            Some(Item::Line { line, .. }) if self.hold > 0.0 => self.hold.max(0.5),
+            Some(Item::Line { line, .. }) => read_time(&line.text),
+            _ => 0.0,
+        }
     }
 
     /// Keeps the line on screen for at least `seconds` (while it is spoken).
@@ -363,6 +404,7 @@ mod tests {
                 speaker: "Father".into(),
                 text: text.into(),
                 id: 7,
+                tags: Vec::new(),
             },
             by: Some(0),
             wait,
@@ -419,5 +461,19 @@ mod tests {
         assert!(s.line().is_some(), "held while its voice plays");
         s.step(6.0, &mut effects);
         assert!(s.line().is_none());
+    }
+
+    #[test]
+    fn lines_say_how_they_are_said() {
+        let tags = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(gesture_of(&[]), (None, "CONVERSATION_HAPPY"));
+        assert_eq!(
+            gesture_of(&tags(&["CONVERSATION_ATTITUDE_ANGER"])),
+            (None, "CONVERSATION_ANGRY")
+        );
+        assert_eq!(
+            gesture_of(&tags(&["CONVERSATION_ATTITUDE_SADNESS", "ANIM:ST_POINT"])),
+            (Some("ST_POINT"), "CONVERSATION_SAD")
+        );
     }
 }

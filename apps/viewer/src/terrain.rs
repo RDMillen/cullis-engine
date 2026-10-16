@@ -357,6 +357,8 @@ pub struct CreaturePlacement {
     pub idles: IdleAnimations,
     /// Its bone config files (`CSkeletalMorphDef`; filled in after loading).
     pub morphs: Vec<String>,
+    /// Its whole animation table, for gestures and other one-off animations.
+    pub slots: std::sync::Arc<Vec<fable_data::defs::AnimationSlot>>,
     /// A quest character (a `ScriptName` naming a role, such as the Prologue's
     /// `NOVI_AffairWife`), which its quest moves, so it does not wander. Generic
     /// background roles (`NOVI_Villager`) do not count.
@@ -612,6 +614,7 @@ fn load_placements(
                 parts: defs.creature_parts(def),
                 idles: IdleAnimations::default(),
                 morphs: Vec::new(),
+                slots: Default::default(),
                 scripted: t.script_name().is_some_and(|n| !n.ends_with("_Villager")),
                 script_name: t.script_name().map(str::to_owned),
                 placement: Placement {
