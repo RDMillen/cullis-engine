@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16 (later): the conversation camera
+
+- While a conversation line or question is on screen, the view eases (half a second) from the follow camera into a framed shot, letterbox bars slide in, the HUD hides, and the speaker and the Hero turn to face each other; afterwards it eases back. Module `apps/viewer/src/conversation.rs`.
+- Framings come from the lines' `CAM:` tags where they have them (18 lines): `(SPEAKER,IN_FRONT_OF_FACE)(SPEAKER,FOCUS_FACE)` (a close-up), `(SPEAKER,BEHIND_RIGHT_SHOULDER_NEAR)(SPEAKEE,FOCUS_FACE)` (over the speaker's shoulder onto the Hero), `(SPEAKEE,IN_FRONT_OF_FACE)(SPEAKEE,FOCUS_FACE)`. Other lines use over the Hero's right shoulder onto the speaker. Distances and face heights (adults 1.6, children 1.05) are set by eye, to compare with the original.
+- Creatures can turn (`Npc::turn_towards`; their heading is kept from placement), which also stops a stroll.
+- Checked in the window: talking to the father frames him over the Hero's shoulder, facing the Hero, mid-gesture, between the bars, with the subtitle in the lower bar.
+- Next: the interaction highlight (the last of issue #1's items).
+
 ## 2026-10-16 (later): gestures while talking
 
 - Lines carry delivery tags (now in `docs/formats/strings.md`): `CONVERSATION_ATTITUDE_<mood>` on about 1,000 spoken lines, `ANIM:<slot>` naming an animation to play, and `CAM:(…)(…)` camera framing (for the conversation camera next). Creatures' tables have `CONV_GENERAL` gestures per mood modifier (`CONVERSATION_HAPPY`, `_ANGRY`, `_SAD`, `_FEAR`, `_BELLIGERENT`; four each for villagers).

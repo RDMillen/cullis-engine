@@ -23,6 +23,10 @@ pub struct Npc {
     pub hidden: bool,
     /// For lines that come in male and female versions.
     pub female: bool,
+    /// A child (a lower face, for the conversation camera).
+    pub child: bool,
+    /// Which way it faces: radians around z, 0 facing +y (as `walk::Hero`).
+    heading: f32,
     /// Its flinch when hit, if it has one.
     hit_clip: Option<usize>,
     /// The clip it stands in (its base idle, or a quest's mood).
@@ -178,6 +182,38 @@ impl Npc {
         self.fidgets = 0;
         self.walk = None;
         true
+    }
+
+    /// Height of its face above its feet, roughly (world units).
+    pub fn face_height(&self) -> f32 {
+        if self.child { 1.05 } else { 1.6 }
+    }
+
+    /// Where its feet are.
+    pub fn feet(&self) -> glam::Vec3 {
+        self.transform.w_axis.truncate()
+    }
+
+    /// Turns towards `p`, at most `dt` seconds' worth (a quick turn).
+    pub fn turn_towards(&mut self, p: Vec2, dt: f32) {
+        let Some(d) = (p - self.position()).try_normalize() else {
+            return;
+        };
+        let want = (-d.x).atan2(d.y);
+        let diff = (want - self.heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        let step = 6.0 * dt;
+        if diff.abs() < 1e-3 {
+            return;
+        }
+        self.heading += diff.clamp(-step, step);
+        let at = self.feet();
+        if let Some(w) = &mut self.walk {
+            w.body.heading = self.heading;
+            w.target = None;
+        }
+        self.transform =
+            Mat4::from_translation(at) * Mat4::from_rotation_z(self.heading) * model::hero_local();
     }
 
     /// Bank ids of the gestures to go with a line: animation slot `slot` if
@@ -448,6 +484,13 @@ pub fn load(
                 female: ["FEMALE", "GIRL", "SISTER"]
                     .iter()
                     .any(|k| c.definition.contains(k)),
+                child: ["CHILD", "BOY", "GIRL", "SISTER", "BULLY"]
+                    .iter()
+                    .any(|k| c.definition.contains(k)),
+                heading: {
+                    let f = c.placement.forward;
+                    (-f.x).atan2(f.y)
+                },
                 hit_clip: has_hit.then(|| clips - 1),
                 base: 0,
                 moods: c.idles.moods.clone(),

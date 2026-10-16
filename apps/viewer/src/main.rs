@@ -9,6 +9,7 @@
 mod audio;
 mod camera;
 mod collide;
+mod conversation;
 mod door;
 mod model;
 mod npc;
@@ -1033,6 +1034,10 @@ struct ViewerApp {
     /// gestures to pick from, and seconds since the line began; and a counter
     /// for picking.
     talking: Option<(usize, u32, Vec<u32>, f32)>,
+    /// The conversation camera: how far the view has eased into it (0..=1),
+    /// and its shot (kept while easing back out).
+    conversation: f32,
+    conversation_camera: Option<OrbitCamera>,
     gesture_picks: u64,
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
@@ -1148,6 +1153,8 @@ impl ViewerApp {
             ambience: Default::default(),
             anim_bank: None,
             talking: None,
+            conversation: 0.0,
+            conversation_camera: None,
             gesture_picks: 0,
             volumes: [
                 1.0,
@@ -1671,6 +1678,74 @@ impl ViewerApp {
         self.ambience.update(dt, bank.as_deref(), audio);
     }
 
+    /// The camera the view uses: the orbit or follow camera, eased towards the
+    /// conversation camera while someone talks to the Hero.
+    fn shown_camera(&self) -> OrbitCamera {
+        match &self.conversation_camera {
+            Some(shot) => {
+                conversation::blend(&self.camera, shot, conversation::ease(self.conversation))
+            }
+            None => self.camera,
+        }
+    }
+
+    /// While a conversation line or question is on screen: the shot its line
+    /// names (or over the Hero's shoulder onto the speaker), easing in over
+    /// half a second, with the speaker and the Hero turned to each other.
+    /// Afterwards it eases back to the follow camera.
+    fn frame_conversation(&mut self, dt: f32) {
+        const EASE: f32 = 0.5;
+        let active = match (self.subs.waiting_on(), &mut self.walker, &mut self.scene) {
+            (Some(talked), Some(hero), Scene::Terrain(renderer)) => {
+                let speaker = self.subs.speaker().unwrap_or(talked);
+                let tags = self
+                    .subs
+                    .line()
+                    .map(|(l, _)| l.tags.clone())
+                    .unwrap_or_default();
+                match renderer.npcs.get_mut(speaker) {
+                    Some(npc) => {
+                        npc.turn_towards(hero.position.truncate(), dt);
+                        // The Hero turns to the speaker too.
+                        let d = npc.position() - hero.position.truncate();
+                        if d.length() > 0.1 {
+                            let want = (-d.x).atan2(d.y);
+                            let diff = (want - hero.heading + std::f32::consts::PI)
+                                .rem_euclid(std::f32::consts::TAU)
+                                - std::f32::consts::PI;
+                            hero.heading += diff.clamp(-6.0 * dt, 6.0 * dt);
+                            if let Some((_, transform)) = &mut renderer.hero {
+                                *transform = hero_transform(hero);
+                            }
+                        }
+                        let speaker = conversation::Actor {
+                            feet: npc.feet(),
+                            face_height: npc.face_height(),
+                        };
+                        let speakee = conversation::Actor {
+                            feet: hero.position,
+                            face_height: 1.05,
+                        };
+                        let shot = conversation::Shot::from_tags(&tags)
+                            .unwrap_or(conversation::Shot::DEFAULT);
+                        self.conversation_camera = Some(shot.camera(speaker, speakee));
+                        true
+                    }
+                    None => false,
+                }
+            }
+            _ => false,
+        };
+        if active {
+            self.conversation = (self.conversation + dt / EASE).min(1.0);
+        } else {
+            self.conversation = (self.conversation - dt / EASE).max(0.0);
+            if self.conversation == 0.0 {
+                self.conversation_camera = None;
+            }
+        }
+    }
+
     /// Has whoever says the line on screen gesture while they say it: a gesture
     /// the line asks for, or one for its mood, then another as each ends, until
     /// the line is done.
@@ -1954,6 +2029,7 @@ impl eframe::App for ViewerApp {
                     .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
                 self.speak();
                 self.gesture(ui.input(|i| i.stable_dt.min(0.1)));
+                self.frame_conversation(ui.input(|i| i.stable_dt.min(0.1)));
                 self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));
                 for effect in effects {
                     self.apply(&rs, effect);
@@ -1980,7 +2056,9 @@ impl eframe::App for ViewerApp {
 
                 let ppp = ui.ctx().pixels_per_point();
                 let size = [(rect.width() * ppp) as u32, (rect.height() * ppp) as u32];
-                let view_proj = self.camera.view_proj(rect.width() / rect.height().max(1.0));
+                let view_proj = self
+                    .shown_camera()
+                    .view_proj(rect.width() / rect.height().max(1.0));
                 let recreated = self.scene.render(&rs.device, &rs.queue, size, view_proj);
                 let view = &self.scene.target().unwrap().color_view;
                 let mut egui_renderer = rs.renderer.write();
@@ -2009,13 +2087,33 @@ impl eframe::App for ViewerApp {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
+                // Letterbox bars while the conversation camera is on.
+                let bar = rect.height() * 0.11 * conversation::ease(self.conversation);
+                if bar > 0.5 {
+                    let black = egui::Color32::BLACK;
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), bar)),
+                        0.0,
+                        black,
+                    );
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(rect.min.x, rect.max.y - bar),
+                            egui::vec2(rect.width(), bar),
+                        ),
+                        0.0,
+                        black,
+                    );
+                }
                 // What is being said, notices, and the Hero's gold and items.
                 if let Some(answer) = self.subs.show(ui.ctx(), rect) {
                     self.clicked_answer = Some(answer);
                 }
-                if let (Some(story), Some(text), true) =
-                    (&self.story, &self.text, self.walker.is_some())
-                {
+                if let (Some(story), Some(text), true) = (
+                    &self.story,
+                    &self.text,
+                    self.walker.is_some() && self.conversation == 0.0,
+                ) {
                     story.hud(ui.ctx(), rect, text);
                 }
             });
