@@ -177,7 +177,7 @@ fn to_mat4(m: &Affine) -> Mat4 {
 /// to its own vertices (in bone space) and to its children's offsets from it, but
 /// is not inherited, so a shortened thigh brings the calf up without shrinking it.
 pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32, morph: &[[f32; 3]]) -> Vec<Mat4> {
-    pose_blended(skeleton, clip, time, None, morph)
+    pose_blended(skeleton, clip, time, None, morph, &[], &[])
 }
 
 /// A bone's pose under `clip` at `time` (its rest pose without a clip).
@@ -203,12 +203,17 @@ fn blend_bones(a: &Bone, b: &Bone, k: f32) -> Bone {
 
 /// As [`pose`], fading in from `from` (a clip, its time, and how far the fade
 /// has come, 0 to 1).
+/// `face` layers single-pose clips (mouth shapes) over the bones `face_mask`
+/// marks, each with a weight: those bones take the weighted average of the
+/// body's pose and the shapes' (the body keeps whatever weight is left).
 pub fn pose_blended(
     skeleton: &Skeleton,
     clip: Option<&Clip>,
     time: f32,
     from: Option<(&Clip, f32, f32)>,
     morph: &[[f32; 3]],
+    face: &[(&Clip, f32)],
+    face_mask: &[bool],
 ) -> Vec<Mat4> {
     let mut world: Vec<Affine> = Vec::with_capacity(skeleton.bones.len());
     for (i, bone) in skeleton.bones.iter().enumerate() {
@@ -216,6 +221,21 @@ pub fn pose_blended(
         if let Some((old, old_time, k)) = from {
             let before = bone_pose(bone, i, Some(old), old_time);
             posed = blend_bones(&before, &posed, k);
+        }
+        if face_mask.get(i).copied().unwrap_or(false) && !face.is_empty() {
+            // A running weighted average: the body with the weight left over,
+            // then each shape in turn.
+            let shapes: f32 = face.iter().map(|(_, w)| w.max(0.0)).sum();
+            let mut total = (1.0 - shapes).max(0.0);
+            for (shape, w) in face {
+                let w = w.max(0.0);
+                if w <= 0.0 || shape.tracks.get(i).is_none_or(Option::is_none) {
+                    continue;
+                }
+                total += w;
+                let pose = bone_pose(bone, i, Some(shape), 0.0);
+                posed = blend_bones(&posed, &pose, w / total);
+            }
         }
         if let Some(s) = bone.parent.and_then(|p| morph.get(p)) {
             posed.translation = std::array::from_fn(|k| posed.translation[k] * s[k]);
@@ -239,6 +259,29 @@ pub fn pose_blended(
                 [0.0, 0.0, s[2], 0.0],
             ];
             to_mat4(&mul_affine(&mul_affine(w, &scale), &b.inverse_bind))
+        })
+        .collect()
+}
+
+/// Per bone, whether it is part of the face: below `Bip01 Head` (its chin,
+/// lips, cheeks, brows and eyelids), the head itself not.
+pub fn face_bones(skeleton: &Skeleton) -> Vec<bool> {
+    let head = skeleton
+        .bones
+        .iter()
+        .position(|b| b.name.eq_ignore_ascii_case("Bip01 Head"));
+    skeleton
+        .bones
+        .iter()
+        .map(|b| {
+            let mut parent = b.parent;
+            while let Some(p) = parent {
+                if Some(p) == head {
+                    return true;
+                }
+                parent = skeleton.bones.get(p).and_then(|b| b.parent);
+            }
+            false
         })
         .collect()
 }
@@ -283,6 +326,10 @@ pub struct Animator {
     /// The clip being faded out after a switch: index, its time, whether it was
     /// held, and seconds since the switch.
     fading: Option<(usize, f32, bool, f32)>,
+    /// Mouth shapes layered over the face (clip index, weight), and which bones
+    /// make up the face (those below `Bip01 Head`).
+    face: Vec<(usize, f32)>,
+    face_mask: Vec<bool>,
 }
 
 /// How long a switch between clips crossfades, in seconds.
@@ -290,6 +337,7 @@ const FADE: f32 = 0.25;
 
 impl Animator {
     pub fn new(bind: Vec<ModelVertex>, skin: Skin, clips: Vec<Clip>) -> Self {
+        let face_mask = face_bones(&skin.skeleton);
         Self {
             bind,
             skin,
@@ -299,7 +347,21 @@ impl Animator {
             posed: Vec::new(),
             once: false,
             fading: None,
+            face: Vec::new(),
+            face_mask,
         }
+    }
+
+    /// Layers mouth shapes over the face: (clip index, weight 0..=1); empty for
+    /// none.
+    pub fn set_face(&mut self, shapes: &[(usize, f32)]) {
+        self.face.clear();
+        self.face.extend_from_slice(shapes);
+    }
+
+    /// Whether the skeleton has face bones to move.
+    pub fn has_face(&self) -> bool {
+        self.face_mask.iter().any(|&f| f)
     }
 
     /// Adds a clip, returning its index.
@@ -389,12 +451,19 @@ impl Animator {
             let k = since / FADE;
             Some((self.clips.get(i)?, t, k * k * (3.0 - 2.0 * k)))
         });
+        let face: Vec<(&Clip, f32)> = self
+            .face
+            .iter()
+            .filter_map(|&(i, w)| Some((self.clips.get(i)?, w)))
+            .collect();
         let matrices = pose_blended(
             &self.skin.skeleton,
             self.clips.get(self.current),
             self.time,
             from,
             &self.skin.morph,
+            &face,
+            &self.face_mask,
         );
         deform(&self.skin, &self.bind, &matrices, &mut self.posed);
         &self.posed
@@ -518,5 +587,24 @@ mod tests {
         assert!(!a.finished());
         a.advance(10.0);
         assert!(a.finished(), "held at the last frame, the kick is over");
+    }
+
+    #[test]
+    fn the_face_is_what_hangs_below_the_head() {
+        let named = |name: &str, parent: Option<usize>| Bone {
+            name: name.into(),
+            ..bone(parent, [0.0; 3])
+        };
+        let skeleton = Skeleton {
+            bones: vec![
+                named("Bip01", None),
+                named("Bip01 Head", Some(0)),
+                named("Chin", Some(1)),
+                named("Chin_tip", Some(2)),
+                named("Bip01 L Hand", Some(0)),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(face_bones(&skeleton), [false, false, true, true, false]);
     }
 }

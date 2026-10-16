@@ -1128,3 +1128,31 @@ fn oakvale_plays_its_music_and_country_ambience() {
     assert_eq!(a, "ATMOS_COUNTRY");
     assert!(atmos::atmos_bank(&dir.join("Sound"), a).is_some());
 }
+
+#[test]
+#[ignore]
+fn lipsync_tracks_parse_and_last_as_long_as_their_sounds() {
+    use fable_data::lipsync::LipSync;
+    let path = data_dir().join("lang/English/dialogue.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let mut tracks = 0;
+    for bank in &big.banks {
+        for e in bank.read_index(&mut file).unwrap().entries {
+            if e.size == 0 {
+                continue; // `[Empty]` slots.
+            }
+            let lip = LipSync::parse(&e.read_data(&mut file).unwrap())
+                .unwrap_or_else(|err| panic!("{}: {err}", e.name));
+            let duration = f32::from_le_bytes(e.info[..4].try_into().unwrap());
+            assert!(
+                (lip.seconds() - duration).abs() < 0.1,
+                "{}: {} s of frames, {duration} s of sound",
+                e.name,
+                lip.seconds()
+            );
+            tracks += 1;
+        }
+    }
+    assert!(tracks > 10_000, "{tracks} tracks");
+}

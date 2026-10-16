@@ -25,6 +25,11 @@ pub struct Npc {
     pub female: bool,
     /// A child (a lower face, for the conversation camera).
     pub child: bool,
+    /// Its mouth shapes' animation set (`VILLAGER_MALE`: the
+    /// `ANIM_VILLAGER_MALE_PHONEME_*` animations), and those loaded (shape name
+    /// to each part's clip index; empty until it first speaks).
+    viseme_set: &'static str,
+    visemes: HashMap<String, Vec<usize>>,
     /// Which way it faces: radians around z, 0 facing +y (as `walk::Hero`).
     heading: f32,
     /// Its flinch when hit, if it has one.
@@ -182,6 +187,42 @@ impl Npc {
         self.fidgets = 0;
         self.walk = None;
         true
+    }
+
+    /// Moves its mouth: mouth shapes (`AH`, `EE`, `OH`, …) with weights 0..=1,
+    /// loading its set's shapes on first use; empty to stop.
+    pub fn mouth(&mut self, bank: &mut AnimBank, shapes: &[(&str, f32)]) {
+        if !shapes.is_empty() && self.visemes.is_empty() {
+            for name in ["AH", "EE", "OH", "SZ", "MM", "WW"] {
+                let anim = format!("ANIM_{}_PHONEME_{name}", self.viseme_set);
+                let Some(id) = bank.id(&anim) else { continue };
+                let clips: Option<Vec<_>> = self
+                    .parts
+                    .iter()
+                    .map(|(_, a)| bank.clip(id, a.skeleton()).ok())
+                    .collect();
+                let Some(clips) = clips else { continue };
+                let indices = self
+                    .parts
+                    .iter_mut()
+                    .zip(clips)
+                    .map(|((_, a), clip)| a.add_clip(clip))
+                    .collect();
+                self.visemes.insert(name.to_owned(), indices);
+            }
+        }
+        for (k, (_, animator)) in self.parts.iter_mut().enumerate() {
+            let face: Vec<(usize, f32)> = shapes
+                .iter()
+                .filter_map(|(name, w)| Some((*self.visemes.get(*name)?.get(k)?, *w)))
+                .collect();
+            animator.set_face(&face);
+        }
+    }
+
+    /// Whether its skeleton has face bones for mouth shapes to move.
+    pub fn has_face(&self) -> bool {
+        self.parts.iter().any(|(_, a)| a.has_face())
     }
 
     /// Height of its face above its feet, roughly (world units).
@@ -356,6 +397,26 @@ fn body_transform(body: &walk::Hero) -> Mat4 {
         * model::hero_local()
 }
 
+/// The mouth shape animations a creature uses, by kind: children the boy's
+/// (`ANIM_BIPED_BOY_01_PHONEME_*`), guards and bandits the bandit's (their
+/// skeletons play bandit animations), else the villagers'. A guess from the
+/// sets' names.
+fn viseme_set(definition: &str) -> &'static str {
+    let d = definition.to_ascii_uppercase();
+    if ["CHILD", "BOY", "GIRL", "SISTER", "BULLY"]
+        .iter()
+        .any(|k| d.contains(k))
+    {
+        "BIPED_BOY_01"
+    } else if d.contains("GUARD") || d.contains("BANDIT") {
+        "BANDIT"
+    } else if d.contains("FEMALE") {
+        "VILLAGER_FEMALE"
+    } else {
+        "VILLAGER_MALE"
+    }
+}
+
 /// An idle by kind, for creatures whose animation table has no `ST_IDLE_SUBTLE`.
 fn idle_for(definition: &str) -> &'static str {
     let d = definition.to_ascii_uppercase();
@@ -487,6 +548,8 @@ pub fn load(
                 child: ["CHILD", "BOY", "GIRL", "SISTER", "BULLY"]
                     .iter()
                     .any(|k| c.definition.contains(k)),
+                viseme_set: viseme_set(&c.definition),
+                visemes: HashMap::new(),
                 heading: {
                     let f = c.placement.forward;
                     (-f.x).atan2(f.y)

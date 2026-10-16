@@ -14,6 +14,7 @@ pub mod dxt;
 mod error;
 pub mod gtg;
 pub mod lev;
+pub mod lipsync;
 pub mod lug;
 pub mod lut;
 pub mod lzo;

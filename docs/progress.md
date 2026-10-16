@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16 (later): lip sync
+
+- Ross asked whether mouths can move properly. They can: every voice sound has a lip sync track in `lang/English/dialogue.big` (`fable_data::lipsync`, documented in `docs/formats/lut.md`): mouth shapes (`AH`, `EE`, `OH`, `SZ`) with a weight each, 43 frames a second. Every track parses and lasts as long as its sound (real-data test).
+- The shapes are single-frame animations, `ANIM_<set>_PHONEME_<shape>`, posing the face bones below `Bip01 Head` (chin, lips, mouth corners, cheeks, brows, eyelids). The animator gained a face layer: those bones take the weighted average of the body's pose and the shapes'. Creatures load their set on first use: the boy's for children, the bandit's for guards and bandits, else the villagers' (male or female) - a guess from the sets' names.
+- While a voiced line plays, the speaker's mouth follows its track, blending between frames; it is released when the line or the track ends.
+- Checked: headless close-ups of the father with the new `--mouth NOVI_LiveFather:<shape>` option show four distinct mouths (MM closed, AH open, OH round, EE wide).
+- Next: lighting (Ross).
+
 ## 2026-10-16 (later): the interaction highlight
 
 - Whoever E would talk to (someone in reach the current quest has something for, `Story::knows`), else the door E would use, glows green and gently pulses; nothing during a conversation or a quest's closing scene. The model shader adds a rim glow (strongest where the surface turns away from the camera) and a faint tint, from a per-model highlight colour and the camera's position in the model's space (`ModelRenderer::prepare_placed`). Strength set by eye after a first try that tinted the whole figure.

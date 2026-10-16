@@ -125,20 +125,48 @@ pub struct Voices {
     index: VoiceIndex,
     dir: PathBuf,
     banks: HashMap<String, Option<(BufReader<File>, SoundBank)>>,
+    /// `dialogue.big` and its lip sync entries by name (`ScriptDialogue_3642`).
+    lipsync: Option<(BufReader<File>, HashMap<String, fable_data::bank::Entry>)>,
 }
 
 impl Voices {
     pub fn open(data_dir: &Path, text: &TextBank) -> Result<Self, fable_data::Error> {
+        let dir = data_dir.join("lang/English");
+        let lipsync = (|| -> Result<_, fable_data::Error> {
+            let mut file = BufReader::new(File::open(dir.join("dialogue.big"))?);
+            let big = fable_data::big::BigFile::read(&mut file)?;
+            let mut entries = HashMap::new();
+            for bank in &big.banks {
+                for e in bank.read_index(&mut file)?.entries {
+                    entries.insert(e.name.clone(), e);
+                }
+            }
+            Ok((file, entries))
+        })()
+        .map_err(|e| eprintln!("lip sync: {e}"))
+        .ok();
         Ok(Self {
             index: VoiceIndex::build(data_dir, "English", text)?,
-            dir: data_dir.join("lang/English"),
+            dir,
             banks: HashMap::new(),
+            lipsync,
         })
     }
 
     /// Lines with a voice.
     pub fn len(&self) -> usize {
         self.index.len()
+    }
+
+    /// The lip sync track of text entry `id`'s voice, if it has one.
+    pub fn lipsync(&mut self, id: u32) -> Option<fable_data::lipsync::LipSync> {
+        let voice = self.index.get(id)?;
+        let (file, entries) = self.lipsync.as_mut()?;
+        let entry = entries.get(&format!("{}_{}", voice.bank, voice.sound))?;
+        let data = entry.read_data(file).ok()?;
+        fable_data::lipsync::LipSync::parse(&data)
+            .map_err(|e| eprintln!("lip sync {}: {e}", entry.name))
+            .ok()
     }
 
     /// The decoded voice of text entry `id`, if it has one.

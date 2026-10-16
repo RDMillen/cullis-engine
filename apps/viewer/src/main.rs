@@ -78,6 +78,9 @@ struct Args {
     /// Make the creature with this role start a happy conversation gesture
     /// before `--npc-time` runs (for checking gestures in screenshots).
     gesture: Option<String>,
+    /// Hold the mouth of the creature with this role in a shape
+    /// (`NOVI_LiveFather:AH`), for checking lip sync in screenshots.
+    mouth: Option<(String, String)>,
     screenshot: Option<PathBuf>,
     size: [u32; 2],
 }
@@ -99,6 +102,7 @@ fn parse_args() -> Result<Args, Error> {
         talk: 0,
         with_present: false,
         gesture: None,
+        mouth: None,
         size: [1280, 800],
     };
     let mut it = std::env::args().skip(1);
@@ -122,6 +126,11 @@ fn parse_args() -> Result<Args, Error> {
             "--talk" => args.talk = value()?.parse()?,
             "--with-present" => args.with_present = true,
             "--gesture" => args.gesture = Some(value()?),
+            "--mouth" => {
+                let v = value()?;
+                let (role, shape) = v.split_once(':').ok_or("--mouth takes ROLE:SHAPE")?;
+                args.mouth = Some((role.to_owned(), shape.to_owned()));
+            }
             "--walk-to" => {
                 let v: Vec<f32> = value()?
                     .split(',')
@@ -534,6 +543,20 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             *transform = hero_transform(&hero);
         }
         pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
+    }
+    if let (Some((role, shape)), Scene::Terrain(renderer)) = (&args.mouth, &mut scene) {
+        let mut bank = skin::AnimBank::open(data_dir)?;
+        match renderer
+            .npcs
+            .iter_mut()
+            .find(|n| n.script_name.as_deref() == Some(role.as_str()))
+        {
+            Some(npc) => {
+                npc.mouth(&mut bank, &[(shape.as_str(), 1.0)]);
+                eprintln!("mouth {role}: {shape}, face bones {}", npc.has_face());
+            }
+            None => eprintln!("mouth: no creature with role {role}"),
+        }
     }
     if let (Some(role), Scene::Terrain(renderer)) = (&args.gesture, &mut scene) {
         let mut bank = skin::AnimBank::open(data_dir)?;
@@ -1030,6 +1053,9 @@ struct ViewerApp {
     volumes: [f32; 4],
     /// Animations, opened when first needed (gestures).
     anim_bank: Option<skin::AnimBank>,
+    /// A mouth moving to a voice: the creature, the line's id, its lip sync
+    /// track, and seconds since the voice began.
+    lip: Option<(usize, u32, fable_data::lipsync::LipSync, f32)>,
     /// Someone gesturing as they speak: the creature, the line's id, the
     /// gestures to pick from, and seconds since the line began; and a counter
     /// for picking.
@@ -1152,6 +1178,7 @@ impl ViewerApp {
             music: Default::default(),
             ambience: Default::default(),
             anim_bank: None,
+            lip: None,
             talking: None,
             conversation: 0.0,
             conversation_camera: None,
@@ -1853,11 +1880,61 @@ impl ViewerApp {
                 Some(sound) => {
                     self.subs.hold_for(sound.seconds() + 0.3);
                     audio.say(sound);
+                    // The speaker's mouth follows the voice's lip sync track.
+                    let track = self.voices.as_mut().and_then(|v| v.lipsync(id));
+                    self.stop_mouth();
+                    self.lip = self
+                        .subs
+                        .speaker()
+                        .zip(track)
+                        .map(|(who, track)| (who, id, track, 0.0));
                 }
                 None => audio.hush(),
             }
         } else if self.subs.line().is_none() {
             audio.hush();
+        }
+    }
+
+    /// Releases the mouth of whoever was speaking.
+    fn stop_mouth(&mut self) {
+        if let (Some((who, ..)), Scene::Terrain(renderer), Some(bank)) =
+            (self.lip.take(), &mut self.scene, &mut self.anim_bank)
+            && let Some(npc) = renderer.npcs.get_mut(who)
+        {
+            npc.mouth(bank, &[]);
+        }
+    }
+
+    /// Moves the speaker's mouth along their line's lip sync track, `dt`
+    /// seconds on; stops at its end or when the line goes.
+    fn move_mouth(&mut self, dt: f32) {
+        let Some((_, id, track, since)) = &mut self.lip else {
+            return;
+        };
+        let on_screen = self.subs.line().is_some_and(|(l, _)| l.id == *id);
+        *since += dt;
+        if !on_screen || *since > track.seconds() {
+            self.stop_mouth();
+            return;
+        }
+        let shapes: Vec<(String, f32)> = track
+            .weights_at(*since)
+            .into_iter()
+            .map(|(n, w)| (n.to_owned(), w))
+            .collect();
+        let who = self.lip.as_ref().map(|l| l.0);
+        if self.anim_bank.is_none() {
+            self.anim_bank = skin::AnimBank::open(&self.data_dir)
+                .map_err(|e| eprintln!("animations: {e}"))
+                .ok();
+        }
+        if let (Some(who), Scene::Terrain(renderer), Some(bank)) =
+            (who, &mut self.scene, &mut self.anim_bank)
+            && let Some(npc) = renderer.npcs.get_mut(who)
+        {
+            let shapes: Vec<(&str, f32)> = shapes.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            npc.mouth(bank, &shapes);
         }
     }
 
@@ -2070,6 +2147,7 @@ impl eframe::App for ViewerApp {
                     .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
                 self.speak();
                 self.gesture(ui.input(|i| i.stable_dt.min(0.1)));
+                self.move_mouth(ui.input(|i| i.stable_dt.min(0.1)));
                 self.frame_conversation(ui.input(|i| i.stable_dt.min(0.1)));
                 self.choose_highlight(ui.input(|i| i.time) as f32);
                 self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));

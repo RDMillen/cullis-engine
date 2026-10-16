@@ -11,7 +11,7 @@ Early, but the Prologue can be played through in the desktop viewer:
 - any region renders from the original data: textured terrain, sea, buildings and objects, doors, and creatures with their idle animations
 - the young Hero walks and runs through Oakvale with collision, a following camera, walkable building floors and bridge decks, doors to open, and region exits to the next region
 - the Prologue's quests: Theresa's birthday (good and bad deeds, gold, the Trader's sweets), the bandit raid's aftermath, and Maze taking the boy to the Heroes' Guild
-- conversations from the game's own text, spoken in the original voices and shown as subtitles with yes/no questions; speakers gesture as they talk, by the line's mood, and the camera frames the conversation between letterbox bars; whoever or whatever E would use glows green
+- conversations from the game's own text, spoken in the original voices and shown as subtitles with yes/no questions; speakers gesture as they talk, by the line's mood, their mouths move with the voice, and the camera frames the conversation between letterbox bars; whoever or whatever E would use glows green
 - each region's music, and ambience that follows where the Hero walks (village, shore, sea, river)
 
 Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, lighting and particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
@@ -92,6 +92,7 @@ Command-line options:
 | `--use` | After `--walk-to`, use the nearest door, then walk on |
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |
 | `--gesture ROLE` | Make the creature with this role (`NOVI_LiveFather`) start a conversation gesture, for screenshots with `--npc-time` |
+| `--mouth ROLE:SHAPE` | Hold that creature's mouth in a shape (`NOVI_LiveFather:AH`), for screenshots |
 | `--with-present` | Start the birthday quest with the sweets bought (to test the ending) |
 | `--anim NAME --anim-time T` | Pose the Hero with an animation |
 | `--nav`, `--ledges` | Draw the walkable area; print walk-grid ledges near the camera (diagnostics) |

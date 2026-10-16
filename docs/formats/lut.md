@@ -35,7 +35,17 @@ The WAVE files use format 0x69, Xbox ADPCM: mono, 22,050 Hz, 4 bits, 36-byte blo
 
 ## Lipsync (`lang/<language>/dialogue.big`)
 
-A BIG archive with banks `LIPSYNC_ENGLISH_MAIN`, `_MAIN_2`, `_SCRIPT`, `_SCRIPT_2`, one entry per sound named `<bank>_<id>` (`ScriptDialogue_112`). Each entry's sources are `["", "SPEAKER_FEMALE1"]` for every entry, and its 4-byte info is the sound's length in seconds (f32). Its data is a viseme timeline: a u32 count, then that many viseme names (`AH`, `EE`, `OH`, `SZ`), then keyframes (not decoded). Ids with no recording are entries named `<bank>_<id>[Empty]` with no data: 291 in `ScriptDialogue2`, matching the ids its `.lut` skips.
+A BIG archive with banks `LIPSYNC_ENGLISH_MAIN`, `_MAIN_2`, `_SCRIPT`, `_SCRIPT_2`, one entry per sound named `<bank>_<id>` (`ScriptDialogue_112`). Each entry's sources are `["", "SPEAKER_FEMALE1"]` for every entry, and its 4-byte info is the sound's length in seconds (f32). Its data (`fable_data::lipsync`) is a track of mouth shapes:
+
+```
+u32 count
+count x { u8 index, NUL-terminated name }   1 AH, 2 EE, 3 OH, 4 SZ
+u32 rate           frames per second: 43 in every entry
+u32 frames
+frames x { u8 n, n x (u8 shape index, u8 weight 0..=255) }
+```
+
+Frames run exactly to the end of the data, and every track lasts as long as its sound (real-data test). The shapes are played with single-frame animations `ANIM_<set>_PHONEME_<shape>` (shapes `AH`, `EE`, `OH`, `SZ`, `MM`, `WW`; sets `VILLAGER_MALE`, `VILLAGER_FEMALE`, `BIPED_BOY_01`, `BANDIT`, `BIPED_GENERIC_MAN`, `DEMON_DOOR`, `ORACLE_HEAD`): whole-body poses whose face bones (`Chin`, `Chin_tip`, `Top_lip_st`, `L_c_bone_1`, `R_c_bone_1`, cheeks, brows, eyelids: the bones below `Bip01 Head`) make each mouth shape. Ids with no recording are entries named `<bank>_<id>[Empty]` with no data: 291 in `ScriptDialogue2`, matching the ids its `.lut` skips.
 
 `Defs/RetailHeaders/*_lipsync.h` only number the sounds (`ScriptDialogue_1 = 1`).
 
