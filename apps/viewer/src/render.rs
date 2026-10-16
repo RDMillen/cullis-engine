@@ -34,6 +34,8 @@ struct Uniforms {
     grid: [f32; 4],
     /// x: world units per texture repeat.
     params: [f32; 4],
+    sun_colour: [f32; 4],
+    ambient: [f32; 4],
 }
 
 pub struct Target {
@@ -110,6 +112,12 @@ pub struct TerrainRenderer {
     pub hero_kick: Option<usize>,
     /// The region's music and ambience.
     pub soundscape: crate::soundscape::Soundscape,
+    /// The light now, the region's themes it comes from, and the sky; the
+    /// clear colour shows where there is no sky.
+    pub light: crate::lighting::Light,
+    pub lighting: Option<crate::lighting::Lighting>,
+    pub sky: Option<crate::sky::Sky>,
+    pub clear: wgpu::Color,
     /// What glows as usable (a creature or door) and its colour and strength,
     /// and where the camera is (for the glow's rim).
     pub highlight: Option<(Highlight, [f32; 4])>,
@@ -130,7 +138,7 @@ pub struct TerrainRenderer {
 }
 
 /// Creates a 2D array texture from per-layer mip chains of `LAYER_SIZE` images.
-fn layer_array(
+pub fn layer_array(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     label: &str,
@@ -420,6 +428,10 @@ impl TerrainRenderer {
             hero_animator: None,
             hero_kick: None,
             soundscape: Default::default(),
+            light: Default::default(),
+            lighting: None,
+            sky: None,
+            clear: SKY,
             highlight: None,
             eye: Vec3::ZERO,
             hero_animations: Default::default(),
@@ -440,6 +452,27 @@ impl TerrainRenderer {
         }
     }
 
+    /// Sets the light to the time of day `hour`, indoors while the Hero is in a
+    /// building.
+    pub fn set_hour(&mut self, hour: f32) {
+        let Some(lighting) = &self.lighting else {
+            return;
+        };
+        self.light = lighting.at(hour, self.inside.is_some());
+        // Without a sky (indoor themes), a dark background.
+        let shown = self.sky.as_ref().is_some_and(|s| s.shows(&self.light));
+        self.clear = if shown {
+            wgpu::Color::BLACK
+        } else {
+            wgpu::Color {
+                r: 0.01,
+                g: 0.01,
+                b: 0.012,
+                a: 1.0,
+            }
+        };
+    }
+
     /// Renders into the target texture, recreating it if the size changed.
     /// Returns true if the target was recreated.
     pub fn render(
@@ -455,19 +488,27 @@ impl TerrainRenderer {
             self.target = Some(create_target(device, size));
         }
         let target = self.target.as_ref().unwrap();
-        let sun = Vec3::new(-0.4, -0.5, 0.75).normalize();
+        let light = &self.light;
+        let [sr, sg, sb] = light.sun;
+        let [ar, ag, ab] = light.ambient;
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
-            sun: sun.extend(0.0).to_array(),
+            sun: light.sun_dir.extend(0.0).to_array(),
             grid: self.grid,
             params: [THEME_TILE, 0.0, 0.0, 0.0],
+            sun_colour: [sr, sg, sb, 0.0],
+            ambient: [ar, ag, ab, 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        let sky = self.sky.as_ref().filter(|s| s.shows(light));
+        if let Some(sky) = sky {
+            sky.prepare(queue, view_proj, self.eye, light);
+        }
         if let Some(things) = &self.things {
-            things.prepare(queue, view_proj);
+            things.prepare(queue, view_proj, light);
         }
         if let Some((hero, transform)) = &self.hero {
-            hero.prepare(queue, view_proj * *transform);
+            hero.prepare_placed(queue, view_proj, *transform, self.eye, [0.0; 4], light);
         }
         let glow = |what: Highlight| match self.highlight {
             Some((h, colour)) if h == what => colour,
@@ -481,6 +522,7 @@ impl TerrainRenderer {
                     npc.transform,
                     self.eye,
                     glow(Highlight::Npc(i)),
+                    light,
                 );
             }
         }
@@ -491,6 +533,7 @@ impl TerrainRenderer {
                 door.transform,
                 self.eye,
                 glow(Highlight::Door(i)),
+                light,
             );
         }
 
@@ -503,7 +546,7 @@ impl TerrainRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(SKY),
+                        load: wgpu::LoadOp::Clear(self.clear),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -517,6 +560,9 @@ impl TerrainRenderer {
                 }),
                 ..Default::default()
             });
+            if let Some(sky) = sky {
+                sky.draw(&mut pass);
+            }
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_pipeline(&self.terrain_pipeline);
             self.terrain.draw(&mut pass);

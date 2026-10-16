@@ -2,6 +2,15 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-16 (later): lighting
+
+- Light comes from environment themes (`ENVIRONMENT_THEME_DAY` definitions) and `LightingTable/lighting_colours.tga`, now read by `fable_data::environment` (`docs/formats/environment.md`). A region names its outdoor and indoor themes; a theme is keyframes by hour, each with sky textures, plus the first column of its run in the colour table, one column per keyframe and 21 colour rows. All 39 themes parse, and every theme's run is exactly as long as its keyframes (real-data test).
+- Field names found by hashing guesses with the definitions' CRC-32: `EnvironmentTheme`, `InternalEnvironmentTheme`, `Time`, `TimeOfDay`, `SkyTexture0/1`, `SunHeight`, `MoonHeight`, `MistAlpha`, `RainStrength`, `SnowStrength`, `LightningFrequency`, `ShadowFactor`, `GlowBloomScale`. The table's rows are not named; from how they change through the day, row 0 is taken as ambient, row 8 as the sun and row 9 as the sky's tint.
+- The viewer lights terrain and models with ambient plus sun (added in gamma space, as fixed-function lighting did), the sun moving east to west through the day. A sky pass draws the theme's sky textures (panoramas, blended between keyframes and tinted) behind everything. Inside a building the region's internal theme lights it. Oakvale after the raid uses `ENVIRONMENT_OV_POSTATTACK` (red and orange). The window has a time-of-day slider and a clock (a day in 24 minutes, a choice); `--hour` sets it for screenshots. Model lighting now turns the sun into each model's own space (it was used in world space before).
+- Checked in headless screenshots of Oakvale at 06:00, 10:00, 14:00, 19:00 and 23:00, after the raid and inside the Guild.
+- Not yet: clouds (two cloud textures per keyframe), placed lights (torches, `CLightDef`), the meaning of most table rows, and how the game maps its sky textures. After the raid the sky is nearly black: a dark texture under an orange tint, so the colour probably comes from the clouds.
+- Next: compare with the original at a few times of day; then clouds and placed lights.
+
 ## 2026-10-16 (later): lip sync
 
 - Ross asked whether mouths can move properly. They can: every voice sound has a lip sync track in `lang/English/dialogue.big` (`fable_data::lipsync`, documented in `docs/formats/lut.md`): mouth shapes (`AH`, `EE`, `OH`, `SZ`) with a weight each, 43 frames a second. Every track parses and lasts as long as its sound (real-data test).

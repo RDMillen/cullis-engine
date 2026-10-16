@@ -13,8 +13,9 @@ Early, but the Prologue can be played through in the desktop viewer:
 - the Prologue's quests: Theresa's birthday (good and bad deeds, gold, the Trader's sweets), the bandit raid's aftermath, and Maze taking the boy to the Heroes' Guild
 - conversations from the game's own text, spoken in the original voices and shown as subtitles with yes/no questions; speakers gesture as they talk, by the line's mood, their mouths move with the voice, and the camera frames the conversation between letterbox bars; whoever or whatever E would use glows green
 - each region's music, and ambience that follows where the Hero walks (village, shore, sea, river)
+- light and sky by time of day from the region's environment theme: dawn, day, dusk and night, warm light indoors, and the red glow over Oakvale after the raid
 
-Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, lighting and particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, clouds, torches and other placed lights, particles (fires), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 
 ## Crates
 
@@ -92,6 +93,7 @@ Command-line options:
 | `--use` | After `--walk-to`, use the nearest door, then walk on |
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |
 | `--gesture ROLE` | Make the creature with this role (`NOVI_LiveFather`) start a conversation gesture, for screenshots with `--npc-time` |
+| `--hour H` | Time of day for the screenshot (default 10); the window has a slider and a running clock |
 | `--mouth ROLE:SHAPE` | Hold that creature's mouth in a shape (`NOVI_LiveFather:AH`), for screenshots |
 | `--with-present` | Start the birthday quest with the sweets bought (to test the ending) |
 | `--anim NAME --anim-time T` | Pose the Hero with an animation |

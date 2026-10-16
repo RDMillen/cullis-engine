@@ -6,6 +6,9 @@ struct Uniforms {
     eye: vec4<f32>,
     // rgb: highlight colour; a: its strength (0: none).
     highlight: vec4<f32>,
+    // rgb: the sun's and the ambient light's colours (gamma space).
+    sun_colour: vec4<f32>,
+    ambient: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -33,7 +36,15 @@ fn vs_main(
     return out;
 }
 
-// Placeholder material: the main texture, alpha-tested, with simple sun lighting.
+// Light from the sun and the ambient light, added in gamma space and clamped as
+// old fixed-function lighting did, then made linear for the sRGB target.
+fn lit(n: vec3<f32>) -> vec3<f32> {
+    let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0);
+    let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
+    return pow(sum, vec3<f32>(2.2));
+}
+
+// Placeholder material: the main texture, alpha-tested, lit by the sun.
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(tex, samp, in.uv);
@@ -41,8 +52,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     let n = normalize(in.normal);
-    let light = 0.45 + 0.55 * abs(dot(n, normalize(u.sun.xyz)));
-    var rgb = c.rgb * light;
+    var rgb = c.rgb * lit(n);
     // The interaction highlight: a glow at the silhouette's edge and a faint tint.
     if u.highlight.a > 0.0 {
         let v = normalize(u.eye.xyz - in.local);

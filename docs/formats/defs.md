@@ -2,6 +2,8 @@
 
 `CompiledDefs/names.bin` and `CompiledDefs/game.bin`. Parser: `fable_data::defs`. All 14,761 definitions in `game.bin` load; every hash in `names.bin` matches its name; every placed building and object in every Tng names a definition, and 11,677 of 12,255 placements resolve to a mesh through its `Graphic` field (`tests/real_data.rs`).
 
+Environment themes and the region fields that choose them: [environment.md](environment.md).
+
 ## Name hash
 
 `fable_data::defs::name_hash`: the reflected CRC-32 polynomial (`0xedb88320`) with initial value 0 and no final inversion. Used for definition names and record field names (`Graphic` hashes to `0x2e6b63c8`).

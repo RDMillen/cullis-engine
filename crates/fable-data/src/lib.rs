@@ -11,6 +11,7 @@ pub mod big;
 pub mod bncfg;
 pub mod defs;
 pub mod dxt;
+pub mod environment;
 mod error;
 pub mod gtg;
 pub mod lev;

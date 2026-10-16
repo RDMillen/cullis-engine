@@ -31,7 +31,7 @@ The optional `u32` equals word 13 of the map's stb header. It is present in ever
 | 9 | 0 |
 | 10, 11, 12 | Theme slots. Every point in every map uses a listed slot |
 | 13, 14 | Weights of the first two themes; they add up to 255 at 99.5% of points |
-| 15–20 | Not decoded. Byte 15 is 0 or 1, byte 16 is always 1 |
+| 15–20 | Not decoded: flags. In StartOakValeWest bytes 15, 16, 19 and 20 are 0 or 1 and bytes 17 and 18 are always 0 (`examples/lev_bytes.rs` pictures them), so the grid holds no baked lighting or shadow |
 
 The 2048 scale is confirmed against the stb: across all 10,257 stb tiles, 10,253 tile bounding boxes contain all of the Lev heights under them, and 10,230 tile minimums equal the lowest Lev height exactly (within 0.01). The tiles whose maximum is higher than the terrain are mostly shorelines, where a water surface at about height 3 is part of the tile.
 

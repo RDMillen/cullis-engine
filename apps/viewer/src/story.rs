@@ -72,6 +72,14 @@ pub fn nearest_person(npcs: &[Npc], at: Vec2, reach: f32, facing: Option<Vec2>) 
         .map(|(i, _)| i)
 }
 
+/// The environment theme a quest state lights its region with, where it is
+/// not the region's own: Oakvale burns under `ENVIRONMENT_OV_POSTATTACK` after
+/// the raid.
+pub fn environment(region: &str, sections: &[String]) -> Option<&'static str> {
+    let after = sections.iter().any(|s| s == prologue::AFTER[0]);
+    (region == "StartOakVale" && after).then_some("ENVIRONMENT_OV_POSTATTACK")
+}
+
 impl Story {
     /// The quest played in this region and quest state, if any.
     pub fn for_region(region: &str, sections: &[String]) -> Option<Self> {

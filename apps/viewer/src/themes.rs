@@ -47,6 +47,24 @@ pub fn load(
     Ok(ThemeTextures { base, cliff })
 }
 
+/// Loads textures by id as array layers (missing ones grey).
+pub fn load_ids(data_dir: &Path, ids: &[u32]) -> Result<Vec<Mips>, Box<dyn std::error::Error>> {
+    let mut bank = TextureBank::open(data_dir)?;
+    Ok(ids
+        .iter()
+        .map(|&id| {
+            let level0 = match bank.load(id) {
+                Ok(img) => resample(&img, LAYER_SIZE),
+                Err(e) => {
+                    eprintln!("texture {id}: {e}");
+                    grey()
+                }
+            };
+            mips(level0, LAYER_SIZE)
+        })
+        .collect())
+}
+
 fn grey() -> Vec<u8> {
     [128u8, 128, 128, 255].repeat((LAYER_SIZE * LAYER_SIZE) as usize)
 }

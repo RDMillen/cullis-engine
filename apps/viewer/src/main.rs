@@ -11,10 +11,12 @@ mod camera;
 mod collide;
 mod conversation;
 mod door;
+mod lighting;
 mod model;
 mod npc;
 mod render;
 mod skin;
+mod sky;
 mod soundscape;
 mod story;
 mod talk;
@@ -67,6 +69,8 @@ struct Args {
     anim_time: f32,
     /// Advance the creatures this many seconds before the screenshot.
     npc_time: f32,
+    /// Time of day, in hours.
+    hour: f32,
     /// After walking (`--walk-to`), use the nearest door, then walk again.
     use_door: bool,
     /// After walking, talk to the nearest creature this many times, printing
@@ -98,6 +102,7 @@ fn parse_args() -> Result<Args, Error> {
         anim: None,
         anim_time: 0.0,
         npc_time: 0.0,
+        hour: DEFAULT_HOUR,
         use_door: false,
         talk: 0,
         with_present: false,
@@ -122,6 +127,7 @@ fn parse_args() -> Result<Args, Error> {
             }
             "--anim-time" => args.anim_time = value()?.parse()?,
             "--npc-time" => args.npc_time = value()?.parse()?,
+            "--hour" => args.hour = value()?.parse()?,
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
             "--with-present" => args.with_present = true,
@@ -159,6 +165,13 @@ fn parse_args() -> Result<Args, Error> {
     }
     Ok(args)
 }
+
+/// The time of day a region opens at: mid-morning (a choice, not the game's).
+const DEFAULT_HOUR: f32 = 10.0;
+
+/// Game hours that pass per real second while the clock runs: a day in 24
+/// minutes (a choice, not measured from the game).
+const CLOCK_RATE: f32 = 1.0 / 60.0;
 
 /// What is on screen: a region's terrain or a single mesh.
 enum Scene {
@@ -230,6 +243,26 @@ impl Scene {
                             .and_then(|m| m.file_name()),
                         renderer.soundscape.bank_names()
                     );
+                }
+                if let Some(r) = wld.region(name) {
+                    let outside = story::environment(name, sections);
+                    match lighting::Lighting::load(data_dir, &defs, &r.region_def, outside) {
+                        Ok(l) => {
+                            let ids = l.sky_textures();
+                            eprintln!(
+                                "lighting: {} (inside {:?}), sky textures {ids:?}",
+                                l.outside.0,
+                                l.inside.as_ref().map(|i| &i.0)
+                            );
+                            if !ids.is_empty() {
+                                let layers = themes::load_ids(data_dir, &ids)?;
+                                renderer.sky = Some(sky::Sky::new(device, queue, &ids, &layers));
+                            }
+                            renderer.lighting = Some(l);
+                        }
+                        Err(e) => eprintln!("lighting: {e}"),
+                    }
+                    renderer.set_hour(DEFAULT_HOUR);
                 }
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
@@ -601,6 +634,10 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         );
     }
     eprintln!("{subject:?}: {status}");
+    if let Scene::Terrain(renderer) = &mut scene {
+        renderer.eye = camera.eye();
+        renderer.set_hour(args.hour);
+    }
     scene.render(
         &device,
         &queue,
@@ -968,6 +1005,7 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                         };
                     }
                     app.want_walk = args.walk;
+                    app.hour = args.hour;
                     app.auto_walk = args
                         .walk_to
                         .map(|g| walk::Follow::new(glam::Vec2::from_array(g)));
@@ -1051,6 +1089,9 @@ struct ViewerApp {
     ambience: soundscape::Ambience,
     /// Volumes set in the side panel: overall, voices, music, ambience.
     volumes: [f32; 4],
+    /// Time of day in hours, and whether it moves on by itself.
+    hour: f32,
+    clock: bool,
     /// Animations, opened when first needed (gestures).
     anim_bank: Option<skin::AnimBank>,
     /// A mouth moving to a voice: the creature, the line's id, its lip sync
@@ -1183,6 +1224,8 @@ impl ViewerApp {
             conversation: 0.0,
             conversation_camera: None,
             gesture_picks: 0,
+            hour: DEFAULT_HOUR,
+            clock: false,
             volumes: [
                 1.0,
                 1.0,
@@ -1348,6 +1391,19 @@ impl ViewerApp {
         if let Scene::Terrain(renderer) = &mut self.scene {
             ui.checkbox(&mut renderer.show_nav, "Show navigation");
             ui.checkbox(&mut self.want_walk, "Walk (WASD, Shift runs)");
+            egui::CollapsingHeader::new("Time of day").show(ui, |ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.hour, 0.0..=23.99)
+                        .text("Hour")
+                        .custom_formatter(|h, _| {
+                            format!("{:02}:{:02}", h as u32, (h.fract() * 60.0) as u32)
+                        }),
+                );
+                ui.checkbox(&mut self.clock, "Clock runs (a day in 24 minutes)");
+                if let Some(l) = &renderer.lighting {
+                    ui.label(format!("Environment: {}", l.outside.0));
+                }
+            });
             if let Some(audio) = &self.audio {
                 egui::CollapsingHeader::new("Sound").show(ui, |ui| {
                     let labels = ["Overall", "Voices", "Music", "Ambience"];
@@ -2179,6 +2235,14 @@ impl eframe::App for ViewerApp {
                 let view_proj = self
                     .shown_camera()
                     .view_proj(rect.width() / rect.height().max(1.0));
+                let dt = ui.input(|i| i.stable_dt.min(0.1));
+                if self.clock {
+                    self.hour = (self.hour + dt * CLOCK_RATE).rem_euclid(24.0);
+                    ui.ctx().request_repaint();
+                }
+                if let Scene::Terrain(renderer) = &mut self.scene {
+                    renderer.set_hour(self.hour);
+                }
                 let recreated = self.scene.render(&rs.device, &rs.queue, size, view_proj);
                 let view = &self.scene.target().unwrap().color_view;
                 let mut egui_renderer = rs.renderer.write();

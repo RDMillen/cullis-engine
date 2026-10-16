@@ -13,6 +13,7 @@ use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE, Skeleton};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
 
+use crate::lighting::Light;
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT, SKY, Target, create_target};
 
 #[repr(C)]
@@ -633,6 +634,8 @@ struct Uniforms {
     sun: [f32; 4],
     eye: [f32; 4],
     highlight: [f32; 4],
+    sun_colour: [f32; 4],
+    ambient: [f32; 4],
 }
 
 pub struct ModelRenderer {
@@ -835,7 +838,7 @@ impl ModelRenderer {
             self.target = Some(create_target(device, size));
         }
         let target = self.target.as_ref().unwrap();
-        self.prepare(queue, view_proj);
+        self.prepare(queue, view_proj, &Light::default());
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -866,8 +869,8 @@ impl ModelRenderer {
     }
 
     /// Writes the uniforms for this frame; call before [`ModelRenderer::draw`].
-    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4) {
-        self.write(queue, view_proj, Vec3::ZERO, [0.0; 4]);
+    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, light: &Light) {
+        self.write(queue, view_proj, Vec3::ZERO, [0.0; 4], light, light.sun_dir);
     }
 
     /// As [`ModelRenderer::prepare`] for a model placed by `model`, seen from
@@ -880,18 +883,40 @@ impl ModelRenderer {
         model: Mat4,
         eye: Vec3,
         highlight: [f32; 4],
+        light: &Light,
     ) {
-        let local_eye = model.inverse().transform_point3(eye);
-        self.write(queue, view_proj * model, local_eye, highlight);
+        let inverse = model.inverse();
+        let local_eye = inverse.transform_point3(eye);
+        // Normals are in the model's own space: so is the sun.
+        let local_sun = inverse
+            .transform_vector3(light.sun_dir)
+            .normalize_or(light.sun_dir);
+        self.write(
+            queue,
+            view_proj * model,
+            local_eye,
+            highlight,
+            light,
+            local_sun,
+        );
     }
 
-    fn write(&self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3, highlight: [f32; 4]) {
-        let sun = Vec3::new(-0.4, -0.5, 0.75).normalize();
+    fn write(
+        &self,
+        queue: &wgpu::Queue,
+        view_proj: Mat4,
+        eye: Vec3,
+        highlight: [f32; 4],
+        light: &Light,
+        sun: Vec3,
+    ) {
         let uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             sun: sun.extend(0.0).to_array(),
             eye: eye.extend(1.0).to_array(),
             highlight,
+            sun_colour: [light.sun[0], light.sun[1], light.sun[2], 0.0],
+            ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }

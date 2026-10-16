@@ -1156,3 +1156,48 @@ fn lipsync_tracks_parse_and_last_as_long_as_their_sounds() {
     }
     assert!(tracks > 10_000, "{tracks} tracks");
 }
+
+#[test]
+#[ignore]
+fn environment_themes_parse_and_their_colours_fill_the_table() {
+    use fable_data::defs::{Defs, Names};
+    use fable_data::environment::{Environment, LightingTable};
+    let dir = data_dir().join("CompiledDefs");
+    let names = Names::parse(&std::fs::read(dir.join("names.bin")).unwrap()).unwrap();
+    let defs = Defs::parse(&std::fs::read(dir.join("game.bin")).unwrap(), &names).unwrap();
+    let table = LightingTable::parse(
+        &std::fs::read(data_dir().join("LightingTable/lighting_colours.tga")).unwrap(),
+    )
+    .unwrap();
+    let mut themes = 0;
+    for d in defs
+        .defs
+        .iter()
+        .filter(|d| defs.type_name(d) == "ENVIRONMENT_THEME_DAY")
+    {
+        let name = d.name.as_deref().unwrap_or("?");
+        let env = Environment::parse(&d.record).unwrap_or_else(|e| panic!("{name}: {e}"));
+        if env.keyframes.is_empty() {
+            continue; // The null definition.
+        }
+        themes += 1;
+        // Keyframes run through the day in order.
+        assert!(
+            env.keyframes.windows(2).all(|w| w[0].hour < w[1].hour),
+            "{name}: hours out of order"
+        );
+        // Each keyframe has a column: the first row is filled in every one,
+        // and the column after the last belongs to no keyframe (a gap or the
+        // next theme's start, never this theme's).
+        let base = env
+            .table_index()
+            .unwrap_or_else(|| panic!("{name}: no table index"));
+        for k in 0..env.keyframes.len() {
+            assert!(
+                table.colour(base + k, 0).is_some(),
+                "{name}: keyframe {k} has no colour"
+            );
+        }
+    }
+    assert!(themes > 30, "{themes} themes");
+}

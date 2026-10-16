@@ -6,6 +6,9 @@ struct Uniforms {
     grid: vec4<f32>,
     // x: world units per texture repeat.
     params: vec4<f32>,
+    // rgb: the sun's and the ambient light's colours (gamma space).
+    sun_colour: vec4<f32>,
+    ambient: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -49,6 +52,13 @@ fn add_point(acc: Blend, p: vec2<i32>, weight: f32, uv: vec2<f32>, cliff_uv: vec
     return out;
 }
 
+// Light from the sun and the ambient light, as in model.wgsl.
+fn lit(n: vec3<f32>) -> vec3<f32> {
+    let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0);
+    let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
+    return pow(sum, vec3<f32>(2.2));
+}
+
 // Theme textures blended bilinearly between grid points, ground fading to cliff on
 // steep slopes, lit by the sun.
 @fragment
@@ -70,15 +80,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     b = add_point(b, p + vec2<i32>(0, 1), (1.0 - f.x) * f.y, uv, cliff_uv);
     b = add_point(b, p + vec2<i32>(1, 1), f.x * f.y, uv, cliff_uv);
     let albedo = mix(b.cliff, b.base, smoothstep(0.55, 0.8, n.z));
-    let light = 0.35 + 0.65 * max(dot(n, normalize(u.sun.xyz)), 0.0);
-    return vec4<f32>(albedo * light, 1.0);
+    return vec4<f32>(albedo * lit(n), 1.0);
 }
 
 // Flat placeholder sea: translucent, slightly lit so it reads as a surface.
 @fragment
 fn fs_water(in: VsOut) -> @location(0) vec4<f32> {
-    let light = 0.6 + 0.4 * max(dot(normalize(in.normal), normalize(u.sun.xyz)), 0.0);
-    return vec4<f32>(vec3<f32>(0.10, 0.32, 0.45) * light, 0.8);
+    let light = lit(normalize(in.normal)) * 0.6 + pow(u.ambient.rgb, vec3<f32>(2.2)) * 0.4;
+    return vec4<f32>(vec3<f32>(0.10, 0.32, 0.45) * light * 1.6, 0.8);
 }
 
 // Navigation overlay: flat colour carried in the normal attribute, translucent.
