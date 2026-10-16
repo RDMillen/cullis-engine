@@ -45,7 +45,14 @@ impl LipSync {
         for _ in 0..frame_count {
             let [n] = r.array()?;
             let pairs = r.bytes(2 * usize::from(n))?;
-            frames.push(pairs.chunks_exact(2).map(|p| (p[0], p[1])).collect());
+            frames.push(
+                pairs
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&[a, b]| (a, b))
+                    .collect(),
+            );
         }
         if r.pos() != data.len() {
             return Err(Error::Invalid {
