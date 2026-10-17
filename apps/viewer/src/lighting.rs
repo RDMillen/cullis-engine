@@ -26,8 +26,9 @@ pub struct Light {
     pub brightness: f32,
 }
 
-/// The default brightness, by eye.
-pub const BRIGHTNESS: f32 = 1.6;
+/// The default brightness: Ross compared with the original and found 2.0 to
+/// 2.25 about right.
+pub const BRIGHTNESS: f32 = 2.1;
 
 impl Default for Light {
     /// The look before lighting: a fixed sun and grey light, a plain sky.

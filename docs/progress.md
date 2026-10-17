@@ -4,6 +4,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-17: brighter light
 
+- Ross compared the slider with the original: 2.0–2.25 looks right, so the default is now 2.1.
+
 - Ross found all the lighting too dark, even at noon. With the table's colours added and capped at 1, a sunlit surface showed its bare texture and everything facing away dropped to the ambient level (about 60% at noon). The light is now scaled by a brightness factor before going linear, so it can go past 1 (overbright, as was common in engines of the time; the dim noon ambient suggests it): 1.6 by default, by eye, with a slider in the Time of day panel and `--brightness` for screenshots. Measured on a noon screenshot, walls went from 137 to about 200 (of 255) and ground from 54 to about 90. Interior window light went back to half strength, since the factor lifts it too.
 - Note for screenshot checks: ffmpeg's side-by-side images can look the same when the inputs differ; compare single images or measure pixels.
 
