@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17 (later): indoor and outdoor light, nights, night ambience
+
+- Light by surface: the whole world used to switch to the indoor theme while the Hero was inside, so the street seen through doors and windows lost its daylight. Now the renderer keeps an outdoor and an indoor light every frame. A building's interior meshes, plain meshes whose centre is inside its interior box (furniture, lamps) and creatures (and doors) standing inside take the indoor light, through a second uniform buffer the placed model switches to per draw; everything else takes the outdoor light. Sun shadows stay on wherever the Hero is (models lit indoors still cast them).
+- Nights lifted by up to 30% as the sun's light fades (`NIGHT_LIFT`, by eye); noon unchanged.
+- Ambience: banks kept only their day records, so birdsong played at night. Records are now played by their group (1 day, 2 night; in `country.met` the garden bed and 106 bird calls, or a night loop and 15 `NightCreature` calls), switching beds as day turns to night. Indoors the beds ease down to 30% and no spot sounds play. Checked in the window: `country` by night at 23:00, by day at 11:00.
+- Not yet: the flames themselves (particles).
+
 ## 2026-10-17 (later): placed lights
 
 - Lamps, fires and light markers carry a `CLightDef` component, now read by `fable_data::light` (`docs/formats/defs.md`): `Colour`, `InnerRadius`, `OuterRadius`, `Flicker`, `FlickerSpeed`, `SunlightAttenuator`, `DaylightAttenuator` (names found by hashing guesses), a channel (internal 0, external 2, both 3) and undecoded fields. All 81 parse (real-data test). Placed things switch them with `CTCLight` (`Active`) and may override colour, radii and flicker.

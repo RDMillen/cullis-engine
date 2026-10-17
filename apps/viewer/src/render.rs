@@ -18,6 +18,10 @@ pub const THEME_TILE: f32 = 12.0;
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// How much brighter nights are made than the table's colours (by eye: they
+/// read about 30% too dark against the original).
+const NIGHT_LIFT: f32 = 0.3;
+
 /// How dark sun shadows are: the share of the sun's light they take away.
 const SHADOW_STRENGTH: f32 = 1.0;
 
@@ -122,6 +126,9 @@ pub struct TerrainRenderer {
     /// The light now, the region's themes it comes from, and the sky; the
     /// clear colour shows where there is no sky.
     pub light: crate::lighting::Light,
+    /// The light inside buildings: their interior meshes, what stands in them,
+    /// and creatures there.
+    pub indoor_light: crate::lighting::Light,
     pub lighting: Option<crate::lighting::Lighting>,
     pub sky: Option<crate::sky::Sky>,
     pub clear: wgpu::Color,
@@ -512,6 +519,7 @@ impl TerrainRenderer {
             hero_kick: None,
             soundscape: Default::default(),
             light: Default::default(),
+            indoor_light: Default::default(),
             lighting: None,
             sky: None,
             clear: SKY,
@@ -548,9 +556,15 @@ impl TerrainRenderer {
         let Some(lighting) = &self.lighting else {
             return;
         };
-        self.light = lighting.at(hour, self.inside.is_some());
-        self.light.brightness = brightness;
-        self.light.highlight_limit = highlight_limit;
+        self.light = lighting.at(hour, false);
+        self.indoor_light = lighting.at(hour, true);
+        // Nights lifted by up to NIGHT_LIFT as the sun's light fades (by eye).
+        let sun = self.light.sun.iter().sum::<f32>() / 3.0;
+        let night = 1.0 - ((sun - 0.15) / 0.5).clamp(0.0, 1.0);
+        for light in [&mut self.light, &mut self.indoor_light] {
+            light.brightness = brightness * (1.0 + NIGHT_LIFT * night);
+            light.highlight_limit = highlight_limit;
+        }
         // Without a sky (indoor themes), a dark background.
         let shown = self.sky.as_ref().is_some_and(|s| s.shows(&self.light));
         self.clear = if shown {
@@ -581,24 +595,20 @@ impl TerrainRenderer {
         }
         let target = self.target.as_ref().unwrap();
         // Shadows outdoors, where the sun is up enough to cast them.
-        let outdoors = self.inside.is_none() && self.light.sun.iter().any(|&c| c > 0.15);
-        if outdoors {
-            self.light.shadow_proj = crate::shadow::view_proj(self.light.sun_dir, self.focus);
-            self.light.shadow = [
-                SHADOW_STRENGTH,
-                1.0 / crate::shadow::SIZE as f32,
-                0.0004,
-                0.0,
-            ];
-        } else {
-            self.light.shadow = [0.0; 4];
+        // Sun shadows outdoors whenever the sun is up enough to cast them,
+        // wherever the Hero is. Indoor light keeps the sun's view (so models
+        // lit indoors still cast shadows) at no strength.
+        let sun_up = self.light.sun.iter().any(|&c| c > 0.15);
+        self.light.shadow_proj = crate::shadow::view_proj(self.light.sun_dir, self.focus);
+        let texel = 1.0 / crate::shadow::SIZE as f32;
+        let strength = if sun_up { SHADOW_STRENGTH } else { 0.0 };
+        self.light.shadow = [strength, texel, 0.0004, 0.0];
+        self.indoor_light.shadow_proj = self.light.shadow_proj;
+        self.indoor_light.shadow = [0.0, texel, 0.0004, 0.0];
+        let time = self.started.elapsed().as_secs_f32();
+        for light in [&mut self.light, &mut self.indoor_light] {
+            crate::lighting::set_points(light, &self.point_lights, self.focus, time);
         }
-        crate::lighting::set_points(
-            &mut self.light,
-            &self.point_lights,
-            self.focus,
-            self.started.elapsed().as_secs_f32(),
-        );
         let light = &self.light;
         let [sr, sg, sb] = light.sun;
         let [ar, ag, ab] = light.ambient;
@@ -615,7 +625,7 @@ impl TerrainRenderer {
             point_count: [light.point_count as f32, 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
-        let shadowed = light.shadow[0] > 0.0;
+        let shadowed = sun_up;
         if shadowed {
             let mut from_sun = uniforms;
             from_sun.view_proj = light.shadow_proj.to_cols_array_2d();
@@ -627,9 +637,26 @@ impl TerrainRenderer {
         }
         if let Some(things) = &self.things {
             things.prepare(queue, view_proj, light);
+            things.prepare_indoor(queue, view_proj, &self.indoor_light);
         }
+        // Creatures and doors take the indoor light while inside a building.
+        let light_at = |transform: &Mat4| {
+            let p = transform.w_axis.truncate();
+            if self.buildings.iter().any(|b| b.contains(p)) {
+                &self.indoor_light
+            } else {
+                light
+            }
+        };
         if let Some((hero, transform)) = &self.hero {
-            hero.prepare_placed(queue, view_proj, *transform, self.eye, [0.0; 4], light);
+            hero.prepare_placed(
+                queue,
+                view_proj,
+                *transform,
+                self.eye,
+                [0.0; 4],
+                light_at(transform),
+            );
         }
         let glow = |what: Highlight| match self.highlight {
             Some((h, colour)) if h == what => colour,
@@ -643,7 +670,7 @@ impl TerrainRenderer {
                     npc.transform,
                     self.eye,
                     glow(Highlight::Npc(i)),
-                    light,
+                    light_at(&npc.transform),
                 );
             }
         }
@@ -654,7 +681,7 @@ impl TerrainRenderer {
                 door.transform,
                 self.eye,
                 glow(Highlight::Door(i)),
-                light,
+                light_at(&door.transform),
             );
         }
 

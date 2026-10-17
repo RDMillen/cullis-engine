@@ -504,6 +504,8 @@ pub fn load_placements(
     let mut builder = ModelBuilder::open(data_dir, name)?;
     let mut buildings: HashMap<u64, Building> = HashMap::new();
     let mut placed = 0;
+    // Plain meshes' draws and centres, to find those standing indoors.
+    let mut plain: Vec<(std::ops::Range<usize>, Vec3)> = Vec::new();
     for p in placements {
         let (draws, vertices) = (builder.model.draws.len(), builder.model.vertices.len());
         if !builder.add(p.mesh, p.transform()) {
@@ -511,8 +513,18 @@ pub fn load_placements(
         }
         placed += 1;
         let added = &builder.model.vertices[vertices..];
+        let drawn = draws..builder.model.draws.len();
         match p.role {
-            MeshRole::Plain => {}
+            MeshRole::Plain => {
+                let (lo, hi) = added.iter().fold(
+                    (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                    |(lo, hi), v| {
+                        let v = Vec3::from_array(v.position);
+                        (lo.min(v), hi.max(v))
+                    },
+                );
+                plain.push((drawn, (lo + hi) * 0.5));
+            }
             MeshRole::Exterior(uid) => {
                 let b = buildings.entry(uid).or_default();
                 for (i, d) in builder.model.draws.iter().enumerate().skip(draws) {
@@ -524,6 +536,7 @@ pub fn load_placements(
             }
             MeshRole::Interior(uid) => {
                 let b = buildings.entry(uid).or_default();
+                b.indoor_draws.extend(drawn);
                 for v in added {
                     let v = Vec3::from_array(v.position);
                     b.interior_lo = b.interior_lo.min(v);
@@ -540,10 +553,16 @@ pub fn load_placements(
         "{name}: placed {placed} of {} meshes, and {created} they create",
         placements.len()
     );
-    let buildings = buildings
+    let mut buildings: Vec<Building> = buildings
         .into_values()
         .filter(|b| !b.roof_draws.is_empty() && b.interior_lo.x <= b.interior_hi.x)
         .collect();
+    // Furniture and lamps inside a building are lit as its interior.
+    for (drawn, centre) in plain {
+        if let Some(b) = buildings.iter_mut().find(|b| b.contains(centre)) {
+            b.indoor_draws.extend(drawn);
+        }
+    }
     Ok((builder.finish(), buildings))
 }
 
@@ -559,11 +578,14 @@ pub struct Building {
     pub roof_triangles: Vec<std::ops::Range<u32>>,
     pub interior_lo: Vec3,
     pub interior_hi: Vec3,
+    /// Draws lit as indoors: the interior meshes and what stands inside.
+    pub indoor_draws: Vec<usize>,
 }
 
 impl Default for Building {
     fn default() -> Self {
         Self {
+            indoor_draws: Vec::new(),
             roof_draws: Vec::new(),
             roof_triangles: Vec::new(),
             interior_lo: Vec3::splat(f32::INFINITY),
@@ -578,6 +600,38 @@ impl Building {
         let margin = Vec3::new(0.3, 0.3, 0.0);
         let (lo, hi) = (self.interior_lo + margin, self.interior_hi - margin);
         p.x > lo.x && p.y > lo.y && p.x < hi.x && p.y < hi.y && p.z > lo.z - 1.0 && p.z < hi.z
+    }
+}
+
+/// The uniforms for a model placed by `model` (`view_proj` already includes
+/// it), seen from `eye` in the model's own space, lit by `light`.
+fn uniforms(
+    view_proj: Mat4,
+    model: Mat4,
+    eye: Vec3,
+    highlight: [f32; 4],
+    light: &Light,
+) -> Uniforms {
+    // Normals are in the model's own space: so is the sun.
+    let sun = model
+        .inverse()
+        .transform_vector3(light.sun_dir)
+        .normalize_or(light.sun_dir);
+    let shadow_proj = light.shadow_proj * model;
+    let [sr, sg, sb] = light.sun;
+    let [ar, ag, ab] = light.ambient;
+    Uniforms {
+        view_proj: view_proj.to_cols_array_2d(),
+        sun: sun.extend(0.0).to_array(),
+        eye: eye.extend(1.0).to_array(),
+        highlight,
+        sun_colour: [sr, sg, sb, light.highlight_limit],
+        ambient: [ar, ag, ab, light.brightness],
+        shadow_proj: shadow_proj.to_cols_array_2d(),
+        shadow: light.shadow,
+        model: model.to_cols_array_2d(),
+        points: light.points,
+        point_count: [light.point_count as f32, 0.0, 0.0, 0.0],
     }
 }
 
@@ -659,6 +713,10 @@ pub struct ModelRenderer {
     draws: Vec<(u32, u32, usize)>,
     /// Draws skipped (an exterior hidden while the Hero is inside).
     hidden: Vec<usize>,
+    /// Per draw, whether it is lit as indoors, by the indoor uniforms.
+    indoor: Vec<bool>,
+    indoor_uniforms: wgpu::Buffer,
+    indoor_group: wgpu::BindGroup,
     pub target: Option<Target>,
 }
 
@@ -716,6 +774,20 @@ impl ModelRenderer {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniforms.as_entire_binding(),
+            }],
+        });
+        let indoor_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model indoor uniforms"),
+            size: size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let indoor_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("model indoor uniforms"),
+            layout: &uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: indoor_uniforms.as_entire_binding(),
             }],
         });
         let shadow_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
@@ -884,6 +956,9 @@ impl ModelRenderer {
                 .map(|d| (d.first, d.count, d.image))
                 .collect(),
             hidden: Vec::new(),
+            indoor: Vec::new(),
+            indoor_uniforms,
+            indoor_group,
             target: None,
         }
     }
@@ -962,6 +1037,20 @@ impl ModelRenderer {
         self.write(queue, view_proj * model, model, local_eye, highlight, light);
     }
 
+    /// Writes the light for this model's indoor draws (see
+    /// [`ModelRenderer::set_indoor`]); call after the outdoor `prepare`.
+    pub fn prepare_indoor(&self, queue: &wgpu::Queue, view_proj: Mat4, light: &Light) {
+        if self.indoor.iter().any(|&i| i) {
+            let uniforms = uniforms(view_proj, Mat4::IDENTITY, Vec3::ZERO, [0.0; 4], light);
+            queue.write_buffer(&self.indoor_uniforms, 0, bytemuck::bytes_of(&uniforms));
+        }
+    }
+
+    /// Marks the draws lit as indoors (empty for none).
+    pub fn set_indoor(&mut self, draws: &[usize]) {
+        self.indoor = (0..self.draws.len()).map(|i| draws.contains(&i)).collect();
+    }
+
     fn write(
         &self,
         queue: &wgpu::Queue,
@@ -971,39 +1060,12 @@ impl ModelRenderer {
         highlight: [f32; 4],
         light: &Light,
     ) {
-        // Normals are in the model's own space: so is the sun.
-        let sun = model
-            .inverse()
-            .transform_vector3(light.sun_dir)
-            .normalize_or(light.sun_dir);
-        let shadow_proj = light.shadow_proj * model;
-        let mut uniforms = Uniforms {
-            view_proj: view_proj.to_cols_array_2d(),
-            sun: sun.extend(0.0).to_array(),
-            eye: eye.extend(1.0).to_array(),
-            highlight,
-            sun_colour: [
-                light.sun[0],
-                light.sun[1],
-                light.sun[2],
-                light.highlight_limit,
-            ],
-            ambient: [
-                light.ambient[0],
-                light.ambient[1],
-                light.ambient[2],
-                light.brightness,
-            ],
-            shadow_proj: shadow_proj.to_cols_array_2d(),
-            shadow: light.shadow,
-            model: model.to_cols_array_2d(),
-            points: light.points,
-            point_count: [light.point_count as f32, 0.0, 0.0, 0.0],
-        };
+        let mut uniforms = uniforms(view_proj, model, eye, highlight, light);
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
-        if light.shadow[0] > 0.0 {
-            // The shadow pass sees the model from the sun.
-            uniforms.view_proj = shadow_proj.to_cols_array_2d();
+        if light.shadow[1] > 0.0 {
+            // The shadow pass sees the model from the sun (even when lit
+            // indoors, so it casts its shadow where it stands).
+            uniforms.view_proj = uniforms.shadow_proj;
             queue.write_buffer(&self.shadow_uniforms, 0, bytemuck::bytes_of(&uniforms));
         }
     }
@@ -1014,9 +1076,20 @@ impl ModelRenderer {
         pass.set_bind_group(0, &self.uniform_group, &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        let mut indoor = false;
         for (i, &(first, count, image)) in self.draws.iter().enumerate() {
             if self.hidden.contains(&i) {
                 continue;
+            }
+            let here = self.indoor.get(i).copied().unwrap_or(false);
+            if here != indoor {
+                let group = if here {
+                    &self.indoor_group
+                } else {
+                    &self.uniform_group
+                };
+                pass.set_bind_group(0, group, &[]);
+                indoor = here;
             }
             pass.set_bind_group(1, &self.texture_groups[image], &[]);
             pass.draw_indexed(first..first + count, 0, 0..1);

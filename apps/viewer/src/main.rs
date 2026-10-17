@@ -300,6 +300,15 @@ impl Scene {
                 );
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
+                    // Interiors and what stands in them take the indoor light.
+                    let indoor: Vec<usize> = renderer
+                        .buildings
+                        .iter()
+                        .flat_map(|b| b.indoor_draws.iter().copied())
+                        .collect();
+                    if let Some(things) = &mut renderer.things {
+                        things.set_indoor(&indoor);
+                    }
                     renderer.npcs = npc::load(data_dir, device, queue, &mesh.creatures);
                     renderer.doors = door::load(data_dir, device, queue, &mesh.doors);
                     eprintln!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
@@ -1780,21 +1789,26 @@ impl ViewerApp {
         if self.loading.is_some() {
             return;
         }
-        let (music, bank) = match (&self.scene, false) {
-            (Scene::Terrain(r), false) => {
+        let (music, bank, night, indoors) = match &self.scene {
+            Scene::Terrain(r) => {
                 let at = self
                     .walker
                     .as_ref()
                     .map_or(self.camera.target.truncate(), |h| h.position.truncate());
+                // Night when the sun's light is low (as the lighting reckons it).
+                let sun = r.light.sun.iter().sum::<f32>() / 3.0;
                 (
                     r.soundscape.music.clone(),
                     r.soundscape.bank_at(at).cloned(),
+                    r.lighting.is_some() && sun < 0.3,
+                    r.inside.is_some(),
                 )
             }
-            _ => (None, None),
+            Scene::Model(_) => (None, None, false, false),
         };
         self.music.update(music.as_deref(), audio);
-        self.ambience.update(dt, bank.as_deref(), audio);
+        self.ambience
+            .update(dt, bank.as_deref(), night, indoors, audio);
     }
 
     /// Picks what glows as usable: whoever E would talk to (someone the quest

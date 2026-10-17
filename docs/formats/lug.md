@@ -50,6 +50,8 @@ count x playback:
                    (Lost_Bay.met: record 4 has 6, record 9 has 13 of 10)
 ```
 
+The groups hold what their names suggest: in `country.met` group 1 is the `garden.wav` bed and 106 bird calls, group 2 the `nightloop4.wav` bed and 15 `NightCreature_*` calls (`examples/lug_plays.rs` lists a bank's records by group). The viewer plays a bank's day records by day and its night records at night (when the sun's light is low), crossfading the beds as day turns to night, and indoors eases the beds down to 30% and plays no spot sounds (by eye; how the game treats interiors is not known).
+
 `Northern_Waste_Archons_Shrine.met` plays `mm_wind_lost_bay.wav` twice, by day at 50% and by night at 40%.
 
 ## How the viewer plays it (stand-in)

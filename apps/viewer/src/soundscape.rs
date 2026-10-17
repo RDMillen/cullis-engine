@@ -164,11 +164,43 @@ impl Music {
 }
 
 /// A decoded ambient bank: looping beds with their volumes, and spot sounds
-/// with their weights and volumes.
+/// with their weights and volumes, each with when it plays.
 struct Bank {
-    beds: Vec<(Sound, f32)>,
-    spots: Vec<(Sound, u32, f32)>,
+    beds: Vec<(Sound, f32, When)>,
+    spots: Vec<(Sound, u32, f32, When)>,
 }
+
+/// When a playback record plays, from its group: 1 by day, 2 at night, else
+/// always.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum When {
+    Day,
+    Night,
+    Always,
+}
+
+impl When {
+    fn of(group: u16) -> Self {
+        match group {
+            1 => When::Day,
+            2 => When::Night,
+            _ => When::Always,
+        }
+    }
+
+    fn now(self, night: bool) -> bool {
+        match self {
+            When::Day => !night,
+            When::Night => night,
+            When::Always => true,
+        }
+    }
+}
+
+/// How loud the outdoor ambience is indoors (by eye), and how fast it eases
+/// there and back (per second).
+const INDOOR_AMBIENCE: f32 = 0.3;
+const MUFFLE_RATE: f32 = 1.5;
 
 fn load_bank(met: &Path) -> Result<Bank, String> {
     let bank = AmbientBank::parse_met(&std::fs::read(met).map_err(|e| e.to_string())?)
@@ -180,10 +212,7 @@ fn load_bank(met: &Path) -> Result<Bank, String> {
     };
     let mut decoded: HashMap<u32, Sound> = HashMap::new();
     for play in &bank.plays {
-        // Day sounds only for now (group 2 is night).
-        if play.group == 2 {
-            continue;
-        }
+        let when = When::of(play.group);
         let sound = match decoded.get(&play.sound) {
             Some(s) => s.clone(),
             None => {
@@ -200,9 +229,9 @@ fn load_bank(met: &Path) -> Result<Bank, String> {
         };
         let volume = f32::from(play.volume) / 100.0;
         if play.repeats >= 9999 {
-            out.beds.push((sound, volume));
+            out.beds.push((sound, volume, when));
         } else {
-            out.spots.push((sound, play.frequency.max(1), volume));
+            out.spots.push((sound, play.frequency.max(1), volume, when));
         }
     }
     Ok(out)
@@ -211,10 +240,14 @@ fn load_bank(met: &Path) -> Result<Bank, String> {
 /// Plays the ambience of the block the Hero is in.
 #[derive(Default)]
 pub struct Ambience {
-    current: Option<PathBuf>,
+    /// The bank playing, and whether its night sounds are.
+    current: Option<(PathBuf, bool)>,
     /// A different bank wanted, and for how long.
     wanting: Option<(PathBuf, f32)>,
-    beds: Vec<SoundId>,
+    /// The beds playing and their own volumes, and how loud the ambience is
+    /// now (1 outdoors, easing to [`INDOOR_AMBIENCE`] indoors).
+    beds: Vec<(SoundId, f32)>,
+    muffle: f32,
     loaded: HashMap<PathBuf, Arc<Bank>>,
     pending: HashMap<PathBuf, Receiver<Result<Bank, String>>>,
     /// Seconds to the next spot sound.
@@ -231,8 +264,16 @@ impl Ambience {
         (self.rng >> 40) as f32 / (1u64 << 24) as f32
     }
 
-    /// Advances `dt` seconds with `wanted` the bank to play (None: silence).
-    pub fn update(&mut self, dt: f32, wanted: Option<&Path>, audio: &Audio) {
+    /// Advances `dt` seconds with `wanted` the bank to play (None: silence),
+    /// its night or day sounds, quieter `indoors`.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        wanted: Option<&Path>,
+        night: bool,
+        indoors: bool,
+        audio: &Audio,
+    ) {
         // Banks that finished loading.
         let done: Vec<PathBuf> = self
             .pending
@@ -260,7 +301,7 @@ impl Ambience {
             self.pending.remove(&p);
         }
         let Some(path) = wanted else {
-            self.switch(None, audio);
+            self.switch(None, false, audio);
             return;
         };
         let Some(bank) = self.loaded.get(path).cloned() else {
@@ -274,7 +315,21 @@ impl Ambience {
             }
             return;
         };
-        if self.current.as_deref() != Some(path) {
+        // Indoors the outdoor ambience eases down, and back outside.
+        let target = if indoors { INDOOR_AMBIENCE } else { 1.0 };
+        let step = MUFFLE_RATE * dt;
+        let muffle = self.muffle + (target - self.muffle).clamp(-step, step);
+        if muffle != self.muffle {
+            self.muffle = muffle;
+            for &(id, volume) in &self.beds {
+                audio.set_sound_volume(id, volume * muffle);
+            }
+        }
+        let current_path = self.current.as_ref().map(|(p, _)| p.as_path());
+        if current_path == Some(path) && self.current.as_ref().is_some_and(|c| c.1 != night) {
+            // Day turned to night or back: the other beds.
+            self.switch(Some((path, &bank)), night, audio);
+        } else if current_path != Some(path) {
             // Switch at once into silence; else once the new bank has been
             // wanted for a moment.
             let waited = match &mut self.wanting {
@@ -289,19 +344,21 @@ impl Ambience {
             };
             if self.current.is_none() || waited >= AMBIENCE_SETTLE {
                 self.wanting = None;
-                self.switch(Some((path, &bank)), audio);
+                self.switch(Some((path, &bank)), night, audio);
             }
         } else {
             self.wanting = None;
         }
-        // Now and then a spot sound, picked by weight, somewhere to the side.
+        // Now and then a spot sound of the time of day, picked by weight,
+        // somewhere to the side; none indoors.
         self.next_spot -= dt;
         if self.next_spot <= 0.0 {
             self.next_spot = 1.5 + 4.5 * self.random();
-            let total: u32 = bank.spots.iter().map(|s| s.1).sum();
-            if total > 0 {
+            let spots: Vec<_> = bank.spots.iter().filter(|s| s.3.now(night)).collect();
+            let total: u32 = spots.iter().map(|s| s.1).sum();
+            if total > 0 && !indoors {
                 let mut pick = (self.random() * total as f32) as u32;
-                let chosen = bank.spots.iter().find(|s| {
+                let chosen = spots.iter().find(|s| {
                     if pick < s.1 {
                         true
                     } else {
@@ -309,7 +366,7 @@ impl Ambience {
                         false
                     }
                 });
-                if let Some((sound, _, volume)) = chosen {
+                if let Some((sound, _, volume, _)) = chosen {
                     let settings = Settings {
                         volume: volume * (0.5 + 0.5 * self.random()),
                         pan: self.random() * 1.6 - 0.8,
@@ -321,32 +378,45 @@ impl Ambience {
         }
     }
 
-    /// Stops the beds playing and starts `to`'s.
-    fn switch(&mut self, to: Option<(&Path, &Bank)>, audio: &Audio) {
-        for id in self.beds.drain(..) {
+    /// Stops the beds playing and starts `to`'s for the time of day.
+    fn switch(&mut self, to: Option<(&Path, &Bank)>, night: bool, audio: &Audio) {
+        for (id, _) in self.beds.drain(..) {
             audio.fade_out(id, BED_FADE);
         }
-        self.current = to.map(|(p, _)| p.to_owned());
+        self.current = to.map(|(p, _)| (p.to_owned(), night));
         if let Some((p, bank)) = to {
             eprintln!(
-                "ambience: {} ({} beds, {} spot sounds)",
+                "ambience: {} by {} ({} beds, {} spot sounds)",
                 p.file_stem().and_then(|s| s.to_str()).unwrap_or("?"),
-                bank.beds.len(),
-                bank.spots.len()
+                if night { "night" } else { "day" },
+                bank.beds.iter().filter(|b| b.2.now(night)).count(),
+                bank.spots.iter().filter(|s| s.3.now(night)).count()
             );
         }
         if let Some((_, bank)) = to {
-            for (bed, volume) in &bank.beds {
+            for (bed, volume, _) in bank.beds.iter().filter(|b| b.2.now(night)) {
                 let settings = Settings {
-                    volume: *volume,
+                    volume: *volume * self.muffle,
                     looping: true,
                     fade_in: BED_FADE,
                     ..Settings::default()
                 };
                 if let Some(id) = audio.play(bed.clone(), Channel::Ambience, settings) {
-                    self.beds.push(id);
+                    self.beds.push((id, *volume));
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn day_sounds_by_day_and_night_sounds_at_night() {
+        assert!(When::of(1).now(false) && !When::of(1).now(true));
+        assert!(When::of(2).now(true) && !When::of(2).now(false));
+        assert!(When::of(0).now(true) && When::of(0).now(false));
     }
 }
