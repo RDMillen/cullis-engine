@@ -1,5 +1,6 @@
-//! The sky behind the terrain: up to four of the environment's sky textures,
-//! blended by the light's weights and tinted (see `sky.wgsl`).
+//! The sky behind the terrain: the environment's sky textures blended by the
+//! light's weights and tinted, with its two cloud layers drifting over them
+//! (see `sky.wgsl`).
 
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
@@ -9,8 +10,8 @@ use crate::lighting::Light;
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT};
 use crate::themes::{LAYER_SIZE, Mips};
 
-/// Sky textures one sky can blend.
-pub const LAYERS: usize = 4;
+/// Sky and cloud textures one sky can hold.
+pub const LAYERS: usize = 8;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -18,8 +19,10 @@ struct Uniforms {
     inv_view_proj: [[f32; 4]; 4],
     eye: [f32; 4],
     tint: [f32; 4],
-    weights: [f32; 4],
+    weights: [[f32; 4]; 2],
     sun: [f32; 4],
+    clouds: [f32; 4],
+    cloud_colour: [f32; 4],
 }
 
 pub struct Sky {
@@ -28,13 +31,15 @@ pub struct Sky {
     group: wgpu::BindGroup,
     /// The texture id in each layer.
     ids: Vec<u32>,
+    /// When the sky was made, for the clouds' drift.
+    start: std::time::Instant,
 }
 
 impl Sky {
     /// A sky of textures `ids` (the first [`LAYERS`]) with their mip chains.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, ids: &[u32], layers: &[Mips]) -> Self {
         let mut layers: Vec<Mips> = layers.iter().take(LAYERS).cloned().collect();
-        // Always four layers, padded with black, as the shader reads all four.
+        // Always all layers, padded with black, as the shader reads them all.
         while layers.len() < LAYERS {
             layers.push(black_mips());
         }
@@ -79,9 +84,11 @@ impl Sky {
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            // Clouds tile both ways; the sky lookup keeps itself inside.
+            address_mode_v: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -144,6 +151,7 @@ impl Sky {
             uniforms,
             group,
             ids: ids.iter().take(LAYERS).copied().collect(),
+            start: std::time::Instant::now(),
         }
     }
 
@@ -153,12 +161,20 @@ impl Sky {
     }
 
     pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3, light: &Light) {
-        let mut weights = [0.0; 4];
+        let mut weights = [[0.0; 4]; 2];
         for (id, w) in &light.sky {
             if let Some(k) = self.ids.iter().position(|i| i == id) {
-                weights[k] += w;
+                weights[k / 4][k % 4] += w;
             }
         }
+        let layer = |id: u32| {
+            self.ids
+                .iter()
+                .position(|&i| i == id && id != 0)
+                .map_or(-1.0, |k| k as f32)
+        };
+        let [(a, oa), (b, ob)] = light.clouds;
+        let [cr, cg, cb] = light.cloud_colour;
         let t = light.sky_tint;
         let uniforms = Uniforms {
             inv_view_proj: view_proj.inverse().to_cols_array_2d(),
@@ -166,6 +182,8 @@ impl Sky {
             tint: [t[0], t[1], t[2], 1.0],
             weights,
             sun: light.sun_dir.extend(0.0).to_array(),
+            clouds: [layer(a), layer(b), oa, ob],
+            cloud_colour: [cr, cg, cb, self.start.elapsed().as_secs_f32()],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }

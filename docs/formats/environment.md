@@ -28,14 +28,16 @@ count x keyframe
 theme fields       (u32 hash, u32 value) pairs to the end
 ```
 
-A keyframe is `u32 0xb400c903` (`TimeOfDay`) and its `f32` hour, then about 35 (hash, value) fields. Values are 4 bytes except field `0x8632d8f5`, which is one byte (0 or 1; 1 at Oakvale's and the Guild's night keyframes). Every keyframe of a theme has the same fields in the same order. Hours ascend (Oakvale's: 0, 4, 5, 12, 16, 20, 21) and wrap round midnight.
+A keyframe is `u32 0xb400c903` (`TimeOfDay`) and its `f32` hour, then about 35 (hash, value) fields. Values are 4 bytes except field `0x8632d8f5` (`MoonLit`), which is one byte (0 or 1; 1 at Oakvale's and the Guild's night keyframes). Every keyframe of a theme has the same fields in the same order. Hours ascend (Oakvale's: 0, 4, 5, 12, 16, 20, 21) and wrap round midnight.
 
 | Keyframe field | Name | Observed |
 | --- | --- | --- |
 | `0x425d252f` | `SkyTexture0` | a `GBANK_MAIN_PC` texture id: `GRAPHIC_ATMOSPHERIC_SKY_MIDNIGHT`, `_MORNING_BRIGHTWOOD`, `_EVENING_BRIGHTWOOD`, … |
 | `0x355a15b9` | `SkyTexture1` | a second sky texture, or 0 |
-| `0x15740d29` | not known | 0 or 0.5 where `SkyTexture1` is set: its share of the blend |
-| `0xf88a218f`, `0x020037a7` | not known | cloud textures (`SKY_BRIGHTWOOD_CLOUDS_02`, `_01`; `SKY_RAIN_CLOUDS_*` after the raid) |
+| `0x15740d29` | `SkyTexture1Blend` | 0 or 0.5 where `SkyTexture1` is set: its share of the blend |
+| `0xf88a218f`, `0x020037a7` | not known | cloud textures (`SKY_BRIGHTWOOD_CLOUDS_02`, `_01`; `SKY_RAIN_CLOUDS_*` after the raid): DXT3 with alpha, tiling. Each is followed by three values: (0, 0, 1) after the first, (0, 0, 0.5) after the second in every theme seen; the third is taken as the layer's opacity (`0x111cfb1a`, `0x2a4c3397`) |
+| `0x3b3168b3` | not known | 0.3–0.7 through Oakvale's day, 0 after the raid |
+| `0xbf2cb1ac` | `WaterAlphaFactor` | 1 or 0.9 |
 | `0x91c70efd` | not known | 60–200 (Oakvale 100, 200 at 16:00) |
 | `0x7a493bd2` | `MistAlpha` | 0, 0.2 after the raid |
 | `0xb2a4a400`, `0xb78498c4` | `RainStrength`, `SnowStrength` | 0 in the themes seen |
@@ -46,7 +48,7 @@ A keyframe is `u32 0xb400c903` (`TimeOfDay`) and its `f32` hour, then about 35 (
 
 | Theme field | Name | Observed |
 | --- | --- | --- |
-| `0x12a7b130` | not known | the theme's first column in the lighting table (36 for Oakvale, 101 after the raid, 129 for the Guild) |
+| `0x12a7b130` | `ColourLookupColumn` | the theme's first column in the lighting table (36 for Oakvale, 101 after the raid, 129 for the Guild) |
 | `0x37c59465`, `0x79ff0650` | `SunHeight`, `MoonHeight` | 0.2, 0.9 |
 | `0xf6da2a77` | not known | 4 bytes, a colour? (ff 80 80 ff in Oakvale) |
 | `0xf2995fa0`, `0xf5012366`, `0x8d8f6647`, `0xbb3bb153`, `0x08c6a844` | not known | 0.18, 0.25, -0.4, 0.35, 1.0 |
@@ -54,6 +56,10 @@ A keyframe is `u32 0xb400c903` (`TimeOfDay`) and its `f32` hour, then about 35 (
 ## Sky textures
 
 The sky textures are 512x512 panoramas: zenith at the top, horizon at the bottom, a glow in the middle on the morning and evening skies. The viewer draws them behind everything, mapping elevation to the vertical and the angle from the sun to the horizontal (a choice; how the game maps them is not known). Between keyframes, each keyframe's `SkyTexture0` and `SkyTexture1` (by its blend share) are blended by time.
+
+## Clouds
+
+The viewer draws the two cloud layers over the sky, projected onto a plane overhead (fading towards the horizon), each texture's alpha times its opacity, coloured by row 15 and drifting slowly. The projection, tiling and drift speeds are chosen by eye; how the game draws them is not known. After the raid the cloud row is black and the sky texture is the dark midnight one under an orange tint, so that sky stays nearly black.
 
 ## Lighting table (`LightingTable/lighting_colours.tga`)
 
@@ -71,6 +77,7 @@ What each row lights is not recorded. From how Oakvale's colours change through 
 | 9 | ebebeb → 6186b4 → 87a2c4 | the sky texture's tint (blue over the warm day texture, near white over the midnight one) |
 | 10, 14, 16 | bright at night, black by day | (moon, stars?) |
 | 11 | 595959 → ffffff → ffe0b7 | (sun disc?) |
+| 15 | 13111a → a7a4a9 → 855436 | the clouds' colour (black after the raid) |
 
 After the raid, rows 8–12 are all orange (744326), row 0 dark red (6c2119) and row 20 deep red (8c0002).
 

@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17 (later): clouds
+
+- Each environment keyframe names two cloud textures (DXT3, tiling, with alpha), each followed by three values; the third (1 and 0.5 in every theme) is taken as the layer's opacity. The sky pass now draws both layers over the sky textures, projected onto a plane overhead and fading towards the horizon, coloured by table row 15 (dark at night, pale grey at noon, orange-brown in the evening) and drifting slowly. Sampled with the plane's gradients and a repeating, mipmapped sampler (clamped sampling smeared distant cloud into streaks). Projection, tiling and drift are by eye.
+- Names found by hashing guesses: `SkyTexture1Blend`, `MoonLit`, `ColourLookupColumn`, `WaterAlphaFactor`. The cloud fields' names are not found.
+- After the raid the cloud row is black over the dark, orange-tinted midnight sky, so that sky stays nearly black; that is what the theme's data gives.
+- Next: torches, fires and other placed lights (`CLightDef`).
+
 ## 2026-10-17: highlight limit
 
 - With brightness 2.1, a sunlit wall's light (ambient plus sun, about 1.35 before brightness) reached about 2.8 and washed out pale. The light is now capped at a highlight limit after brightness, scaling all three channels so the strongest is at the limit (its colour kept): 1.3 by default, by eye from noon screenshots at 3.0 (no cap), 1.5, 1.3 and 1.15. Shaded surfaces keep their brightness. Slider in the Time of day panel; `--highlights` for screenshots.

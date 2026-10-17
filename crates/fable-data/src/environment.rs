@@ -29,13 +29,22 @@ pub mod fields {
     /// `GRAPHIC_ATMOSPHERIC_SKY_MIDNIGHT`.
     pub const SKY_TEXTURE_0: u32 = 0x425d_252f;
     pub const SKY_TEXTURE_1: u32 = 0x355a_15b9;
-    /// Theme, name unknown: the first column of the colour table.
+    /// Keyframe: `SkyTexture1`'s share of the sky (0 or 0.5).
+    pub const SKY_TEXTURE_1_BLEND: u32 = 0x1574_0d29;
+    /// Keyframe, names unknown: the two cloud textures (`SKY_BRIGHTWOOD_CLOUDS_02`
+    /// and `_01`; `SKY_RAIN_CLOUDS_*` after the raid), each followed by three
+    /// values, the third 1 and 0.5 in every theme seen (taken as opacity).
+    pub const CLOUD_TEXTURE_0: u32 = 0xf88a_218f;
+    pub const CLOUD_OPACITY_0: u32 = 0x111c_fb1a;
+    pub const CLOUD_TEXTURE_1: u32 = 0x0200_37a7;
+    pub const CLOUD_OPACITY_1: u32 = 0x2a4c_3397;
+    /// Theme: the first column of the colour table (`ColourLookupColumn`).
     pub const TABLE_INDEX: u32 = 0x12a7_b130;
     /// Theme: how high the sun and the moon rise (0.2 and 0.9 in Oakvale).
     pub const SUN_HEIGHT: u32 = 0x37c5_9465;
     pub const MOON_HEIGHT: u32 = 0x79ff_0650;
-    /// The one keyframe field whose value is a single byte (0 or 1; 1 at the
-    /// night keyframes of Oakvale and the Guild).
+    /// `MoonLit`: the one keyframe field whose value is a single byte (0 or 1;
+    /// 1 at the night keyframes of Oakvale and the Guild).
     pub const ONE_BYTE: u32 = 0x8632_d8f5;
 }
 
@@ -58,6 +67,9 @@ pub mod rows {
     pub const HORIZON: usize = 5;
     /// Blue at noon (6186b4), pale at night: the sky overhead.
     pub const ZENITH: usize = 9;
+    /// Dark at night (13111a), pale grey at noon (a7a4a9), orange-brown in the
+    /// evening (855436); black after the raid. Used as the clouds' colour.
+    pub const CLOUDS: usize = 15;
     /// Near white in every theme, indoor ones too (cccccc at midnight to
     /// e0e0e0 at noon in `ENVIRONMENT_INTERNALS`). Used indoors as the light
     /// coming in through windows and doors.

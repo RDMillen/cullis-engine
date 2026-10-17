@@ -21,6 +21,10 @@ pub struct Light {
     /// weights adding up to 1; empty for no sky (a plain colour).
     pub sky_tint: [f32; 3],
     pub sky: Vec<(u32, f32)>,
+    /// The two cloud layers (texture id, opacity; id 0 for none) and their
+    /// colour (linear).
+    pub clouds: [(u32, f32); 2],
+    pub cloud_colour: [f32; 3],
     /// World to the sun's clip space for shadows, and the shadows' strength
     /// (0: none), one shadow map texel in uv, and depth bias; set per frame by
     /// the renderer.
@@ -50,6 +54,8 @@ impl Default for Light {
             ambient: [0.45; 3],
             sky_tint: [1.0; 3],
             sky: Vec::new(),
+            clouds: [(0, 0.0); 2],
+            cloud_colour: [0.0; 3],
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
             brightness: 1.0,
@@ -114,7 +120,15 @@ impl Lighting {
         let mut ids: Vec<u32> = std::iter::once(&self.outside)
             .chain(&self.inside)
             .flat_map(|(_, env)| &env.keyframes)
-            .flat_map(|k| [k.u32(fields::SKY_TEXTURE_0), k.u32(fields::SKY_TEXTURE_1)])
+            .flat_map(|k| {
+                [
+                    fields::SKY_TEXTURE_0,
+                    fields::SKY_TEXTURE_1,
+                    fields::CLOUD_TEXTURE_0,
+                    fields::CLOUD_TEXTURE_1,
+                ]
+                .map(|f| k.u32(f))
+            })
             .flatten()
             .filter(|&id| id != 0)
             .collect();
@@ -161,6 +175,8 @@ impl Lighting {
             ambient,
             sky_tint: tint.map(|c| c.powf(2.2)),
             sky: sky_weights(env, hour),
+            clouds: clouds(env, hour),
+            cloud_colour: colour(rows::CLOUDS, [0.0; 3]).map(|c| c.powf(2.2)),
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
             brightness: BRIGHTNESS,
@@ -185,7 +201,7 @@ pub fn sun_direction(hour: f32) -> Vec3 {
 /// `SkyTexture0` and `SkyTexture1` by its blend field, and the two keyframes
 /// either side of `hour` are blended by time.
 fn sky_weights(env: &Environment, hour: f32) -> Vec<(u32, f32)> {
-    const BLEND: u32 = 0x1574_0d29;
+    const BLEND: u32 = fields::SKY_TEXTURE_1_BLEND;
     let Some((a, b, t)) = env.between(hour) else {
         return Vec::new();
     };
@@ -214,6 +230,25 @@ fn sky_weights(env: &Environment, hour: f32) -> Vec<(u32, f32)> {
         }
     }
     weights
+}
+
+/// The cloud layers at `hour`: each layer's texture from the nearer keyframe,
+/// its opacity blended between the two.
+fn clouds(env: &Environment, hour: f32) -> [(u32, f32); 2] {
+    let Some((a, b, t)) = env.between(hour) else {
+        return [(0, 0.0); 2];
+    };
+    let (ka, kb) = (&env.keyframes[a], &env.keyframes[b]);
+    let layer = |texture: u32, opacity: u32| {
+        let near = if t < 0.5 { ka } else { kb };
+        let id = near.u32(texture).unwrap_or(0);
+        let o = |k: &fable_data::environment::Keyframe| k.f32(opacity).unwrap_or(0.0);
+        (id, (o(ka) * (1.0 - t) + o(kb) * t).clamp(0.0, 1.0))
+    };
+    [
+        layer(fields::CLOUD_TEXTURE_0, fields::CLOUD_OPACITY_0),
+        layer(fields::CLOUD_TEXTURE_1, fields::CLOUD_OPACITY_1),
+    ]
 }
 
 #[cfg(test)]
