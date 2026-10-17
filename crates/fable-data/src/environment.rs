@@ -43,8 +43,14 @@ pub mod fields {
 /// how the colours change through the day (and which rows indoor themes fill),
 /// to be compared with the game.
 pub mod rows {
-    /// Warm by day, grey at night; filled indoors too. Used as the ambient light.
+    /// Warm by day, grey at night; filled indoors too. Used as the ambient light
+    /// indoors (neutral grey in `ENVIRONMENT_INTERNALS`).
     pub const AMBIENT: usize = 0;
+    /// Outdoors: blue-violet by day (46405f at noon), dark blue at night. The
+    /// usual cool counterpart to a warm sun; used as the ambient light
+    /// outdoors (row 0 tinted everything orange-brown). Very dark brown in
+    /// indoor themes, which use row 0 instead.
+    pub const SKY_FILL: usize = 1;
     /// Night 14181e, noon white, evening orange (f4ce9d): the sun's light.
     pub const SUN: usize = 8;
     /// Dark blue at night, hazy at noon, orange-brown in the evening: the sky

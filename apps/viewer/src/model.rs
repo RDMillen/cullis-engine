@@ -636,10 +636,18 @@ struct Uniforms {
     highlight: [f32; 4],
     sun_colour: [f32; 4],
     ambient: [f32; 4],
+    shadow_proj: [[f32; 4]; 4],
+    shadow: [f32; 4],
 }
 
 pub struct ModelRenderer {
     pipeline: wgpu::RenderPipeline,
+    /// Depth from the sun: its pipeline and uniforms (the sun's view), and an
+    /// empty shadow map for drawing alone.
+    shadow_pipeline: wgpu::RenderPipeline,
+    shadow_uniforms: wgpu::Buffer,
+    shadow_group: wgpu::BindGroup,
+    no_shadow: crate::shadow::ShadowMap,
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     uniforms: wgpu::Buffer,
@@ -707,6 +715,20 @@ impl ModelRenderer {
                 resource: uniforms.as_entire_binding(),
             }],
         });
+        let shadow_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model shadow uniforms"),
+            size: size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let shadow_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("model shadow uniforms"),
+            layout: &uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shadow_uniforms.as_entire_binding(),
+            }],
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -754,10 +776,46 @@ impl ModelRenderer {
                 })
             })
             .collect();
+        let shadow_layout = crate::shadow::layout(device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("model"),
-            bind_group_layouts: &[Some(&uniform_layout), Some(&texture_layout)],
+            bind_group_layouts: &[
+                Some(&uniform_layout),
+                Some(&texture_layout),
+                Some(&shadow_layout),
+            ],
             ..Default::default()
+        });
+        let shadow_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("model shadow"),
+                bind_group_layouts: &[Some(&uniform_layout), Some(&texture_layout)],
+                ..Default::default()
+            });
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("model shadow"),
+            layout: Some(&shadow_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: size_of::<ModelVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_shadow"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(crate::shadow::depth_state()),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("model"),
@@ -800,6 +858,10 @@ impl ModelRenderer {
         };
         Self {
             pipeline,
+            shadow_pipeline,
+            shadow_uniforms,
+            shadow_group,
+            no_shadow: crate::shadow::ShadowMap::none(device),
             vertices: buffer(
                 "model vertices",
                 bytemuck::cast_slice(&model.vertices),
@@ -862,6 +924,7 @@ impl ModelRenderer {
                 }),
                 ..Default::default()
             });
+            pass.set_bind_group(2, &self.no_shadow.group, &[]);
             self.draw(&mut pass);
         }
         queue.submit([encoder.finish()]);
@@ -870,7 +933,14 @@ impl ModelRenderer {
 
     /// Writes the uniforms for this frame; call before [`ModelRenderer::draw`].
     pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, light: &Light) {
-        self.write(queue, view_proj, Vec3::ZERO, [0.0; 4], light, light.sun_dir);
+        self.write(
+            queue,
+            view_proj,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            [0.0; 4],
+            light,
+        );
     }
 
     /// As [`ModelRenderer::prepare`] for a model placed by `model`, seen from
@@ -885,32 +955,26 @@ impl ModelRenderer {
         highlight: [f32; 4],
         light: &Light,
     ) {
-        let inverse = model.inverse();
-        let local_eye = inverse.transform_point3(eye);
-        // Normals are in the model's own space: so is the sun.
-        let local_sun = inverse
-            .transform_vector3(light.sun_dir)
-            .normalize_or(light.sun_dir);
-        self.write(
-            queue,
-            view_proj * model,
-            local_eye,
-            highlight,
-            light,
-            local_sun,
-        );
+        let local_eye = model.inverse().transform_point3(eye);
+        self.write(queue, view_proj * model, model, local_eye, highlight, light);
     }
 
     fn write(
         &self,
         queue: &wgpu::Queue,
         view_proj: Mat4,
+        model: Mat4,
         eye: Vec3,
         highlight: [f32; 4],
         light: &Light,
-        sun: Vec3,
     ) {
-        let uniforms = Uniforms {
+        // Normals are in the model's own space: so is the sun.
+        let sun = model
+            .inverse()
+            .transform_vector3(light.sun_dir)
+            .normalize_or(light.sun_dir);
+        let shadow_proj = light.shadow_proj * model;
+        let mut uniforms = Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
             sun: sun.extend(0.0).to_array(),
             eye: eye.extend(1.0).to_array(),
@@ -922,14 +986,36 @@ impl ModelRenderer {
                 light.ambient[2],
                 light.brightness,
             ],
+            shadow_proj: shadow_proj.to_cols_array_2d(),
+            shadow: light.shadow,
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        if light.shadow[0] > 0.0 {
+            // The shadow pass sees the model from the sun.
+            uniforms.view_proj = shadow_proj.to_cols_array_2d();
+            queue.write_buffer(&self.shadow_uniforms, 0, bytemuck::bytes_of(&uniforms));
+        }
     }
 
     /// Records the model's draws into a pass using the shared colour and depth formats.
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.uniform_group, &[]);
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        for (i, &(first, count, image)) in self.draws.iter().enumerate() {
+            if self.hidden.contains(&i) {
+                continue;
+            }
+            pass.set_bind_group(1, &self.texture_groups[image], &[]);
+            pass.draw_indexed(first..first + count, 0, 0..1);
+        }
+    }
+
+    /// Records the model's depth into a shadow pass.
+    pub fn draw_shadow(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_pipeline(&self.shadow_pipeline);
+        pass.set_bind_group(0, &self.shadow_group, &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         for (i, &(first, count, image)) in self.draws.iter().enumerate() {

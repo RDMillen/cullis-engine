@@ -21,6 +21,11 @@ pub struct Light {
     /// weights adding up to 1; empty for no sky (a plain colour).
     pub sky_tint: [f32; 3],
     pub sky: Vec<(u32, f32)>,
+    /// World to the sun's clip space for shadows, and the shadows' strength
+    /// (0: none), one shadow map texel in uv, and depth bias; set per frame by
+    /// the renderer.
+    pub shadow_proj: glam::Mat4,
+    pub shadow: [f32; 4],
     /// Scales the light, so it can go past 1 (overbright): with the table's
     /// colours alone (noon ambient about 60%), shaded sides look dull.
     pub brightness: f32,
@@ -39,6 +44,8 @@ impl Default for Light {
             ambient: [0.45; 3],
             sky_tint: [1.0; 3],
             sky: Vec::new(),
+            shadow_proj: glam::Mat4::IDENTITY,
+            shadow: [0.0; 4],
             brightness: 1.0,
         }
     }
@@ -117,9 +124,19 @@ impl Lighting {
         };
         let colour =
             |row: usize, fallback: [f32; 3]| env.colour(&self.table, row, hour).unwrap_or(fallback);
-        let ambient = colour(rows::AMBIENT, [0.45; 3]);
         let tint = colour(rows::ZENITH, [1.0; 3]);
         let outdoor_sun = sun_direction(hour);
+        let has_sun = env.colour(&self.table, rows::SUN, hour).is_some();
+        // Indoors, row 0. Outdoors, the average of the warm row 0 and the cool
+        // row 1: either alone tints shade orange or lavender (by eye).
+        let warm = colour(rows::AMBIENT, [0.45; 3]);
+        let ambient = match has_sun {
+            true => {
+                let cool = colour(rows::SKY_FILL, [0.45; 3]);
+                std::array::from_fn(|i| (warm[i] + cool[i]) * 0.5)
+            }
+            false => warm,
+        };
         // Indoor themes leave the sun's row unused. Their light comes in
         // through windows and doors instead: row 7, from high up on the sun's
         // side, at half strength (by eye; the brightness factor lifts it too) so walls facing away keep some shadow.
@@ -137,6 +154,8 @@ impl Lighting {
             ambient,
             sky_tint: tint.map(|c| c.powf(2.2)),
             sky: sky_weights(env, hour),
+            shadow_proj: glam::Mat4::IDENTITY,
+            shadow: [0.0; 4],
             brightness: BRIGHTNESS,
         }
     }

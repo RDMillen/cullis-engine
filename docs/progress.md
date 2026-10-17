@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17: sun shadows and less orange
+
+- Ross: the buildings were very orange, and there were no shadows. The orange came from taking the warm row 0 as the outdoor ambient: every shaded surface took its colour, and doubling the light clipped warm channels further. Outdoors the ambient is now the average of row 0 and the cool row 1 (row 1 alone turned white walls lavender); indoors it stays row 0 (indoor row 1 is very dark brown). By eye, compared in screenshots of each.
+- Sun shadows: a 2048² depth map rendered from the sun over 90 m around where the camera looks (`apps/viewer/src/shadow.rs`), snapped to texels so edges do not crawl. Terrain and every model draw into it (with the alpha test, for leaves and thatch fringes, and skipping a hidden roof); the terrain and model shaders compare against it (3x3 samples) and take away the sun's share of the light. Off indoors and when the sun is dim (night). Checked at 10:00 and 16:00: houses shadow the street, people cast their own shadows, and afternoon shadows are long and point east.
+- Not yet: shadows beyond 45 m from the camera's target, and the game's own shadow settings (`ShadowFactor` is 0 outdoors, 0.5 indoors; meaning unconfirmed).
+
 ## 2026-10-17: brighter light
 
 - Ross compared the slider with the original: 2.0–2.25 looks right, so the default is now 2.1.

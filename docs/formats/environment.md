@@ -63,9 +63,9 @@ What each row lights is not recorded. From how Oakvale's colours change through 
 
 | Row | Oakvale 00:00 → 12:00 → 20:00 | Taken as |
 | --- | --- | --- |
-| 0 | 3e3e3e → 9d8060 → 875a30 | ambient light (filled indoors too) |
+| 0 | 3e3e3e → 9d8060 → 875a30 | ambient light indoors; outdoors, averaged with row 1 (filled indoors too) |
 | 7 | cccccc → b0b0b0 → b2b2b2; indoors cccccc → e0e0e0 | near white in every theme; used indoors as the light coming in through windows |
-| 1 | 101836 → 46405f → 4f2b34 | |
+| 1 | 101836 → 46405f → 4f2b34 | a cool fill from the sky, averaged with row 0 outdoors (very dark brown indoors, so unused there) |
 | 5 | 0b1626 → b8a9a8 → bb9163 | (sky near the horizon?) |
 | 8 | 14181e → ffffff → f4ce9d | the sun's light |
 | 9 | ebebeb → 6186b4 → 87a2c4 | the sky texture's tint (blue over the warm day texture, near white over the midnight one) |
@@ -74,4 +74,4 @@ What each row lights is not recorded. From how Oakvale's colours change through 
 
 After the raid, rows 8–12 are all orange (744326), row 0 dark red (6c2119) and row 20 deep red (8c0002).
 
-The viewer lights terrain and models with `ambient + sun * max(n·l, 0)`, added in gamma space and clamped (as fixed-function lighting did), then scaled by a brightness factor (2.1 by default: Ross found 2.0–2.25 matches the original; adjustable in the window) so light can go past 1, as the game's dim noon ambient (about 60%) suggests overbright lighting, then converted to linear. Indoor themes leave the sun's row unused and their ambient is dim (about 30% grey), so indoors the viewer lights from above on the sun's side with row 7 at half strength (by eye), standing for daylight through windows and doors. The sun rises in the east at 06:00, is highest in the south at noon and sets at 18:00; at night the same arc stands for the moon. That arc is a choice, not from the data.
+The viewer lights terrain and models with `ambient + sun * max(n·l, 0) * sunlit`, where `sunlit` comes from a shadow map rendered from the sun (outdoors only; the game's own shadowing is not decoded). Outdoors the ambient is the average of rows 0 and 1: row 0 alone tinted every shaded surface orange-brown, row 1 alone lavender (Ross found row 0 too orange; the average is by eye). The sum is added in gamma space and clamped (as fixed-function lighting did), then scaled by a brightness factor (2.1 by default: Ross found 2.0–2.25 matches the original; adjustable in the window) so light can go past 1, as the game's dim noon ambient (about 60%) suggests overbright lighting, then converted to linear. Indoor themes leave the sun's row unused and their ambient is dim (about 30% grey), so indoors the viewer lights from above on the sun's side with row 7 at half strength (by eye), standing for daylight through windows and doors. The sun rises in the east at 06:00, is highest in the south at noon and sets at 18:00; at night the same arc stands for the moon. That arc is a choice, not from the data.

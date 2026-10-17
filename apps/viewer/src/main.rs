@@ -15,6 +15,7 @@ mod lighting;
 mod model;
 mod npc;
 mod render;
+mod shadow;
 mod skin;
 mod sky;
 mod soundscape;
@@ -639,6 +640,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     eprintln!("{subject:?}: {status}");
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.eye = camera.eye();
+        renderer.focus = camera.target;
         renderer.set_hour(args.hour, args.brightness);
     }
     scene.render(
@@ -1780,11 +1782,12 @@ impl ViewerApp {
     /// pulsing; nothing during a scene or when not walking. Also tells the
     /// renderer where the camera is.
     fn choose_highlight(&mut self, time: f32) {
-        let eye = self.shown_camera().eye();
+        let shown = self.shown_camera();
         let Scene::Terrain(renderer) = &mut self.scene else {
             return;
         };
-        renderer.eye = eye;
+        renderer.eye = shown.eye();
+        renderer.focus = shown.target;
         renderer.highlight = None;
         let Some(hero) = &self.walker else {
             return;

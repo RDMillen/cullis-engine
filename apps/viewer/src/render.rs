@@ -18,6 +18,9 @@ pub const THEME_TILE: f32 = 12.0;
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// How dark sun shadows are: the share of the sun's light they take away.
+const SHADOW_STRENGTH: f32 = 1.0;
+
 pub const SKY: wgpu::Color = wgpu::Color {
     r: 0.45,
     g: 0.62,
@@ -36,6 +39,8 @@ struct Uniforms {
     params: [f32; 4],
     sun_colour: [f32; 4],
     ambient: [f32; 4],
+    shadow_proj: [[f32; 4]; 4],
+    shadow: [f32; 4],
 }
 
 pub struct Target {
@@ -118,6 +123,14 @@ pub struct TerrainRenderer {
     pub lighting: Option<crate::lighting::Lighting>,
     pub sky: Option<crate::sky::Sky>,
     pub clear: wgpu::Color,
+    /// Where the camera looks: the middle of the shadowed area.
+    pub focus: Vec3,
+    /// Sun shadows: the map, the terrain's depth pipeline and its uniforms
+    /// (the sun's view), and the group binding them.
+    shadow_map: crate::shadow::ShadowMap,
+    terrain_shadow_pipeline: wgpu::RenderPipeline,
+    shadow_uniforms: wgpu::Buffer,
+    shadow_bind_group: wgpu::BindGroup,
     /// What glows as usable (a creature or door) and its colour and strength,
     /// and where the camera is (for the glow's rim).
     pub highlight: Option<(Highlight, [f32; 4])>,
@@ -353,11 +366,75 @@ impl TerrainRenderer {
             grid_size[0] as f32,
             grid_size[1] as f32,
         ];
+        let shadow_layout = crate::shadow::layout(device);
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[Some(&layout), Some(&shadow_layout)],
             ..Default::default()
         });
+        let shadow_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("terrain shadow uniforms"),
+            size: size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let grid_view = grid_texture.create_view(&Default::default());
+        let group_with = |label, buffer: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&grid_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&base),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&cliff),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
+        };
+        let shadow_bind_group = group_with("terrain shadow", &shadow_uniforms);
+        let shadow_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("terrain shadow"),
+                bind_group_layouts: &[Some(&layout)],
+                ..Default::default()
+            });
+        let terrain_shadow_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("terrain shadow"),
+                layout: Some(&shadow_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                    })],
+                },
+                fragment: None,
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(crate::shadow::depth_state()),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
         // Terrain is opaque; water blends over it, depth-tested but not written.
         let make_pipeline = |label, fs_entry, blend, depth_write| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -432,6 +509,11 @@ impl TerrainRenderer {
             lighting: None,
             sky: None,
             clear: SKY,
+            focus: Vec3::ZERO,
+            shadow_map: crate::shadow::ShadowMap::new(device, crate::shadow::SIZE),
+            terrain_shadow_pipeline,
+            shadow_uniforms,
+            shadow_bind_group,
             highlight: None,
             eye: Vec3::ZERO,
             hero_animations: Default::default(),
@@ -489,6 +571,19 @@ impl TerrainRenderer {
             self.target = Some(create_target(device, size));
         }
         let target = self.target.as_ref().unwrap();
+        // Shadows outdoors, where the sun is up enough to cast them.
+        let outdoors = self.inside.is_none() && self.light.sun.iter().any(|&c| c > 0.15);
+        if outdoors {
+            self.light.shadow_proj = crate::shadow::view_proj(self.light.sun_dir, self.focus);
+            self.light.shadow = [
+                SHADOW_STRENGTH,
+                1.0 / crate::shadow::SIZE as f32,
+                0.0004,
+                0.0,
+            ];
+        } else {
+            self.light.shadow = [0.0; 4];
+        }
         let light = &self.light;
         let [sr, sg, sb] = light.sun;
         let [ar, ag, ab] = light.ambient;
@@ -499,8 +594,16 @@ impl TerrainRenderer {
             params: [THEME_TILE, 0.0, 0.0, 0.0],
             sun_colour: [sr, sg, sb, 0.0],
             ambient: [ar, ag, ab, light.brightness],
+            shadow_proj: light.shadow_proj.to_cols_array_2d(),
+            shadow: light.shadow,
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        let shadowed = light.shadow[0] > 0.0;
+        if shadowed {
+            let mut from_sun = uniforms;
+            from_sun.view_proj = light.shadow_proj.to_cols_array_2d();
+            queue.write_buffer(&self.shadow_uniforms, 0, bytemuck::bytes_of(&from_sun));
+        }
         let sky = self.sky.as_ref().filter(|s| s.shows(light));
         if let Some(sky) = sky {
             sky.prepare(queue, view_proj, self.eye, light);
@@ -540,6 +643,44 @@ impl TerrainRenderer {
 
         let mut encoder = device.create_command_encoder(&Default::default());
         {
+            // Depth from the sun (cleared even when unused, so it reads as lit).
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("shadow"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_map.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            if shadowed {
+                pass.set_pipeline(&self.terrain_shadow_pipeline);
+                pass.set_bind_group(0, &self.shadow_bind_group, &[]);
+                self.terrain.draw(&mut pass);
+                if let Some(things) = &self.things {
+                    things.draw_shadow(&mut pass);
+                }
+                if let Some((hero, _)) = &self.hero {
+                    hero.draw_shadow(&mut pass);
+                }
+                for (part, _) in self
+                    .npcs
+                    .iter()
+                    .filter(|n| !n.hidden)
+                    .flat_map(|n| &n.parts)
+                {
+                    part.draw_shadow(&mut pass);
+                }
+                for door in &self.doors {
+                    door.renderer.draw_shadow(&mut pass);
+                }
+            }
+        }
+        {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("terrain"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -564,16 +705,20 @@ impl TerrainRenderer {
             if let Some(sky) = sky {
                 sky.draw(&mut pass);
             }
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            // Terrain pipelines read the shadow map as group 1, models as 2.
+            let terrain_groups = |pass: &mut wgpu::RenderPass<'_>| {
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_bind_group(1, &self.shadow_map.group, &[]);
+            };
+            terrain_groups(&mut pass);
             pass.set_pipeline(&self.terrain_pipeline);
             self.terrain.draw(&mut pass);
+            pass.set_bind_group(2, &self.shadow_map.group, &[]);
             if let Some(things) = &self.things {
                 things.draw(&mut pass);
-                pass.set_bind_group(0, &self.bind_group, &[]);
             }
             if let Some((hero, _)) = &self.hero {
                 hero.draw(&mut pass);
-                pass.set_bind_group(0, &self.bind_group, &[]);
             }
             for (part, _) in self
                 .npcs
@@ -586,9 +731,7 @@ impl TerrainRenderer {
             for door in &self.doors {
                 door.renderer.draw(&mut pass);
             }
-            if !self.npcs.is_empty() || !self.doors.is_empty() {
-                pass.set_bind_group(0, &self.bind_group, &[]);
-            }
+            terrain_groups(&mut pass);
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {
                 pass.set_pipeline(&self.overlay_pipeline);
                 nav.draw(&mut pass);
