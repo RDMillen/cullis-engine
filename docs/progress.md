@@ -4,6 +4,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-17: highlight limit
 
+- Ross: "That looks a lot better." Brightness 2.1 and highlight limit 1.3 stay the defaults.
+
 - Ross: light off the houses was too bright, as if reflecting too many highlights. With brightness 2.1, a sunlit wall's light (ambient plus sun, about 1.35 before brightness) reached about 2.8 and washed out pale. The light is now capped at a highlight limit after brightness, scaling all three channels so the strongest is at the limit (its colour kept): 1.3 by default, by eye from noon screenshots at 3.0 (no cap), 1.5, 1.3 and 1.15. Shaded surfaces keep the brightness Ross chose. Slider in the Time of day panel; `--highlights` for screenshots.
 
 ## 2026-10-17: sun shadows and less orange
