@@ -6,7 +6,8 @@ struct Uniforms {
     eye: vec4<f32>,
     // rgb: highlight colour; a: its strength (0: none).
     highlight: vec4<f32>,
-    // rgb: the sun's and the ambient light's colours (gamma space).
+    // rgb: the sun's and the ambient light's colours (gamma space); ambient.a:
+    // brightness.
     sun_colour: vec4<f32>,
     ambient: vec4<f32>,
 };
@@ -41,7 +42,8 @@ fn vs_main(
 fn lit(n: vec3<f32>) -> vec3<f32> {
     let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0);
     let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
-    return pow(sum, vec3<f32>(2.2));
+    // ambient.a: brightness, letting light go past 1 (overbright).
+    return pow(sum * u.ambient.a, vec3<f32>(2.2));
 }
 
 // Placeholder material: the main texture, alpha-tested, lit by the sun.

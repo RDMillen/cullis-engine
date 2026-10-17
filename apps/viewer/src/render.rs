@@ -454,11 +454,12 @@ impl TerrainRenderer {
 
     /// Sets the light to the time of day `hour`, indoors while the Hero is in a
     /// building.
-    pub fn set_hour(&mut self, hour: f32) {
+    pub fn set_hour(&mut self, hour: f32, brightness: f32) {
         let Some(lighting) = &self.lighting else {
             return;
         };
         self.light = lighting.at(hour, self.inside.is_some());
+        self.light.brightness = brightness;
         // Without a sky (indoor themes), a dark background.
         let shown = self.sky.as_ref().is_some_and(|s| s.shows(&self.light));
         self.clear = if shown {
@@ -497,7 +498,7 @@ impl TerrainRenderer {
             grid: self.grid,
             params: [THEME_TILE, 0.0, 0.0, 0.0],
             sun_colour: [sr, sg, sb, 0.0],
-            ambient: [ar, ag, ab, 0.0],
+            ambient: [ar, ag, ab, light.brightness],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
         let sky = self.sky.as_ref().filter(|s| s.shows(light));

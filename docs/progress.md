@@ -2,6 +2,11 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17: brighter light
+
+- Ross found all the lighting too dark, even at noon. With the table's colours added and capped at 1, a sunlit surface showed its bare texture and everything facing away dropped to the ambient level (about 60% at noon). The light is now scaled by a brightness factor before going linear, so it can go past 1 (overbright, as was common in engines of the time; the dim noon ambient suggests it): 1.6 by default, by eye, with a slider in the Time of day panel and `--brightness` for screenshots. Measured on a noon screenshot, walls went from 137 to about 200 (of 255) and ground from 54 to about 90. Interior window light went back to half strength, since the factor lifts it too.
+- Note for screenshot checks: ffmpeg's side-by-side images can look the same when the inputs differ; compare single images or measure pixels.
+
 ## 2026-10-17: light inside houses
 
 - Ross found house interiors too dark. The indoor theme (`ENVIRONMENT_INTERNALS`) has no sun and a dim ambient (about 30% grey). Its row 7, near white and filled in every theme, now lights interiors at 65% from high up on the sun's side, standing for daylight through windows and doors (`rows::KEY`). Checked in headless screenshots inside a house at noon and at night; the indoor theme barely changes through the day, so nights indoors stay lit (fires and candles are not placed lights yet).

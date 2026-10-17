@@ -916,7 +916,12 @@ impl ModelRenderer {
             eye: eye.extend(1.0).to_array(),
             highlight,
             sun_colour: [light.sun[0], light.sun[1], light.sun[2], 0.0],
-            ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 0.0],
+            ambient: [
+                light.ambient[0],
+                light.ambient[1],
+                light.ambient[2],
+                light.brightness,
+            ],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }

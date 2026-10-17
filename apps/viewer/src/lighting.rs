@@ -21,7 +21,13 @@ pub struct Light {
     /// weights adding up to 1; empty for no sky (a plain colour).
     pub sky_tint: [f32; 3],
     pub sky: Vec<(u32, f32)>,
+    /// Scales the light, so it can go past 1 (overbright): with the table's
+    /// colours alone (noon ambient about 60%), shaded sides look dull.
+    pub brightness: f32,
 }
+
+/// The default brightness, by eye.
+pub const BRIGHTNESS: f32 = 1.6;
 
 impl Default for Light {
     /// The look before lighting: a fixed sun and grey light, a plain sky.
@@ -32,6 +38,7 @@ impl Default for Light {
             ambient: [0.45; 3],
             sky_tint: [1.0; 3],
             sky: Vec::new(),
+            brightness: 1.0,
         }
     }
 }
@@ -114,7 +121,7 @@ impl Lighting {
         let outdoor_sun = sun_direction(hour);
         // Indoor themes leave the sun's row unused. Their light comes in
         // through windows and doors instead: row 7, from high up on the sun's
-        // side, at 65% (by eye) so walls facing away keep some shadow.
+        // side, at half strength (by eye; the brightness factor lifts it too) so walls facing away keep some shadow.
         let (sun, sun_dir) = match env.colour(&self.table, rows::SUN, hour) {
             Some(sun) => (sun, outdoor_sun),
             None => {
@@ -129,12 +136,13 @@ impl Lighting {
             ambient,
             sky_tint: tint.map(|c| c.powf(2.2)),
             sky: sky_weights(env, hour),
+            brightness: BRIGHTNESS,
         }
     }
 }
 
 /// How much of the key row lights interiors (by eye).
-const INDOOR_KEY: f32 = 0.65;
+const INDOOR_KEY: f32 = 0.5;
 
 /// Towards the sun at `hour`: rising in the east at 06:00, highest (in the
 /// south) at noon, setting in the west at 18:00. At night the same arc stands

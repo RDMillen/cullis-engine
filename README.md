@@ -94,6 +94,7 @@ Command-line options:
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |
 | `--gesture ROLE` | Make the creature with this role (`NOVI_LiveFather`) start a conversation gesture, for screenshots with `--npc-time` |
 | `--hour H` | Time of day for the screenshot (default 10); the window has a slider and a running clock |
+| `--brightness B` | Light brightness for the screenshot (default 1.6); also a slider in the window |
 | `--mouth ROLE:SHAPE` | Hold that creature's mouth in a shape (`NOVI_LiveFather:AH`), for screenshots |
 | `--with-present` | Start the birthday quest with the sweets bought (to test the ending) |
 | `--anim NAME --anim-time T` | Pose the Hero with an animation |
