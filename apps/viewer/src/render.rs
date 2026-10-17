@@ -563,6 +563,7 @@ impl TerrainRenderer {
         let night = 1.0 - ((sun - 0.15) / 0.5).clamp(0.0, 1.0);
         for light in [&mut self.light, &mut self.indoor_light] {
             light.brightness = brightness * (1.0 + NIGHT_LIFT * night);
+            light.sky_brightness = brightness * (1.0 - (1.0 - crate::lighting::NIGHT_SKY) * night);
             light.highlight_limit = highlight_limit;
         }
         // Without a sky (indoor themes), a dark background.

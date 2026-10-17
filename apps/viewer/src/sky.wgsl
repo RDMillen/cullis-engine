@@ -7,7 +7,7 @@ struct Uniforms {
     inv_view_proj: mat4x4<f32>,
     // xyz: the camera.
     eye: vec4<f32>,
-    // rgb: tint (linear).
+    // rgb: tint (linear); a: brightness (gamma space, as the scene's light).
     tint: vec4<f32>,
     // Weight of each array layer (layers 0-3, then 4-7).
     weights: array<vec4<f32>, 2>,
@@ -51,7 +51,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     for (var k = 0; k < 8; k++) {
         c += textureSampleLevel(skies, samp, uv, k, 0.0).rgb * u.weights[k / 4][k % 4];
     }
-    c = c * u.tint.rgb;
+    c = c * u.tint.rgb * pow(u.tint.a, 2.2);
     // Clouds: a plane overhead, seen thinner towards the horizon. Scales and
     // drift speeds are by eye. Sampled with the plane's gradients so distant
     // cloud uses the mipmaps instead of streaking.

@@ -179,7 +179,7 @@ impl Sky {
         let uniforms = Uniforms {
             inv_view_proj: view_proj.inverse().to_cols_array_2d(),
             eye: eye.extend(1.0).to_array(),
-            tint: [t[0], t[1], t[2], 1.0],
+            tint: [t[0], t[1], t[2], light.sky_brightness],
             weights,
             sun: light.sun_dir.extend(0.0).to_array(),
             clouds: [layer(a), layer(b), oa, ob],

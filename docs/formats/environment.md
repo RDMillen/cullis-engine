@@ -55,7 +55,7 @@ A keyframe is `u32 0xb400c903` (`TimeOfDay`) and its `f32` hour, then about 35 (
 
 ## Sky textures
 
-The sky textures are 512x512 panoramas: zenith at the top, horizon at the bottom, a glow in the middle on the morning and evening skies. The viewer draws them behind everything, mapping elevation to the vertical and the angle from the sun to the horizontal (a choice; how the game maps them is not known). Between keyframes, each keyframe's `SkyTexture0` and `SkyTexture1` (by its blend share) are blended by time.
+The sky textures are 512x512 panoramas: zenith at the top, horizon at the bottom, a glow in the middle on the morning and evening skies. The viewer draws them behind everything, mapping elevation to the vertical and the angle from the sun to the horizontal (a choice; how the game maps them is not known). Between keyframes, each keyframe's `SkyTexture0` and `SkyTexture1` (by its blend share) are blended by time. The sky is scaled like the lit scene (in gamma space): by the scene's brightness by day, easing to 75% of it at night, without the night lift (by eye; at full brightness night skies turned bright violet over a dark village).
 
 ## Clouds
 

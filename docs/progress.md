@@ -2,6 +2,10 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17 (later): sky brightness
+
+- The sky looked darker than the scene: the brightness factor (2.1) and night lift scaled lit surfaces but not the sky pass. The sky now takes its own brightness in gamma space (`Light::sky_brightness`): the scene's by day, easing to 75% of it at night (`NIGHT_SKY`), without the night lift. Chosen from screenshots at 11:00, 19:00 and 23:00 comparing shares of 0.48 (the old look), 0.7, 0.85 and 1.0.
+
 ## 2026-10-17 (later): indoor and outdoor light, nights, night ambience
 
 - Light by surface: the whole world used to switch to the indoor theme while the Hero was inside, so the street seen through doors and windows lost its daylight. Now the renderer keeps an outdoor and an indoor light every frame. A building's interior meshes, plain meshes whose centre is inside its interior box (furniture, lamps) and creatures (and doors) standing inside take the indoor light, through a second uniform buffer the placed model switches to per draw; everything else takes the outdoor light. Sun shadows stay on wherever the Hero is (models lit indoors still cast them).

@@ -38,6 +38,9 @@ pub struct Light {
     /// Scales the light, so it can go past 1 (overbright): with the table's
     /// colours alone (noon ambient about 60%), shaded sides look dull.
     pub brightness: f32,
+    /// The sky's brightness (gamma space): the scene's by day, so the two
+    /// match, easing to [`NIGHT_SKY`] of it at night (the night lift aside).
+    pub sky_brightness: f32,
     /// The most light (after brightness) a surface may get, its colour kept:
     /// without it, sunlit faces reach about 2.8 and wash out.
     pub highlight_limit: f32,
@@ -48,6 +51,10 @@ pub const HIGHLIGHT_LIMIT: f32 = 1.3;
 
 /// Point lights the shaders take at once.
 pub const MAX_POINTS: usize = 16;
+
+/// The sky's share of the scene's brightness at night (by eye: the full share
+/// turned night skies bright violet over a dark village).
+pub const NIGHT_SKY: f32 = 0.75;
 
 /// The default brightness, matched against the original (2.0 to 2.25 looks
 /// right).
@@ -69,6 +76,7 @@ impl Default for Light {
             points: [[0.0; 4]; 2 * MAX_POINTS],
             point_count: 0,
             brightness: 1.0,
+            sky_brightness: 1.0,
             highlight_limit: 1.0,
         }
     }
@@ -192,6 +200,7 @@ impl Lighting {
             points: [[0.0; 4]; 2 * MAX_POINTS],
             point_count: 0,
             brightness: BRIGHTNESS,
+            sky_brightness: BRIGHTNESS,
             highlight_limit: HIGHLIGHT_LIMIT,
         }
     }
