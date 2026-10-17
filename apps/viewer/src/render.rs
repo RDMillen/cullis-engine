@@ -41,6 +41,8 @@ struct Uniforms {
     ambient: [f32; 4],
     shadow_proj: [[f32; 4]; 4],
     shadow: [f32; 4],
+    points: [[f32; 4]; 2 * crate::lighting::MAX_POINTS],
+    point_count: [f32; 4],
 }
 
 pub struct Target {
@@ -125,6 +127,10 @@ pub struct TerrainRenderer {
     pub clear: wgpu::Color,
     /// Where the camera looks: the middle of the shadowed area.
     pub focus: Vec3,
+    /// The region's lamps, fires and light markers, and when the renderer was
+    /// made (for flicker).
+    pub point_lights: Vec<crate::terrain::PointLight>,
+    started: std::time::Instant,
     /// Sun shadows: the map, the terrain's depth pipeline and its uniforms
     /// (the sun's view), and the group binding them.
     shadow_map: crate::shadow::ShadowMap,
@@ -510,6 +516,8 @@ impl TerrainRenderer {
             sky: None,
             clear: SKY,
             focus: Vec3::ZERO,
+            point_lights: mesh.lights.clone(),
+            started: std::time::Instant::now(),
             shadow_map: crate::shadow::ShadowMap::new(device, crate::shadow::SIZE),
             terrain_shadow_pipeline,
             shadow_uniforms,
@@ -585,6 +593,12 @@ impl TerrainRenderer {
         } else {
             self.light.shadow = [0.0; 4];
         }
+        crate::lighting::set_points(
+            &mut self.light,
+            &self.point_lights,
+            self.focus,
+            self.started.elapsed().as_secs_f32(),
+        );
         let light = &self.light;
         let [sr, sg, sb] = light.sun;
         let [ar, ag, ab] = light.ambient;
@@ -597,6 +611,8 @@ impl TerrainRenderer {
             ambient: [ar, ag, ab, light.brightness],
             shadow_proj: light.shadow_proj.to_cols_array_2d(),
             shadow: light.shadow,
+            points: light.points,
+            point_count: [light.point_count as f32, 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
         let shadowed = light.shadow[0] > 0.0;

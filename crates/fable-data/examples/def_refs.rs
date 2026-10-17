@@ -11,11 +11,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::path::Path::new(dir).join("CompiledDefs");
     let names = Names::parse(&std::fs::read(dir.join("names.bin"))?)?;
     let defs = Defs::parse(&std::fs::read(dir.join("game.bin"))?, &names)?;
-    let index = defs
-        .defs
-        .iter()
-        .position(|d| d.name.as_deref() == Some(name.as_str()))
-        .ok_or("no such definition")?;
+    // A name, a definition index, or a type name (every definition of it).
+    let indices: Vec<usize> = match name.parse::<usize>() {
+        Ok(i) => vec![i],
+        Err(_) => {
+            let named: Vec<usize> = (0..defs.defs.len())
+                .filter(|&i| defs.defs[i].name.as_deref() == Some(name.as_str()))
+                .collect();
+            if named.is_empty() {
+                (0..defs.defs.len())
+                    .filter(|&i| defs.type_name(&defs.defs[i]) == name)
+                    .collect()
+            } else {
+                named
+            }
+        }
+    };
+    if indices.is_empty() {
+        return Err("no such definition".into());
+    }
+    for index in indices {
+        refs(&defs, name, index);
+    }
+    Ok(())
+}
+
+fn refs(defs: &Defs, name: &str, index: usize) {
     let hash = name_hash(name);
     println!("{name}: index {index}, hash {hash:08x}");
     for (i, d) in defs.defs.iter().enumerate() {
@@ -23,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let v = u32::from_le_bytes(d.record[at..at + 4].try_into().unwrap());
             let what = if v == hash {
                 "hash"
-            } else if v as usize == index {
+            } else if v as usize == index && index > 0 {
                 "index"
             } else {
                 continue;
@@ -36,5 +57,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-    Ok(())
 }

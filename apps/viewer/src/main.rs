@@ -70,6 +70,8 @@ struct Args {
     anim_time: f32,
     /// Advance the creatures this many seconds before the screenshot.
     npc_time: f32,
+    /// Leave out placed lights (lamps, fires), for comparing screenshots.
+    no_lights: bool,
     /// Time of day, in hours, and the light's brightness.
     hour: f32,
     brightness: f32,
@@ -106,6 +108,7 @@ fn parse_args() -> Result<Args, Error> {
         anim: None,
         anim_time: 0.0,
         npc_time: 0.0,
+        no_lights: false,
         hour: DEFAULT_HOUR,
         brightness: lighting::BRIGHTNESS,
         highlights: lighting::HIGHLIGHT_LIMIT,
@@ -134,6 +137,7 @@ fn parse_args() -> Result<Args, Error> {
             "--anim-time" => args.anim_time = value()?.parse()?,
             "--npc-time" => args.npc_time = value()?.parse()?,
             "--hour" => args.hour = value()?.parse()?,
+            "--no-lights" => args.no_lights = true,
             "--brightness" => args.brightness = value()?.parse()?,
             "--highlights" => args.highlights = value()?.parse()?,
             "--use" => args.use_door = true,
@@ -276,6 +280,7 @@ impl Scene {
                         lighting::HIGHLIGHT_LIMIT,
                     );
                 }
+                eprintln!("{} placed lights", renderer.point_lights.len());
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
                 let resolve = |object: &str| {
@@ -649,6 +654,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.eye = camera.eye();
         renderer.focus = camera.target;
+        if args.no_lights {
+            renderer.point_lights.clear();
+        }
         renderer.set_hour(args.hour, args.brightness, args.highlights);
     }
     scene.render(

@@ -30,6 +30,11 @@ pub struct Light {
     /// the renderer.
     pub shadow_proj: glam::Mat4,
     pub shadow: [f32; 4],
+    /// Point lights near the camera, two entries each: position and outer
+    /// radius, then colour (times flicker and night dimming) and inner radius;
+    /// `point_count` of them are used.
+    pub points: [[f32; 4]; 2 * MAX_POINTS],
+    pub point_count: u32,
     /// Scales the light, so it can go past 1 (overbright): with the table's
     /// colours alone (noon ambient about 60%), shaded sides look dull.
     pub brightness: f32,
@@ -40,6 +45,9 @@ pub struct Light {
 
 /// The default highlight limit, by eye.
 pub const HIGHLIGHT_LIMIT: f32 = 1.3;
+
+/// Point lights the shaders take at once.
+pub const MAX_POINTS: usize = 16;
 
 /// The default brightness, matched against the original (2.0 to 2.25 looks
 /// right).
@@ -58,6 +66,8 @@ impl Default for Light {
             cloud_colour: [0.0; 3],
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
+            points: [[0.0; 4]; 2 * MAX_POINTS],
+            point_count: 0,
             brightness: 1.0,
             highlight_limit: 1.0,
         }
@@ -179,10 +189,62 @@ impl Lighting {
             cloud_colour: colour(rows::CLOUDS, [0.0; 3]).map(|c| c.powf(2.2)),
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
+            points: [[0.0; 4]; 2 * MAX_POINTS],
+            point_count: 0,
             brightness: BRIGHTNESS,
             highlight_limit: HIGHLIGHT_LIMIT,
         }
     }
+}
+
+/// Fills `light`'s point lights with the [`MAX_POINTS`] of `lights` nearest
+/// `focus` that can reach near it, at `time` seconds (for flicker). Lamps lit
+/// only at night fade out as the sun's light grows.
+pub fn set_points(
+    light: &mut Light,
+    lights: &[crate::terrain::PointLight],
+    focus: Vec3,
+    time: f32,
+) {
+    let sun = light.sun.iter().sum::<f32>() / 3.0;
+    let daylight = ((sun - 0.15) / 0.5).clamp(0.0, 1.0);
+    let mut near: Vec<(f32, usize)> = lights
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.position.distance(focus) - l.outer_radius, i))
+        .filter(|&(d, _)| d < 60.0)
+        .collect();
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    light.point_count = 0;
+    for &(_, i) in near.iter().take(MAX_POINTS) {
+        let l = &lights[i];
+        let mut strength = flicker(l.flicker, l.flicker_speed, time, i as f32);
+        if l.night_only {
+            strength *= 1.0 - daylight;
+        }
+        if strength <= 0.0 {
+            continue;
+        }
+        let k = light.point_count as usize;
+        light.points[2 * k] = l.position.extend(l.outer_radius).to_array();
+        let [r, g, b] = l.colour.map(|c| c * strength);
+        light.points[2 * k + 1] = [r, g, b, l.inner_radius];
+        light.point_count += 1;
+    }
+}
+
+/// A light's strength (0..1) at `time`: steady without flicker, else wavering
+/// down by up to `amount`, faster for a smaller `speed`. Two sines with a
+/// per-light phase stand in for the game's flicker (by eye).
+fn flicker(amount: f32, speed: f32, time: f32, phase: f32) -> f32 {
+    if amount <= 0.0 {
+        return 1.0;
+    }
+    let rate = std::f32::consts::TAU / speed.max(0.05);
+    let wave = 0.5
+        + 0.3 * (time * rate + phase * 1.3).sin()
+        + 0.2 * (time * rate * 2.7 + phase * 2.1).sin();
+    1.0 - amount * 0.6 * wave.clamp(0.0, 1.0)
 }
 
 /// How much of the key row lights interiors (by eye).
@@ -254,6 +316,28 @@ fn clouds(env: &Environment, hour: f32) -> [(u32, f32); 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_nearest_lights_are_used_and_lamps_go_out_by_day() {
+        let lamp = |x: f32, night_only| crate::terrain::PointLight {
+            position: Vec3::new(x, 0.0, 0.0),
+            colour: [0.5, 0.25, 0.1],
+            inner_radius: 4.0,
+            outer_radius: 6.0,
+            flicker: 0.0,
+            flicker_speed: 0.3,
+            night_only,
+        };
+        let lights: Vec<_> = (0..20).map(|i| lamp(i as f32 * 2.0, false)).collect();
+        let mut light = Light::default();
+        set_points(&mut light, &lights, Vec3::ZERO, 0.0);
+        assert_eq!(light.point_count as usize, MAX_POINTS);
+        assert_eq!(light.points[0], [0.0, 0.0, 0.0, 6.0], "nearest first");
+        light.sun = [1.0; 3];
+        set_points(&mut light, &[lamp(0.0, true)], Vec3::ZERO, 0.0);
+        assert_eq!(light.point_count, 0, "a night lamp at noon");
+        assert!((flicker(0.5, 0.3, 1.0, 0.0) - 1.0).abs() <= 0.3);
+    }
 
     #[test]
     fn the_sun_rises_east_and_sets_west() {

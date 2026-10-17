@@ -1201,3 +1201,24 @@ fn environment_themes_parse_and_their_colours_fill_the_table() {
     }
     assert!(themes > 30, "{themes} themes");
 }
+
+#[test]
+#[ignore]
+fn every_light_definition_parses() {
+    use fable_data::defs::{Defs, Names};
+    use fable_data::light::LightDef;
+    let dir = data_dir().join("CompiledDefs");
+    let names = Names::parse(&std::fs::read(dir.join("names.bin")).unwrap()).unwrap();
+    let defs = Defs::parse(&std::fs::read(dir.join("game.bin")).unwrap(), &names).unwrap();
+    let mut lights = 0;
+    for d in defs
+        .defs
+        .iter()
+        .filter(|d| defs.type_name(d) == "CLightDef")
+    {
+        let light = LightDef::parse(&d.record).unwrap_or_else(|e| panic!("light {lights}: {e}"));
+        assert!(light.inner_radius <= light.outer_radius || light.outer_radius == 0.0);
+        lights += 1;
+    }
+    assert!(lights > 40, "{lights} lights");
+}

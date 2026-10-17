@@ -14,6 +14,11 @@ struct Uniforms {
     shadow_proj: mat4x4<f32>,
     // x: shadow strength (0: none); y: one shadow map texel in uv; z: depth bias.
     shadow: vec4<f32>,
+    // The model's own space to the world (for point lights).
+    model: mat4x4<f32>,
+    // Point lights, two entries each (see lighting.rs), and how many (x).
+    points: array<vec4<f32>, 32>,
+    point_count: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -28,6 +33,8 @@ struct VsOut {
     @location(1) uv: vec2<f32>,
     @location(2) local: vec3<f32>,
     @location(3) shadow_pos: vec4<f32>,
+    @location(4) world: vec3<f32>,
+    @location(5) world_normal: vec3<f32>,
 };
 
 @vertex
@@ -42,8 +49,28 @@ fn vs_main(
     out.uv = uv;
     out.local = position;
     out.shadow_pos = u.shadow_proj * vec4<f32>(position, 1.0);
+    out.world = (u.model * vec4<f32>(position, 1.0)).xyz;
+    out.world_normal = (u.model * vec4<f32>(normal, 0.0)).xyz;
     return out;
 }
+
+// Light from the point lights (lamps, fires) at a world position with a world
+// normal: full within the inner radius, fading to nothing at the outer.
+fn points_at(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    var sum = vec3<f32>(0.0);
+    let count = i32(u.point_count.x);
+    for (var k = 0; k < count; k++) {
+        let at = u.points[2 * k];
+        let colour = u.points[2 * k + 1];
+        let to = at.xyz - world;
+        let d = length(to);
+        let reach = clamp((at.w - d) / max(at.w - colour.w, 0.01), 0.0, 1.0);
+        let facing = max(dot(n, to / max(d, 0.001)), 0.0);
+        sum += colour.rgb * reach * facing;
+    }
+    return sum;
+}
+
 
 // How much of the sun reaches a point (0..1), from its position in the sun's
 // clip space: a 3x3 comparison of the shadow map, faded by the strength.
@@ -70,9 +97,13 @@ fn sunlit(pos: vec4<f32>) -> f32 {
 
 // Light from the sun and the ambient light, added in gamma space and clamped as
 // old fixed-function lighting did, then made linear for the sRGB target.
-fn lit(n: vec3<f32>, sun_seen: f32) -> vec3<f32> {
+fn lit(n: vec3<f32>, sun_seen: f32, points: vec3<f32>) -> vec3<f32> {
     let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0) * sun_seen;
-    let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
+    let sum = clamp(
+        u.ambient.rgb + u.sun_colour.rgb * ndl + points,
+        vec3<f32>(0.0),
+        vec3<f32>(1.0),
+    );
     // ambient.a: brightness, letting light go past 1 (overbright); sun_colour.a:
     // the most light may reach, keeping its colour, so sunlit faces do not
     // wash out.
@@ -92,7 +123,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     let n = normalize(in.normal);
-    var rgb = c.rgb * lit(n, sunlit(in.shadow_pos));
+    let points = points_at(in.world, normalize(in.world_normal));
+    var rgb = c.rgb * lit(n, sunlit(in.shadow_pos), points);
     // The interaction highlight: a glow at the silhouette's edge and a faint tint.
     if u.highlight.a > 0.0 {
         let v = normalize(u.eye.xyz - in.local);

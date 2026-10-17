@@ -638,6 +638,9 @@ struct Uniforms {
     ambient: [f32; 4],
     shadow_proj: [[f32; 4]; 4],
     shadow: [f32; 4],
+    model: [[f32; 4]; 4],
+    points: [[f32; 4]; 2 * crate::lighting::MAX_POINTS],
+    point_count: [f32; 4],
 }
 
 pub struct ModelRenderer {
@@ -993,6 +996,9 @@ impl ModelRenderer {
             ],
             shadow_proj: shadow_proj.to_cols_array_2d(),
             shadow: light.shadow,
+            model: model.to_cols_array_2d(),
+            points: light.points,
+            point_count: [light.point_count as f32, 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
         if light.shadow[0] > 0.0 {

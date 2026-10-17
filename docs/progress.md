@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17 (later): placed lights
+
+- Lamps, fires and light markers carry a `CLightDef` component, now read by `fable_data::light` (`docs/formats/defs.md`): `Colour`, `InnerRadius`, `OuterRadius`, `Flicker`, `FlickerSpeed`, `SunlightAttenuator`, `DaylightAttenuator` (names found by hashing guesses), a channel (internal 0, external 2, both 3) and undecoded fields. All 81 parse (real-data test). Placed things switch them with `CTCLight` (`Active`) and may override colour, radii and flicker.
+- The region loader collects active lights with their overrides (`terrain::PointLight`). Each frame the 16 nearest the camera's focus go to the terrain and model shaders (models now also get their model matrix, so lights work in world space), flickering, and night-only lamps fade by day. In Oakvale that is the Hero's family fireplace, plus 14 fire glows among the burning houses after the raid. Definitions named `_UNLIT`/`_OFF` are skipped (a guess from the names).
+- Checked against `--no-lights` (new): the fireplace warms the chimney, cabinet and wall beside it at night; after the raid the fires brighten pixels near them by up to 140 levels, over the theme's own orange light.
+- Not yet: the flames themselves (particles), channels, and the attenuators' hour fields.
+
 ## 2026-10-17 (later): clouds
 
 - Each environment keyframe names two cloud textures (DXT3, tiling, with alpha), each followed by three values; the third (1 and 0.5 in every theme) is taken as the layer's opacity. The sky pass now draws both layers over the sky textures, projected onto a plane overhead and fading towards the horizon, coloured by table row 15 (dark at night, pale grey at noon, orange-brown in the evening) and drifting slowly. Sampled with the plane's gradients and a repeating, mipmapped sampler (clamped sampling smeared distant cloud into streaks). Projection, tiling and drift are by eye.

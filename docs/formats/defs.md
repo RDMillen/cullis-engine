@@ -4,6 +4,25 @@
 
 Environment themes and the region fields that choose them: [environment.md](environment.md).
 
+## Lights (`CLightDef`)
+
+81 entities have a `CLightDef` component: lamps, fireplaces, chandeliers, campfires, the Hero, fireflies and the `MARKER_LIGHT` markers. Parser: `fable_data::light`. Record: 3 bytes (`01 00 01`), then 15 (hash, value) fields in a fixed order, values 4 bytes except four one-byte flags (every light parses; real-data test):
+
+| Field | Name | Observed |
+| --- | --- | --- |
+| `0x4c96c15b` | `Colour` | 4 bytes, blue, green, red, alpha 255 (`25 47 7d ff`: a lamp's orange) |
+| `0x9864ec8d`, `0x9671943e` | `InnerRadius`, `OuterRadius` | f32 world units: 4 and 6 for lamps, 12 and 15 for a campfire |
+| `0x075f6980`, `0xd7acd1be` | `Flicker`, `FlickerSpeed` | 0–1; speed 0.3 in every light |
+| `0x6377e74e`, `0xd37dc96b` | `SunlightAttenuator`, `DaylightAttenuator` | one byte each, set on the attenuator markers |
+| `0x55be32b1` | not known | 0 on `MARKER_LIGHT_INTERNAL_CHANNEL` and indoor fireplaces, 2 on `MARKER_LIGHT_EXTERNAL_CHANNEL` and street lamps, 3 on plain markers: a channel |
+| `0x5ec43162`, `0xa1696aa7` | not known | one byte: 1 in most lights; 0 |
+| `0xcf59348b` | not known | 0 in every light |
+| `0x9c8a70e9`, `0x7d29a6f3`, `0x6b217fa2`, `0x291fb480` | not known | 0, 12.0, 12.0, 0; swapped (12, 0, 0, 12) on `MARKER_LIGHT_INVERSE_DAYLIGHT_ATTENUATOR`: hours? |
+
+A placed thing's `CTCLight` component (Tng) has `Active`, `Overridden`, and when overridden `Colour` (`CRGBColour(r,g,b,a)`, red first), `InnerRadius`, `OuterRadius`, `Flicker`, `Inverted`. StartOakVale's base state has one lit fireplace, 14 inactive `OBJECT_BS_TABLELAMP_UNLIT_01` and 18 active `OBJECT_WOODEN_LAMP_OFF`; its after-the-raid section adds 14 `MARKER_LIGHT`s overridden to fire oranges (`CRGBColour(130,60,5,255)`, radii 5–9, flicker 0.3) among the burning houses.
+
+The viewer adds the 16 placed lights nearest the camera's focus to the terrain and model lighting: colour times `max(n·l, 0)`, full within the inner radius and fading linearly to the outer, with a flicker of two sines (by eye). Definitions named `_UNLIT` or `_OFF` are skipped though placed active (a guess from the names), and `DaylightAttenuator` lights fade out as the sun's light grows. Channels are not used yet.
+
 ## Name hash
 
 `fable_data::defs::name_hash`: the reflected CRC-32 polynomial (`0xedb88320`) with initial value 0 and no final inversion. Used for definition names and record field names (`Graphic` hashes to `0x2e6b63c8`).

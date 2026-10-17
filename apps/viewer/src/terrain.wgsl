@@ -14,6 +14,9 @@ struct Uniforms {
     shadow_proj: mat4x4<f32>,
     // x: shadow strength (0: none); y: one shadow map texel in uv; z: depth bias.
     shadow: vec4<f32>,
+    // Point lights, two entries each (see lighting.rs), and how many (x).
+    points: array<vec4<f32>, 32>,
+    point_count: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -41,6 +44,24 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>) -> 
     out.shadow_pos = u.shadow_proj * vec4<f32>(position, 1.0);
     return out;
 }
+
+// Light from the point lights (lamps, fires) at a world position with a world
+// normal: full within the inner radius, fading to nothing at the outer.
+fn points_at(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    var sum = vec3<f32>(0.0);
+    let count = i32(u.point_count.x);
+    for (var k = 0; k < count; k++) {
+        let at = u.points[2 * k];
+        let colour = u.points[2 * k + 1];
+        let to = at.xyz - world;
+        let d = length(to);
+        let reach = clamp((at.w - d) / max(at.w - colour.w, 0.01), 0.0, 1.0);
+        let facing = max(dot(n, to / max(d, 0.001)), 0.0);
+        sum += colour.rgb * reach * facing;
+    }
+    return sum;
+}
+
 
 // How much of the sun reaches a point (0..1), from its position in the sun's
 // clip space: a 3x3 comparison of the shadow map, faded by the strength.
@@ -85,9 +106,13 @@ fn add_point(acc: Blend, p: vec2<i32>, weight: f32, uv: vec2<f32>, cliff_uv: vec
 }
 
 // Light from the sun and the ambient light, as in model.wgsl.
-fn lit(n: vec3<f32>, sun_seen: f32) -> vec3<f32> {
+fn lit(n: vec3<f32>, sun_seen: f32, points: vec3<f32>) -> vec3<f32> {
     let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0) * sun_seen;
-    let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
+    let sum = clamp(
+        u.ambient.rgb + u.sun_colour.rgb * ndl + points,
+        vec3<f32>(0.0),
+        vec3<f32>(1.0),
+    );
     // ambient.a: brightness, letting light go past 1 (overbright); sun_colour.a:
     // the most light may reach, keeping its colour, so sunlit faces do not
     // wash out.
@@ -120,13 +145,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     b = add_point(b, p + vec2<i32>(0, 1), (1.0 - f.x) * f.y, uv, cliff_uv);
     b = add_point(b, p + vec2<i32>(1, 1), f.x * f.y, uv, cliff_uv);
     let albedo = mix(b.cliff, b.base, smoothstep(0.55, 0.8, n.z));
-    return vec4<f32>(albedo * lit(n, sunlit(in.shadow_pos)), 1.0);
+    return vec4<f32>(albedo * lit(n, sunlit(in.shadow_pos), points_at(in.world, n)), 1.0);
 }
 
 // Flat placeholder sea: translucent, slightly lit so it reads as a surface.
 @fragment
 fn fs_water(in: VsOut) -> @location(0) vec4<f32> {
-    let light = lit(normalize(in.normal), sunlit(in.shadow_pos)) * 0.6 + pow(u.ambient.rgb, vec3<f32>(2.2)) * 0.4;
+    let light = lit(normalize(in.normal), sunlit(in.shadow_pos), vec3<f32>(0.0)) * 0.6 + pow(u.ambient.rgb, vec3<f32>(2.2)) * 0.4;
     return vec4<f32>(vec3<f32>(0.10, 0.32, 0.45) * light * 1.6, 0.8);
 }
 

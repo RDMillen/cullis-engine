@@ -15,6 +15,7 @@ pub mod environment;
 mod error;
 pub mod gtg;
 pub mod lev;
+pub mod light;
 pub mod lipsync;
 pub mod lug;
 pub mod lut;
