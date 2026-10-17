@@ -64,6 +64,7 @@ What each row lights is not recorded. From how Oakvale's colours change through 
 | Row | Oakvale 00:00 → 12:00 → 20:00 | Taken as |
 | --- | --- | --- |
 | 0 | 3e3e3e → 9d8060 → 875a30 | ambient light (filled indoors too) |
+| 7 | cccccc → b0b0b0 → b2b2b2; indoors cccccc → e0e0e0 | near white in every theme; used indoors as the light coming in through windows |
 | 1 | 101836 → 46405f → 4f2b34 | |
 | 5 | 0b1626 → b8a9a8 → bb9163 | (sky near the horizon?) |
 | 8 | 14181e → ffffff → f4ce9d | the sun's light |
@@ -73,4 +74,4 @@ What each row lights is not recorded. From how Oakvale's colours change through 
 
 After the raid, rows 8–12 are all orange (744326), row 0 dark red (6c2119) and row 20 deep red (8c0002).
 
-The viewer lights terrain and models with `ambient + sun * max(n·l, 0)`, added in gamma space and clamped (as fixed-function lighting did), then converted to linear. The sun rises in the east at 06:00, is highest in the south at noon and sets at 18:00; at night the same arc stands for the moon. That arc is a choice, not from the data.
+The viewer lights terrain and models with `ambient + sun * max(n·l, 0)`, added in gamma space and clamped (as fixed-function lighting did), then converted to linear. Indoor themes leave the sun's row unused and their ambient is dim (about 30% grey), so indoors the viewer lights from above on the sun's side with row 7 at 65% (by eye), standing for daylight through windows and doors. The sun rises in the east at 06:00, is highest in the south at noon and sets at 18:00; at night the same arc stands for the moon. That arc is a choice, not from the data.

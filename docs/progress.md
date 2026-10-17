@@ -2,6 +2,10 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17: light inside houses
+
+- Ross found house interiors too dark. The indoor theme (`ENVIRONMENT_INTERNALS`) has no sun and a dim ambient (about 30% grey). Its row 7, near white and filled in every theme, now lights interiors at 65% from high up on the sun's side, standing for daylight through windows and doors (`rows::KEY`). Checked in headless screenshots inside a house at noon and at night; the indoor theme barely changes through the day, so nights indoors stay lit (fires and candles are not placed lights yet).
+
 ## 2026-10-16 (later): lighting
 
 - Light comes from environment themes (`ENVIRONMENT_THEME_DAY` definitions) and `LightingTable/lighting_colours.tga`, now read by `fable_data::environment` (`docs/formats/environment.md`). A region names its outdoor and indoor themes; a theme is keyframes by hour, each with sky textures, plus the first column of its run in the colour table, one column per keyframe and 21 colour rows. All 39 themes parse, and every theme's run is exactly as long as its keyframes (real-data test).

@@ -52,6 +52,10 @@ pub mod rows {
     pub const HORIZON: usize = 5;
     /// Blue at noon (6186b4), pale at night: the sky overhead.
     pub const ZENITH: usize = 9;
+    /// Near white in every theme, indoor ones too (cccccc at midnight to
+    /// e0e0e0 at noon in `ENVIRONMENT_INTERNALS`). Used indoors as the light
+    /// coming in through windows and doors.
+    pub const KEY: usize = 7;
 }
 
 /// One keyframe of a theme.

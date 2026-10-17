@@ -110,11 +110,21 @@ impl Lighting {
         let colour =
             |row: usize, fallback: [f32; 3]| env.colour(&self.table, row, hour).unwrap_or(fallback);
         let ambient = colour(rows::AMBIENT, [0.45; 3]);
-        // Indoor themes leave the sun's row unused: no sun.
-        let sun = colour(rows::SUN, [0.0; 3]);
         let tint = colour(rows::ZENITH, [1.0; 3]);
+        let outdoor_sun = sun_direction(hour);
+        // Indoor themes leave the sun's row unused. Their light comes in
+        // through windows and doors instead: row 7, from high up on the sun's
+        // side, at 65% (by eye) so walls facing away keep some shadow.
+        let (sun, sun_dir) = match env.colour(&self.table, rows::SUN, hour) {
+            Some(sun) => (sun, outdoor_sun),
+            None => {
+                let key = colour(rows::KEY, [0.0; 3]).map(|c| c * INDOOR_KEY);
+                let side = outdoor_sun.truncate().normalize_or(glam::Vec2::NEG_Y);
+                (key, (side * 0.6).extend(1.0).normalize())
+            }
+        };
         Light {
-            sun_dir: sun_direction(hour),
+            sun_dir,
             sun,
             ambient,
             sky_tint: tint.map(|c| c.powf(2.2)),
@@ -122,6 +132,9 @@ impl Lighting {
         }
     }
 }
+
+/// How much of the key row lights interiors (by eye).
+const INDOOR_KEY: f32 = 0.65;
 
 /// Towards the sun at `hour`: rising in the east at 06:00, highest (in the
 /// south) at noon, setting in the west at 18:00. At night the same arc stands
