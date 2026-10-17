@@ -4,26 +4,24 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-17: highlight limit
 
-- Ross: "That looks a lot better." Brightness 2.1 and highlight limit 1.3 stay the defaults.
-
-- Ross: light off the houses was too bright, as if reflecting too many highlights. With brightness 2.1, a sunlit wall's light (ambient plus sun, about 1.35 before brightness) reached about 2.8 and washed out pale. The light is now capped at a highlight limit after brightness, scaling all three channels so the strongest is at the limit (its colour kept): 1.3 by default, by eye from noon screenshots at 3.0 (no cap), 1.5, 1.3 and 1.15. Shaded surfaces keep the brightness Ross chose. Slider in the Time of day panel; `--highlights` for screenshots.
+- With brightness 2.1, a sunlit wall's light (ambient plus sun, about 1.35 before brightness) reached about 2.8 and washed out pale. The light is now capped at a highlight limit after brightness, scaling all three channels so the strongest is at the limit (its colour kept): 1.3 by default, by eye from noon screenshots at 3.0 (no cap), 1.5, 1.3 and 1.15. Shaded surfaces keep their brightness. Slider in the Time of day panel; `--highlights` for screenshots.
 
 ## 2026-10-17: sun shadows and less orange
 
-- Ross: the buildings were very orange, and there were no shadows. The orange came from taking the warm row 0 as the outdoor ambient: every shaded surface took its colour, and doubling the light clipped warm channels further. Outdoors the ambient is now the average of row 0 and the cool row 1 (row 1 alone turned white walls lavender); indoors it stays row 0 (indoor row 1 is very dark brown). By eye, compared in screenshots of each.
+- Shaded surfaces were tinted orange, from taking the warm row 0 as the outdoor ambient: every shaded surface took its colour, and doubling the light clipped warm channels further. Outdoors the ambient is now the average of row 0 and the cool row 1 (row 1 alone turned white walls lavender); indoors it stays row 0 (indoor row 1 is very dark brown). By eye, compared in screenshots of each.
 - Sun shadows: a 2048² depth map rendered from the sun over 90 m around where the camera looks (`apps/viewer/src/shadow.rs`), snapped to texels so edges do not crawl. Terrain and every model draw into it (with the alpha test, for leaves and thatch fringes, and skipping a hidden roof); the terrain and model shaders compare against it (3x3 samples) and take away the sun's share of the light. Off indoors and when the sun is dim (night). Checked at 10:00 and 16:00: houses shadow the street, people cast their own shadows, and afternoon shadows are long and point east.
 - Not yet: shadows beyond 45 m from the camera's target, and the game's own shadow settings (`ShadowFactor` is 0 outdoors, 0.5 indoors; meaning unconfirmed).
 
 ## 2026-10-17: brighter light
 
-- Ross compared the slider with the original: 2.0–2.25 looks right, so the default is now 2.1.
+- Default brightness 2.1, matched against the original (2.0–2.25 looks right).
 
-- Ross found all the lighting too dark, even at noon. With the table's colours added and capped at 1, a sunlit surface showed its bare texture and everything facing away dropped to the ambient level (about 60% at noon). The light is now scaled by a brightness factor before going linear, so it can go past 1 (overbright, as was common in engines of the time; the dim noon ambient suggests it): 1.6 by default, by eye, with a slider in the Time of day panel and `--brightness` for screenshots. Measured on a noon screenshot, walls went from 137 to about 200 (of 255) and ground from 54 to about 90. Interior window light went back to half strength, since the factor lifts it too.
+- Lighting was too dark, even at noon: with the table's colours added and capped at 1, a sunlit surface showed its bare texture and everything facing away dropped to the ambient level (about 60% at noon). The light is now scaled by a brightness factor before going linear, so it can go past 1 (overbright, as was common in engines of the time; the dim noon ambient suggests it): 1.6 by default, by eye, with a slider in the Time of day panel and `--brightness` for screenshots. Measured on a noon screenshot, walls went from 137 to about 200 (of 255) and ground from 54 to about 90. Interior window light went back to half strength, since the factor lifts it too.
 - Note for screenshot checks: ffmpeg's side-by-side images can look the same when the inputs differ; compare single images or measure pixels.
 
 ## 2026-10-17: light inside houses
 
-- Ross found house interiors too dark. The indoor theme (`ENVIRONMENT_INTERNALS`) has no sun and a dim ambient (about 30% grey). Its row 7, near white and filled in every theme, now lights interiors at 65% from high up on the sun's side, standing for daylight through windows and doors (`rows::KEY`). Checked in headless screenshots inside a house at noon and at night; the indoor theme barely changes through the day, so nights indoors stay lit (fires and candles are not placed lights yet).
+- House interiors were too dark: the indoor theme (`ENVIRONMENT_INTERNALS`) has no sun and a dim ambient (about 30% grey). Its row 7, near white and filled in every theme, now lights interiors at 65% from high up on the sun's side, standing for daylight through windows and doors (`rows::KEY`). Checked in headless screenshots inside a house at noon and at night; the indoor theme barely changes through the day, so nights indoors stay lit (fires and candles are not placed lights yet).
 
 ## 2026-10-16 (later): lighting
 
@@ -36,11 +34,11 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-16 (later): lip sync
 
-- Ross asked whether mouths can move properly. They can: every voice sound has a lip sync track in `lang/English/dialogue.big` (`fable_data::lipsync`, documented in `docs/formats/lut.md`): mouth shapes (`AH`, `EE`, `OH`, `SZ`) with a weight each, 43 frames a second. Every track parses and lasts as long as its sound (real-data test).
+- Every voice sound has a lip sync track in `lang/English/dialogue.big` (`fable_data::lipsync`, documented in `docs/formats/lut.md`): mouth shapes (`AH`, `EE`, `OH`, `SZ`) with a weight each, 43 frames a second. Every track parses and lasts as long as its sound (real-data test).
 - The shapes are single-frame animations, `ANIM_<set>_PHONEME_<shape>`, posing the face bones below `Bip01 Head` (chin, lips, mouth corners, cheeks, brows, eyelids). The animator gained a face layer: those bones take the weighted average of the body's pose and the shapes'. Creatures load their set on first use: the boy's for children, the bandit's for guards and bandits, else the villagers' (male or female) - a guess from the sets' names.
 - While a voiced line plays, the speaker's mouth follows its track, blending between frames; it is released when the line or the track ends.
 - Checked: headless close-ups of the father with the new `--mouth NOVI_LiveFather:<shape>` option show four distinct mouths (MM closed, AH open, OH round, EE wide).
-- Next: lighting (Ross).
+- Next: lighting.
 
 ## 2026-10-16 (later): the interaction highlight
 
@@ -55,7 +53,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Framings come from the lines' `CAM:` tags where they have them (18 lines): `(SPEAKER,IN_FRONT_OF_FACE)(SPEAKER,FOCUS_FACE)` (a close-up), `(SPEAKER,BEHIND_RIGHT_SHOULDER_NEAR)(SPEAKEE,FOCUS_FACE)` (over the speaker's shoulder onto the Hero), `(SPEAKEE,IN_FRONT_OF_FACE)(SPEAKEE,FOCUS_FACE)`. Other lines use over the Hero's right shoulder onto the speaker. Distances and face heights (adults 1.6, children 1.05) are set by eye, to compare with the original.
 - Creatures can turn (`Npc::turn_towards`; their heading is kept from placement), which also stops a stroll.
 - Checked in the window: talking to the father frames him over the Hero's shoulder, facing the Hero, mid-gesture, between the bars, with the subtitle in the lower bar.
-- Ross: the Hero should not move during these scenes. Now, while a conversation line or question is on screen, or lines lead up to a quest's end (Theresa's raid lines, Maze's rescue), WASD, the walk to a point and the kick are ignored; E and Y/N still work (`Subtitles::in_scene`). Unit-tested; key presses could not be sent to the window here to try it.
+- The Hero no longer moves during these scenes: while a conversation line or question is on screen, or lines lead up to a quest's end (Theresa's raid lines, Maze's rescue), WASD, the walk to a point and the kick are ignored; E and Y/N still work (`Subtitles::in_scene`). Unit-tested; key presses could not be sent to the window here to try it.
 - Next: the interaction highlight (the last of issue #1's items).
 
 ## 2026-10-16 (later): gestures while talking
@@ -84,7 +82,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Checked: walking from the father to Theresa, the ambience goes country → shore → country → shore → ocean; the output (recorded from the sound card's monitor) never clips; levels follow the music and the ambience.
 - Also found: `Defs/*dialoguesnds*.bin` map 32-bit keys to voice sound ids, but no hash of names, text or ids tried matches the keys (see `lut.md`); the voice alignment stays.
 - Not yet: night sounds, positioned sounds (fountains, the windmill), danger music, the raid's ambience (`SOUND_THEME_OAKVALE_RAID` is in the theme list but no block uses it).
-- Next: Ross to listen and judge the mix; then the Guild training or the raid's look.
+- Next: check the mix by ear; then the Guild training or the raid's look.
 
 ## 2026-10-13: voices
 
@@ -94,7 +92,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - New crate `engine-audio`: a mixer with no platform dependency (one voice at a time, linear resampling, no allocation while mixing). The viewer plays it through cpal, preferring PulseAudio (ALSA's PulseAudio plugin underran), and speaks each line as its subtitle appears, keeping remarks up while they are said.
 - Checked: the father's first line, recorded from the sound card's monitor, matches the decoded sound (correlation 0.87, against 0.10 for another sound). Key presses sent with xdotool no longer reach the window on this display (mouse events do), so later lines were not checked in the window; the queue's voicing is unit-tested.
 - New examples: `big_entry`, `voice_banks`, `voice_map`, `voice_align`, `voice_wav`.
-- Next: Ross to listen (are the right lines spoken by the right voices?); ScriptDialogue2's order; ambient sound banks (`Sound/*.lug`, `*.met`) and music (`Sound/*.ogg`).
+- Next: check by ear that lines get the right voices; ScriptDialogue2's order; ambient sound banks (`Sound/*.lug`, `*.met`) and music (`Sound/*.ogg`).
 
 ## 2026-10-12 (later): voices, first look (unfinished)
 
@@ -117,7 +115,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-12 (later): stairs, and the README
 
-- Ross saw the Hero catch on house steps in Oakvale. Cause: walk cells were 0.5 units, wider than a stair tread, so a cell could skip a tread and sit two risers (about 0.65) above its neighbour, over the 0.6 step limit. Walk cells are now 0.25 units, and each cell samples surfaces at its centre and four nearby points (a ray at the centre alone slipped through a seam in one step's mesh, leaving a cell at ground height). Walking straight up and down the Hero's house steps on three lines: the old grid stopped partway on three of six walks, the new one on none. Oakvale still loads in about 2 s.
+- The Hero caught on house steps in Oakvale. Cause: walk cells were 0.5 units, wider than a stair tread, so a cell could skip a tread and sit two risers (about 0.65) above its neighbour, over the 0.6 step limit. Walk cells are now 0.25 units, and each cell samples surfaces at its centre and four nearby points (a ray at the centre alone slipped through a seam in one step's mesh, leaving a cell at ground height). Walking straight up and down the Hero's house steps on three lines: the old grid stopped partway on three of six walks, the new one on none. Oakvale still loads in about 2 s.
 - New diagnostic `--ledges`: prints walk-grid ledges (neighbouring walkable cells more than a step apart), and with `--camera` the cell heights and surfaces around that point. The remaining small ledges in Oakvale are straight platform edges at one height (an upper floor at 3486, 829; a dock at 3600, 816), left as they are.
 - README restructured: status as a list, the crates, and the viewer's keys and options as tables.
 
@@ -156,9 +154,9 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - The viewer textures terrain: a region-wide grid texture of (layer, layer, weight, weight), base and cliff texture arrays (512x512, box-filtered mips), bilinear blending between grid points in the shader, cliff texture by slope (projected sideways). StartOakVale reads as Oakvale: grass, mud paths, the stream bed (`LANDSCAPE_WATER`), ploughed fields, earthy cliffs.
 - Unnamed theme slots: a key-based lookup did not hold (the same key names different themes even within a region), so they get the map's first real named theme as a labelled stand-in.
 - Set by eye, to compare with the game: texture tiling (12 world units per repeat), the slope range for cliffs.
-- Ross saw water drawn on some paths. Water themes paint thin full-weight strips beside paths and on slopes; the viewer now draws them with their cliff texture (see defs.md). The grid's weight bytes are also not fully understood: where bytes 11 and 12 name the same theme, bytes 13 and 14 do not add to 255, so there may be three weights.
-- Water surfaces: Ross sees water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
-- Next: decide with Ross between decoding water surfaces now or moving on.
+- Water was drawn on some paths. Water themes paint thin full-weight strips beside paths and on slopes; the viewer now draws them with their cliff texture (see defs.md). The grid's weight bytes are also not fully understood: where bytes 11 and 12 name the same theme, bytes 13 and 14 do not add to 255, so there may be three weights.
+- Water surfaces: the game shows water across the path under the bridge. Lake themes carry `WaterType` and `WaterHeight` fields, but `WaterHeight` is not a world height and lake themes also cover dry hillsides, so surfaces live elsewhere. Not in the Tng files (no water things). The stb sea banks use an unidentified compression (not LZO, not deflate); the Lev data after the grid is undecoded. Candidate patch for the bridge water: `WATER_BWLAKE_2` at x 3541–3544, y 901–907.
+- Next: decode water surfaces, or move on.
 
 ## 2026-10-11 (later): the game's text
 
@@ -171,18 +169,18 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-11 (later): door frames and windows created by buildings
 
-- Ross saw doorways without frames. The door mesh is only the leaves; buildings create their door frames and windows at `CREATEOBJECT <definition>` dummies in their mesh header (`docs/formats/mesh.md`). Static mesh headers now parse (all 2,583) with their dummies; the viewer places the objects they create (148 in StartOakVale): carved frames around every door, glazed windows in the walls.
+- Doorways had no frames. The door mesh is only the leaves; buildings create their door frames and windows at `CREATEOBJECT <definition>` dummies in their mesh header (`docs/formats/mesh.md`). Static mesh headers now parse (all 2,583) with their dummies; the viewer places the objects they create (148 in StartOakVale): carved frames around every door, glazed windows in the walls.
 
 ## 2026-10-11 (later): doors and collisions
 
 - Doors (`CTCDoor` things) are skinned and posed by their `DOOR_OPEN`/`DOOR_CLOSE` animations (played once, holding the last frame), starting in their `Open` state. A closed door blocks a 0.5-unit strip across its doorway; **E** opens or closes the nearest door within 2 units. Checked on the Inn door: the Hero stops at it closed, it swings open inward, he walks through.
 - People block each other: the Hero cannot come closer than 0.7 to a creature, wandering creatures avoid the Hero and closed doors. `Hero::step_blocked` takes the blocking test.
 - `--use` (with `--walk-to`) uses the nearest door and walks on, for screenshots.
-- Fix (Ross): closed doors swung open by themselves on load, because they were posed by the opening animation and left playing. Doors now start holding the last frame of their closing (or, if open, opening) animation.
+- Fix: closed doors swung open by themselves on load, because they were posed by the opening animation and left playing. Doors now start holding the last frame of their closing (or, if open, opening) animation.
 
 ## 2026-10-11 (later): door frames indoors
 
-- Ross saw doors standing without frames indoors. Doors (`MESH_VILLAGE_DOOR_TYPE_03`) are just the leaves; the frames are part of the building's exterior walls, which were hidden along with the roof. Now only the exterior's roof materials (`Roof`, `roof`, `Roof fringe`, `Fringe`) are hidden indoors and skipped by camera rays; walls and frames stay.
+- Doors stood without frames indoors. Doors (`MESH_VILLAGE_DOOR_TYPE_03`) are just the leaves; the frames are part of the building's exterior walls, which were hidden along with the roof. Now only the exterior's roof materials (`Roof`, `roof`, `Roof fringe`, `Fringe`) are hidden indoors and skipped by camera rays; walls and frames stay.
 
 ## 2026-10-11 (later): wandering villagers
 
@@ -207,7 +205,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-11 (later): quest-state sections, depth fix
 
-- Ross saw bandits among the villagers and meshes changing as the camera or Hero moved.
+- Bandits appeared among the villagers, and meshes changed as the camera or Hero moved.
 - Tng sections are quest states and village events (`docs/formats/tng.md`); the viewer was showing all of them at once. It now shows `NULL` plus a default per region (StartOakVale: `Q_NewOakValeIntro_PreAttack`); the side panel's "Quest state" list and `--section` switch others on (the raid's aftermath, Oak Bay's events). Pre-raid Oakvale: 630 meshes, 29 creatures, all load.
 - The camera's far plane was 10x its distance, so in walk mode (about 6 m, less after camera collision) meshes beyond 60 m, or a few metres, were clipped and popped in and out as the distance changed. Now fixed planes (0.05 to 5000) with reversed-Z depth (`Depth32Float` cleared to 0, `Greater`).
 
@@ -236,7 +234,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 ## 2026-10-11 (later): building interiors
 
-- Ross noticed the Hero walked on the ground under the Inn's furniture: building interiors were never placed. A building's `CMultiStaticMeshDef` component lists its meshes (exterior and interior); `Graphic` names only the exterior. `Def::component`, `Def::static_meshes`, `Defs::meshes_of`; the viewer places all of them (7 more meshes in StartOakVale).
+- The Hero walked on the ground under the Inn's furniture: building interiors were never placed. A building's `CMultiStaticMeshDef` component lists its meshes (exterior and interior); `Graphic` names only the exterior. `Def::component`, `Def::static_meshes`, `Defs::meshes_of`; the viewer places all of them (7 more meshes in StartOakVale).
 - The interiors carry the floors: in StartOakVale the second navigation layer now gets heights on 1,210 of 1,220 cells (was 342, the bridge only), and the Hero walks on the Inn's and the houses' floors. The spawn point now uses the walk layer's height, not the terrain's.
 - New example `mesh_dump` prints a mesh's levels, materials and chunks.
 
@@ -262,12 +260,12 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Hero textures: the Prologue Hero is `MESH_YOUNGHERO_02` (mesh id 4300, type 5, skinned); its info block lists `YOUNGHERO_SKIN_FACE`, `YOUNGHERO_HAIR`, `YOUNGHERO_SKIN_TORSO` (outfit atlas) and `HERO_SKIN_MOUTH`; all decode correctly (checked by eye). Type-5 meshes (504, the character parts) share the static-mesh info layout. Creature definitions (`CREATURE_HERO_CHILD`, …) do not reference meshes through `Graphic`; how they pick body parts is not decoded.
 - Viewer: a Textures tab lists every texture by name and shows the selected one.
 - Viewer walk mode ("Walk" checkbox, or `--walk` for screenshots): a blocky placeholder Hero textured with the young Hero's textures, on a 0.5 m walkability grid from the ground-layer navigation leaves, height from the heightmaps, WASD relative to the camera, Shift to run, sliding along blocked edges, follow camera.
-- Ross confirmed walk mode and the texture browser work in the window (2026-10-11).
+- Walk mode and the texture browser checked in the window (2026-10-11).
 - Not yet: camera collision (the camera can end up inside houses), walking on upper navigation layers (bridge decks), skinned meshes and animation.
 
 ## 2026-10-10 (later): the rest of the Lev
 
-- Ross chose to move on from water. Added `Lev::parse_tail`: sound map (one record per 4x4 units), a fixed 33,801-byte block, and named sections, one per map state (`NULL`, quest states like `Q_NewOakValeIntro_PreAttack`). All 398 maps parse; filler maps have no sections.
+- Moved on from water. Added `Lev::parse_tail`: sound map (one record per 4x4 units), a fixed 33,801-byte block, and named sections, one per map state (`NULL`, quest states like `Q_NewOakValeIntro_PreAttack`). All 398 maps parse; filler maps have no sections.
 - The section records look like a navigation subdivision (8 levels, node positions at half-size steps). Decoding them is the next step for walking and collision (Phase 3).
 - Decoded them: `fable_data::nav` parses every section exactly (outline points, then layers of 32-unit root quadtrees down to 0.5 units; leaves carry a kind, a value, neighbour ids). Drawn in the viewer (`--nav`, or the "Show navigation" checkbox), StartOakValeWest's leaves follow the village paths and walkable ground, with holes at buildings; layer 1 is the bridge deck and raised floors.
 - Next: Phase 3 proper, a walkable Hero: movement constrained to navigation leaves, ground height from the Lev, a follow camera.
@@ -277,8 +275,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Added `fable_data::defs`: `names.bin` and `game.bin` (type table, directory, zlib chunks, records), with `Def::graphic` finding the mesh id. 95% of placed buildings and objects resolve to a mesh.
 - The viewer now places every building and object of a region on its terrain (602 of 629 meshes in `StartOakVale`; the rest are skinned). Meshes are scaled by 0.01: mesh units are centimetres if world units are metres (a chair is 119 units tall, a map 96 wide). Fences and walls join up end to end, which suggests orientation (local x right, y forward, z up) is right.
 - `--camera x,y,z,distance,yaw,pitch` overrides the screenshot camera.
-- Orientation fix after Ross compared with the game (tavern in the right place, but the bridge did not span its two high points and some house doors faced the cliffs): meshes face their local -y. The bridge test confirmed it from the terrain heights: only that way round do both ends rest on the 21 m plateaus.
-- Clean-room note: screenshots of the game as Ross plays it count as observed gameplay. They are fine to look at but are kept out of the repo.
+- Orientation fix after comparing with the game (tavern in the right place, but the bridge did not span its two high points and some house doors faced the cliffs): meshes face their local -y. The bridge test confirmed it from the terrain heights: only that way round do both ends rest on the 21 m plateaus.
+- Clean-room note: screenshots of the original game being played count as observed gameplay. They are fine to look at but are kept out of the repo.
 - Not yet: textured terrain; skinned meshes; definitions without a `Graphic`.
 - Next: terrain texturing from the Lev themes, then compare against the game for Milestone A.
 
@@ -301,7 +299,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Added `fable_data::dxt` (DXT1/3/5 decoding) and `fable_data::texture`. All 6,717 textures in `textures.big` and `frontend.big` unpack exactly (one 16-bit texture unsupported). PNG export via the `texture_png` example; DXT1, DXT3 and DXT5 samples checked by eye.
 - Learned: the top level is LZO1X-compressed except its last 3 bytes, which follow raw (or the whole level is raw when the length is 0); the rest of the mip chain is raw; levels are padded to powers of two; levels below 4x4 are stored at bits-per-pixel size; bank type 1 is a frame sequence, other types one image; `0x20` is DXT3, `0x23` DXT5.
-- Scope change (Ross): this repository is the desktop reimplementation only. The PS Vita version will be a separate repository, an ARM port that reuses these crates. PLAN.md, README, CLAUDE.md and the Nix shell were updated; Vita budgets and tooling moved to PLAN.md's "Future: PS Vita port" section, and portability rules were added.
+- Scope change: this repository is the desktop reimplementation only. The PS Vita version will be a separate repository, an ARM port that reuses these crates. PLAN.md, README, CLAUDE.md and the Nix shell were updated; Vita budgets and tooling moved to PLAN.md's "Future: PS Vita port" section, and portability rules were added.
 - Next: Bbm meshes from `graphics.big`, shown textured in the viewer.
 
 ## 2026-10-10 (later): sea plane
@@ -314,7 +312,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Added `apps/viewer` (eframe + wgpu): loads every map a region contains or sees, builds one terrain mesh from the Lev heightmaps, draws it with placeholder height/slope colours into an offscreen texture shown in an egui window. A region list switches regions. `--screenshot` renders headlessly to a PNG.
 - `StartOakVale` (12 maps) and `OakBay` (16 maps) both render as one seamless coastline; the two are the same place remodelled, which is a good sanity check.
-- Ross confirmed the window opens and the terrain matches the game's orientation (world x and y as stored, z up).
+- Checked: the window opens and the terrain matches the game's orientation (world x and y as stored, z up).
 - Not yet: no water plane (the sea floor shows at height 0); in the VM, rendering uses llvmpipe (software OpenGL), fine for correctness only.
 - Next: water plane at the sea height, texture themes per grid point (Lev bytes 10–20 probably), then meshes and textures from `graphics.big` and `textures.big`.
 

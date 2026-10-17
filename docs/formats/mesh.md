@@ -101,7 +101,7 @@ Flag 16 selects float positions; flag 2 adds 8 bytes.
 
 Positions use the same axes as the terrain (z up) but are in hundredths of a world unit: a chair is 119 units tall, a map is 96 world units wide. Placed meshes are scaled by 0.01.
 
-**Orientation.** A mesh's front is its local -y. When a Tng thing gives `forward` and `up`, local -y maps to `forward`, local -x to `right` (forward x up) and z to `up`. Evidence: Oakvale's trader bridge (`MESH_VILLAGE_TOWN_TRADERBRIDGE_01`, local y from -980 to 2309) only rests on both of its 21 m plateaus this way round; the other way, one end hangs over the 12 m dip and the other runs into the hillside. The first guess (front = +y) put house doors facing the cliffs; Ross checked it against the game.
+**Orientation.** A mesh's front is its local -y. When a Tng thing gives `forward` and `up`, local -y maps to `forward`, local -x to `right` (forward x up) and z to `up`. Evidence: Oakvale's trader bridge (`MESH_VILLAGE_TOWN_TRADERBRIDGE_01`, local y from -980 to 2309) only rests on both of its 21 m plateaus this way round; the other way, one end hangs over the 12 m dip and the other runs into the hillside. The first guess (front = +y) put house doors facing the cliffs, against the game.
 
 ## Static mesh header: helpers and dummies
 

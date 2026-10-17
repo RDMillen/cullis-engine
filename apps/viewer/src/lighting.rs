@@ -37,8 +37,8 @@ pub struct Light {
 /// The default highlight limit, by eye.
 pub const HIGHLIGHT_LIMIT: f32 = 1.3;
 
-/// The default brightness: Ross compared with the original and found 2.0 to
-/// 2.25 about right.
+/// The default brightness, matched against the original (2.0 to 2.25 looks
+/// right).
 pub const BRIGHTNESS: f32 = 2.1;
 
 impl Default for Light {

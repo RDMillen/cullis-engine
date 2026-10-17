@@ -222,7 +222,7 @@ By the end of week two: one Fable mesh, textured, in a desktop window, and a map
 - [x] Decode the Lev heightmap and confirm it against the Stb tiles (`docs/formats/lev.md`)
 - [ ] Decode the rest of the Stb tile vertex records and the section after the tiles
 - [x] Draw the Lev heightmap of `StartOakVale` as terrain in the viewer (`apps/viewer`, any region selectable)
-- [x] Check the viewer's orientation against the game (confirmed by Ross: correct, not mirrored)
+- [x] Check the viewer's orientation against the game (confirmed against the game: correct, not mirrored)
 - [x] Sea plane at sea level (3.0) in the viewer
 - [x] Decode every texture (DXT1/3/5, BGRA) and export to PNG; checked by eye (`docs/formats/texture.md`)
 - [x] Load a static mesh into the egui viewer with wgpu, textured (`--mesh`, mesh list in the side panel)
