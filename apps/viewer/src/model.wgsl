@@ -73,8 +73,15 @@ fn sunlit(pos: vec4<f32>) -> f32 {
 fn lit(n: vec3<f32>, sun_seen: f32) -> vec3<f32> {
     let ndl = max(dot(n, normalize(u.sun.xyz)), 0.0) * sun_seen;
     let sum = clamp(u.ambient.rgb + u.sun_colour.rgb * ndl, vec3<f32>(0.0), vec3<f32>(1.0));
-    // ambient.a: brightness, letting light go past 1 (overbright).
-    return pow(sum * u.ambient.a, vec3<f32>(2.2));
+    // ambient.a: brightness, letting light go past 1 (overbright); sun_colour.a:
+    // the most light may reach, keeping its colour, so sunlit faces do not
+    // wash out.
+    var l = sum * u.ambient.a;
+    let top = max(l.r, max(l.g, l.b));
+    if top > u.sun_colour.a {
+        l = l * (u.sun_colour.a / top);
+    }
+    return pow(l, vec3<f32>(2.2));
 }
 
 // Placeholder material: the main texture, alpha-tested, lit by the sun.

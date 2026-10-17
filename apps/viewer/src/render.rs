@@ -536,12 +536,13 @@ impl TerrainRenderer {
 
     /// Sets the light to the time of day `hour`, indoors while the Hero is in a
     /// building.
-    pub fn set_hour(&mut self, hour: f32, brightness: f32) {
+    pub fn set_hour(&mut self, hour: f32, brightness: f32, highlight_limit: f32) {
         let Some(lighting) = &self.lighting else {
             return;
         };
         self.light = lighting.at(hour, self.inside.is_some());
         self.light.brightness = brightness;
+        self.light.highlight_limit = highlight_limit;
         // Without a sky (indoor themes), a dark background.
         let shown = self.sky.as_ref().is_some_and(|s| s.shows(&self.light));
         self.clear = if shown {
@@ -592,7 +593,7 @@ impl TerrainRenderer {
             sun: light.sun_dir.extend(0.0).to_array(),
             grid: self.grid,
             params: [THEME_TILE, 0.0, 0.0, 0.0],
-            sun_colour: [sr, sg, sb, 0.0],
+            sun_colour: [sr, sg, sb, light.highlight_limit],
             ambient: [ar, ag, ab, light.brightness],
             shadow_proj: light.shadow_proj.to_cols_array_2d(),
             shadow: light.shadow,

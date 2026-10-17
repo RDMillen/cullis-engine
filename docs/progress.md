@@ -2,6 +2,10 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-17: highlight limit
+
+- Ross: light off the houses was too bright, as if reflecting too many highlights. With brightness 2.1, a sunlit wall's light (ambient plus sun, about 1.35 before brightness) reached about 2.8 and washed out pale. The light is now capped at a highlight limit after brightness, scaling all three channels so the strongest is at the limit (its colour kept): 1.3 by default, by eye from noon screenshots at 3.0 (no cap), 1.5, 1.3 and 1.15. Shaded surfaces keep the brightness Ross chose. Slider in the Time of day panel; `--highlights` for screenshots.
+
 ## 2026-10-17: sun shadows and less orange
 
 - Ross: the buildings were very orange, and there were no shadows. The orange came from taking the warm row 0 as the outdoor ambient: every shaded surface took its colour, and doubling the light clipped warm channels further. Outdoors the ambient is now the average of row 0 and the cool row 1 (row 1 alone turned white walls lavender); indoors it stays row 0 (indoor row 1 is very dark brown). By eye, compared in screenshots of each.

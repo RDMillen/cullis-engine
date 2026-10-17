@@ -29,7 +29,13 @@ pub struct Light {
     /// Scales the light, so it can go past 1 (overbright): with the table's
     /// colours alone (noon ambient about 60%), shaded sides look dull.
     pub brightness: f32,
+    /// The most light (after brightness) a surface may get, its colour kept:
+    /// without it, sunlit faces reach about 2.8 and wash out.
+    pub highlight_limit: f32,
 }
+
+/// The default highlight limit, by eye.
+pub const HIGHLIGHT_LIMIT: f32 = 1.3;
 
 /// The default brightness: Ross compared with the original and found 2.0 to
 /// 2.25 about right.
@@ -47,6 +53,7 @@ impl Default for Light {
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
             brightness: 1.0,
+            highlight_limit: 1.0,
         }
     }
 }
@@ -157,6 +164,7 @@ impl Lighting {
             shadow_proj: glam::Mat4::IDENTITY,
             shadow: [0.0; 4],
             brightness: BRIGHTNESS,
+            highlight_limit: HIGHLIGHT_LIMIT,
         }
     }
 }

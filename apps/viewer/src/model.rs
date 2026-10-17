@@ -979,7 +979,12 @@ impl ModelRenderer {
             sun: sun.extend(0.0).to_array(),
             eye: eye.extend(1.0).to_array(),
             highlight,
-            sun_colour: [light.sun[0], light.sun[1], light.sun[2], 0.0],
+            sun_colour: [
+                light.sun[0],
+                light.sun[1],
+                light.sun[2],
+                light.highlight_limit,
+            ],
             ambient: [
                 light.ambient[0],
                 light.ambient[1],

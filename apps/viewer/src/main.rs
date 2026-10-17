@@ -73,6 +73,8 @@ struct Args {
     /// Time of day, in hours, and the light's brightness.
     hour: f32,
     brightness: f32,
+    /// The most light a surface may get (see `lighting::HIGHLIGHT_LIMIT`).
+    highlights: f32,
     /// After walking (`--walk-to`), use the nearest door, then walk again.
     use_door: bool,
     /// After walking, talk to the nearest creature this many times, printing
@@ -106,6 +108,7 @@ fn parse_args() -> Result<Args, Error> {
         npc_time: 0.0,
         hour: DEFAULT_HOUR,
         brightness: lighting::BRIGHTNESS,
+        highlights: lighting::HIGHLIGHT_LIMIT,
         use_door: false,
         talk: 0,
         with_present: false,
@@ -132,6 +135,7 @@ fn parse_args() -> Result<Args, Error> {
             "--npc-time" => args.npc_time = value()?.parse()?,
             "--hour" => args.hour = value()?.parse()?,
             "--brightness" => args.brightness = value()?.parse()?,
+            "--highlights" => args.highlights = value()?.parse()?,
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
             "--with-present" => args.with_present = true,
@@ -266,7 +270,11 @@ impl Scene {
                         }
                         Err(e) => eprintln!("lighting: {e}"),
                     }
-                    renderer.set_hour(DEFAULT_HOUR, lighting::BRIGHTNESS);
+                    renderer.set_hour(
+                        DEFAULT_HOUR,
+                        lighting::BRIGHTNESS,
+                        lighting::HIGHLIGHT_LIMIT,
+                    );
                 }
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
@@ -641,7 +649,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.eye = camera.eye();
         renderer.focus = camera.target;
-        renderer.set_hour(args.hour, args.brightness);
+        renderer.set_hour(args.hour, args.brightness, args.highlights);
     }
     scene.render(
         &device,
@@ -1012,6 +1020,7 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     app.want_walk = args.walk;
                     app.hour = args.hour;
                     app.brightness = args.brightness;
+                    app.highlights = args.highlights;
                     app.auto_walk = args
                         .walk_to
                         .map(|g| walk::Follow::new(glam::Vec2::from_array(g)));
@@ -1099,6 +1108,7 @@ struct ViewerApp {
     hour: f32,
     clock: bool,
     brightness: f32,
+    highlights: f32,
     /// Animations, opened when first needed (gestures).
     anim_bank: Option<skin::AnimBank>,
     /// A mouth moving to a voice: the creature, the line's id, its lip sync
@@ -1234,6 +1244,7 @@ impl ViewerApp {
             hour: DEFAULT_HOUR,
             clock: false,
             brightness: lighting::BRIGHTNESS,
+            highlights: lighting::HIGHLIGHT_LIMIT,
             volumes: [
                 1.0,
                 1.0,
@@ -1409,6 +1420,7 @@ impl ViewerApp {
                 );
                 ui.checkbox(&mut self.clock, "Clock runs (a day in 24 minutes)");
                 ui.add(egui::Slider::new(&mut self.brightness, 0.5..=2.5).text("Brightness"));
+                ui.add(egui::Slider::new(&mut self.highlights, 0.8..=3.0).text("Highlight limit"));
                 if let Some(l) = &renderer.lighting {
                     ui.label(format!("Environment: {}", l.outside.0));
                 }
@@ -2251,7 +2263,7 @@ impl eframe::App for ViewerApp {
                     ui.ctx().request_repaint();
                 }
                 if let Scene::Terrain(renderer) = &mut self.scene {
-                    renderer.set_hour(self.hour, self.brightness);
+                    renderer.set_hour(self.hour, self.brightness, self.highlights);
                 }
                 let recreated = self.scene.render(&rs.device, &rs.queue, size, view_proj);
                 let view = &self.scene.target().unwrap().color_view;
