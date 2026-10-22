@@ -88,7 +88,7 @@ Command-line options:
 | `--region NAME`, `--mesh NAME` | What to show |
 | `--section NAME` | Show a quest state (repeatable), such as `Q__OakValeIntro_PostAttack` |
 | `--camera x,y,z,distance,yaw,pitch` | Where the camera looks (and where `--walk` places the Hero) |
-| `--walk`, `--walk-to x,y` | Place the Hero; walk him to a point first, along a route round walls, fences and people |
+| `--walk`, `--walk-to x,y[,z]` | Place the Hero; walk him to a point first, along a route round walls, fences and people (z picks the floor where floors are stacked) |
 | `--talk N` | On arrival, talk to the nearest person (N times, printed, with `--screenshot`) |
 | `--use` | After `--walk-to`, use the nearest door, then walk on |
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |

@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-22 (later): the Guild training begins
+
+- Quest 028's text (512 lines) and cutscene lines give the childhood stage: arrival and the dormitory, the morning with Whisper, the dummy lesson, the alarm and the beetles, leaving childhood. Its quest states place the markers for each scene (dormitory, Map Room, training ring, dummy). Written up in `docs/quests/guild-training.md`.
+- Quest API: `Beat::Walk` (a person walks to a position by route), `Beat::Place`, `Beat::Sleep` (fade, clock moves on, the Hero wakes at a spot); `World::hero` gives the Hero's position and height. `engine_script::guild::GuildTraining` plays the arrival up to the Guildmaster's punch instructions (unit-tested), started when the Guild loads in `Q_GuildTraining`.
+- People walk on errands: every creature with a walk clip can be sent along a route (`Npc::walk_to`) or placed (`Npc::place`); scripted ones do not stroll. Routes and the route follower take an optional goal height, which picks the floor where floors are stacked and requires arriving on it (`walk::route_to`, `Follow::to_floor`, `walk::stand_at`); `--walk-to` takes an optional height. The app logs quest walks, nights and where auto-walks end.
+- Blocked: the dormitory floor (30.1 m in the mesh) is in no decoded navigation layer, so the walk upstairs fails and the sequence stops at "follow me"; and closed doors block routes from the hall to the training grounds (routes from just outside reach the ring).
+- Next: walkable floors where the navigation data has none (from the mesh's floors, connected to walkable cells by steps), people opening doors on their way, then the dummy lesson.
+
 ## 2026-10-22 (later): chimney smoke and attached effects
 
 - Mesh helpers decoded (20 bytes: name hash, position, a word); `focus_chimney_01` is at the top of each house. Buildings' `CSmokeGeneratorDef` gives their smoke emitter (`CHIMNEY_SMOKE_01`, by number = bank entry id), started at the chimney helpers. `CParticleAttacherDef` lists (emitter number, helper name as a `names.bin` offset, f32, u8): street lamps carry `LAMPGLOW` at `FLARE_POINT` and `FIRE_FLIES` at `LIGHT_POINT`; parsed by `fable_data::particles::parse_attachments`, every helper name resolving (real-data test). Placements carry their effects; lamps named unlit or off start none.
