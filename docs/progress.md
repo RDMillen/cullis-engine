@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-22 (later): chimney smoke and attached effects
+
+- Mesh helpers decoded (20 bytes: name hash, position, a word); `focus_chimney_01` is at the top of each house. Buildings' `CSmokeGeneratorDef` gives their smoke emitter (`CHIMNEY_SMOKE_01`, by number = bank entry id), started at the chimney helpers. `CParticleAttacherDef` lists (emitter number, helper name as a `names.bin` offset, f32, u8): street lamps carry `LAMPGLOW` at `FLARE_POINT` and `FIRE_FLIES` at `LIGHT_POINT`; parsed by `fable_data::particles::parse_attachments`, every helper name resolving (real-data test). Placements carry their effects; lamps named unlit or off start none.
+- Births read afresh from comparing fires, smoke, candles, lamps, blood and sparks: offset 13 a starting burst, offsets 55 and 82 both 0 a single particle kept alive, otherwise offset 47 (or 55 where 47 is 0) particles a second; offsets 43 and 51 a launch speed and spread. Capping to offset 82 left fires sparse, so it is not used. Speeds and sizes scale by the header's first float over 10 (a guess that leaves the fireplace as checked).
+- Smoke: its colour keys read with 128 as 1.0, and it is lit by the scene (ambient plus half the sun, overbright, capped); without both it was invisible (its sprite's alpha is faint). Checked: plumes rise from Oakvale's chimneys by day. A black middle colour key is now skipped for colour only, which brightens one fireplace layer.
+- Lamps: checked at Lookout Point at night; the glow is small and mostly inside the lantern, too subtle to judge from a screenshot. Fireflies move by `CPSCOrbit`, not decoded, so layers with orbits, splines or attractors are left out rather than drawn still.
+- New tools: `tng_find` (levels with things of a definition), `name_at` (`names.bin` offsets).
+
 ## 2026-10-22 (later): drawing particles
 
 - Field statistics across the 4,398 standard emitter components show 4-byte little-endian fields packed around flag bytes, most holding fixed-point numbers with 1.0 = 1024. Readings taken for drawing (`SpriteLayer`, not confirmed): blend from the sprite mode (2 alpha, else additive; flame sprites are drawn on black with no alpha), lifetime (update offset 36), birth rate (emitter offset 47), start and end size (sprite offsets 45 and 49, thousandths), acceleration (update offset 100). Tabulated in `docs/formats/particles.md`.

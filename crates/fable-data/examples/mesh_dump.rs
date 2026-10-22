@@ -43,6 +43,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     if let Some(sk) = mesh.skeleton() {
         println!("helpers and dummies: {:?}", sk.helper_names);
+        for h in &sk.helpers {
+            let name = sk
+                .helper_names
+                .iter()
+                .find(|n| fable_data::defs::name_hash(n) == h.name_hash);
+            println!("  helper {name:?} at {:?} ({:#x})", h.position, h.unknown);
+        }
         for d in &sk.dummies {
             println!("  dummy {:?} at {:?}", sk.dummy_name(d), d.position);
         }

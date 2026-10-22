@@ -209,7 +209,7 @@ impl Scene {
                     &names,
                 )?;
                 let (mut mesh, placements) =
-                    terrain::load_region(data_dir, wld, name, &defs, sections)?;
+                    terrain::load_region(data_dir, wld, name, &defs, &names, sections)?;
                 for c in &mut mesh.creatures {
                     if let Some(def) = defs.get(&c.definition) {
                         let slots = defs.animation_slots(def, &names);
@@ -673,7 +673,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         renderer.focus = camera.target;
         // Fires already burning when the picture is taken.
         if let Some(p) = &mut renderer.particles {
-            for _ in 0..60 {
+            for _ in 0..240 {
                 p.update(1.0 / 30.0, camera.target);
             }
         }

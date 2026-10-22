@@ -49,9 +49,10 @@ pub struct ModelData {
     pub images: Vec<Image>,
     pub lo: Vec3,
     pub hi: Vec3,
-    /// Particle emitters started by the meshes (`CREATEPARTICLE` dummies):
-    /// emitter name and where, in the model's space.
-    pub particles: Vec<(String, Vec3)>,
+    /// Particle emitters started by the meshes (`CREATEPARTICLE` dummies) and
+    /// by what is placed (chimney smoke, attachers), and where, in the model's
+    /// space.
+    pub particles: Vec<(crate::particles::EmitterRef, Vec3)>,
 }
 
 type Error = Box<dyn std::error::Error>;
@@ -68,7 +69,7 @@ pub enum MeshRole {
 }
 
 /// A mesh placed in the world.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Placement {
     pub role: MeshRole,
     /// Mesh bank entry id.
@@ -76,6 +77,10 @@ pub struct Placement {
     pub position: Vec3,
     pub forward: Vec3,
     pub up: Vec3,
+    /// Particle emitters its definition starts (chimney smoke, attachers): the
+    /// emitter's number and the mesh helper it sits at (a name, or the start of
+    /// one, `focus_chimney`; empty for the mesh's origin).
+    pub effects: Vec<(u32, String)>,
 }
 
 impl Placement {
@@ -112,6 +117,9 @@ struct LocalMesh {
     creates: Vec<(String, Mat4)>,
     /// Particle emitters it starts (`CREATEPARTICLE` dummies), likewise.
     particles: Vec<(String, Vec3)>,
+    /// Its helpers (attachment points: `focus_chimney_01`, `FLARE_POINT`) and
+    /// where, likewise.
+    helpers: Vec<(String, Vec3)>,
 }
 
 /// What a skinned mesh needs to be posed: per vertex, 4 skeleton bone indices and
@@ -270,12 +278,14 @@ impl ModelBuilder {
         self.model
             .indices
             .extend(local.indices.iter().map(|i| base + i));
-        self.model.particles.extend(
-            local
-                .particles
-                .iter()
-                .map(|(name, p)| (name.clone(), transform.transform_point3(*p))),
-        );
+        self.model
+            .particles
+            .extend(local.particles.iter().map(|(name, p)| {
+                (
+                    crate::particles::EmitterRef::Name(name.clone()),
+                    transform.transform_point3(*p),
+                )
+            }));
         self.model.draws.extend(local.draws.iter().map(|d| Draw {
             first: first + d.first,
             count: d.count,
@@ -323,10 +333,26 @@ impl ModelBuilder {
                     .collect()
             })
             .unwrap_or_default();
+        let helpers = mesh
+            .skeleton()
+            .map(|s| {
+                s.helpers
+                    .iter()
+                    .filter_map(|h| {
+                        let name = s
+                            .helper_names
+                            .iter()
+                            .find(|n| fable_data::defs::name_hash(n) == h.name_hash)?;
+                        Some((name.clone(), Vec3::from_array(h.position)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let lod = &mesh.lods[0];
         let mut local = LocalMesh {
             creates,
             particles,
+            helpers,
             vertices: Vec::new(),
             indices: Vec::new(),
             draws: Vec::new(),
@@ -395,6 +421,22 @@ impl ModelBuilder {
 
     /// The objects mesh `id` creates (if it was added), with their transforms in
     /// the mesh's space.
+    /// Where mesh `id` (if added) has the helpers named `name` or starting with
+    /// it, in its own space; its origin for an empty name.
+    fn helper_points(&self, id: u32, name: &str) -> Vec<Vec3> {
+        let Some(Some(mesh)) = self.meshes.get(&id) else {
+            return Vec::new();
+        };
+        if name.is_empty() {
+            return vec![Vec3::ZERO];
+        }
+        mesh.helpers
+            .iter()
+            .filter(|(n, _)| n.starts_with(name))
+            .map(|(_, p)| *p)
+            .collect()
+    }
+
     fn creates(&self, id: u32) -> Vec<(String, Mat4)> {
         self.meshes
             .get(&id)
@@ -534,6 +576,15 @@ pub fn load_placements(
             continue;
         }
         placed += 1;
+        for (emitter, helper) in &p.effects {
+            for at in builder.helper_points(p.mesh, helper) {
+                let world = p.transform().transform_point3(at);
+                builder
+                    .model
+                    .particles
+                    .push((crate::particles::EmitterRef::Id(*emitter), world));
+            }
+        }
         let added = &builder.model.vertices[vertices..];
         let drawn = draws..builder.model.draws.len();
         match p.role {

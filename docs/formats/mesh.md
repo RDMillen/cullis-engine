@@ -142,7 +142,7 @@ A list whose count is 0 is not stored at all (not even a stream header).
 | dummy count | u16 | 6 on the young Hero |
 | helper names length | u32 | |
 | | u16 | 0 |
-| helpers | stream | 20 bytes each; not decoded |
+| helpers | stream | 20 bytes each: u32 name hash (of a name in the helper names), three f32 position in mesh units, u32 (`0xffffffff` in the houses' chimneys). `focus_chimney_01` sits at the top of each Oakvale house (z 845–1330 of meshes 1231–1332 tall) |
 | dummies | stream | 56 bytes each; not decoded |
 | helper names | stream | NUL-separated: `focus_camera_01`, `weapon_pos_head`, `left_foot`, `EYE_SET_L`, `MOUTH_FOCUS`, `WEAPON`, `SCABBARD_0`, … |
 | | 2 x u32 | 4, 4 on the young Hero; 5, 5 on the sister |

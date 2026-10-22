@@ -18,17 +18,23 @@ use glam::{Mat4, Vec3};
 
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT};
 
+/// Which emitter: by name (a mesh's `CREATEPARTICLE` dummy) or by its number
+/// in `particles.h`, which is its bank entry id (attachers, chimney smoke).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EmitterRef {
+    Name(String),
+    Id(u32),
+}
+
 /// Emitters this far from the camera's focus are not simulated (world units).
 const REACH: f32 = 50.0;
 /// Most particles a layer keeps at once.
 const MAX_PER_LAYER: usize = 256;
 /// Metres per unit of a layer's size (sizes are stored in thousandths).
 const SIZE_SCALE: f32 = 1.0;
-/// Starting upward speed of flames and of smoke, and sideways spread (m/s),
-/// by eye: the emitter's own motion fields are not decoded.
-const FLAME_RISE: f32 = 0.35;
-const SMOKE_RISE: f32 = 0.25;
-const SPREAD: f32 = 0.08;
+/// Metres a second per unit of a layer's launch speed (by eye: a fireplace
+/// flame's 6.4 rises about half a metre in its 0.8 s).
+const SPEED_SCALE: f32 = 0.1;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -51,8 +57,10 @@ struct Layer {
     /// Its sprite's layer in the texture array.
     texture: f32,
     particles: Vec<Particle>,
-    /// Particles owed by the birth rate, carried between frames.
+    /// Particles owed by the birth rate, carried between frames, and whether
+    /// its starting burst has been born.
     owed: f32,
+    started: bool,
 }
 
 struct Emitter {
@@ -83,7 +91,7 @@ impl Particles {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         data_dir: &Path,
-        placed: &[(String, Vec3)],
+        placed: &[(EmitterRef, Vec3)],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let path = data_dir.join("Misc/pc/effects.big");
         let mut file = BufReader::new(File::open(&path)?);
@@ -92,24 +100,48 @@ impl Particles {
             .bank("PARTICLE_MAIN_PC")
             .ok_or("no PARTICLE_MAIN_PC")?
             .read_index(&mut file)?;
-        let mut parsed: HashMap<String, Option<Vec<SpriteLayer>>> = HashMap::new();
+        let mut parsed: HashMap<EmitterRef, Option<Vec<SpriteLayer>>> = HashMap::new();
         let mut textures: Vec<u32> = Vec::new();
         let mut emitters = Vec::new();
-        for (name, position) in placed {
-            let looks = parsed.entry(name.to_ascii_uppercase()).or_insert_with(|| {
-                let entry = index
-                    .entries
-                    .iter()
-                    .find(|e| e.name.eq_ignore_ascii_case(name))?;
+        for (which, position) in placed {
+            let name = match which {
+                EmitterRef::Name(n) => n.clone(),
+                EmitterRef::Id(id) => format!("#{id}"),
+            };
+            let looks = parsed.entry(which.clone()).or_insert_with(|| {
+                let entry = index.entries.iter().find(|e| match which {
+                    EmitterRef::Name(n) => e.name.eq_ignore_ascii_case(n),
+                    EmitterRef::Id(id) => e.id == *id,
+                })?;
                 let data = entry.read_data(&mut file).ok()?;
                 let emitter = EmitterData::parse(&data)
                     .map_err(|e| eprintln!("particles {name}: {e}"))
                     .ok()?;
+                // The header's first float over 10 scales speeds and sizes:
+                // 1 for the fireplace (as drawn and checked), 4.8 for chimney
+                // smoke. A guess.
+                let scale = (emitter.unknown_floats()[0] / 10.0).clamp(0.1, 10.0);
                 Some(
                     emitter
                         .layers
                         .iter()
+                        // Layers moved by undecoded components (fireflies'
+                        // orbits, splines, attractors) would sit still: left
+                        // out until those are decoded.
+                        .filter(|l| {
+                            !l.components.iter().any(|c| {
+                                matches!(
+                                    c.class.as_str(),
+                                    "CPSCOrbit" | "CPSCSpline" | "CPSCAttractor"
+                                )
+                            })
+                        })
                         .filter_map(|l| l.sprite_layer())
+                        .map(|mut l| {
+                            l.speed *= scale;
+                            l.size = l.size.map(|s| s * scale);
+                            l
+                        })
                         .collect(),
                 )
             });
@@ -130,6 +162,7 @@ impl Particles {
                         texture: k as f32,
                         particles: Vec::new(),
                         owed: 0.0,
+                        started: false,
                     }
                 })
                 .collect();
@@ -324,38 +357,60 @@ impl Particles {
                 layer.particles.retain(|p| p.age < p.life);
                 if !near {
                     layer.owed = 0.0;
+                    layer.started = false;
                     continue;
                 }
-                layer.owed += look.rate * dt;
-                while layer.owed >= 1.0 && layer.particles.len() < MAX_PER_LAYER {
-                    layer.owed -= 1.0;
-                    let rise = if look.additive {
-                        FLAME_RISE
-                    } else {
-                        SMOKE_RISE
-                    };
-                    let (a, b, c, d) = (self.random(), self.random(), self.random(), self.random());
-                    let jitter = Vec3::new(a - 0.5, b - 0.5, 0.0);
-                    layer.particles.push(Particle {
-                        position: emitter.position + jitter * 0.1,
-                        velocity: jitter * 2.0 * SPREAD + Vec3::Z * rise * (0.7 + 0.6 * c),
-                        age: 0.0,
-                        life: look.lifetime.max(0.05) * (0.8 + 0.4 * d),
-                    });
+                let births = look.births;
+                let most = MAX_PER_LAYER;
+                let mut due = 0;
+                if births.single() {
+                    // One particle kept alive: a candle's flame, a lamp's glow.
+                    due = usize::from(layer.particles.is_empty());
+                } else {
+                    if !layer.started {
+                        due += births.burst as usize;
+                    }
+                    layer.owed += births.per_second() * dt;
+                    due += layer.owed as usize;
+                    layer.owed = layer.owed.fract();
                 }
-                layer.owed = layer.owed.min(1.0);
+                layer.started = true;
+                let room = most.saturating_sub(layer.particles.len());
+                for _ in 0..due.min(room) {
+                    let p = self.born(emitter.position, &look);
+                    layer.particles.push(p);
+                }
             }
         }
         self.emitters = emitters;
     }
 
-    /// Writes this frame's sprites, facing the camera at `eye`.
+    /// A new particle of `look` at `at`: launched at its speed in a direction
+    /// tilted from straight up by up to its spread (radians, a reading), living
+    /// its lifetime, both varied a little.
+    fn born(&mut self, at: Vec3, look: &SpriteLayer) -> Particle {
+        let (a, b, c, d) = (self.random(), self.random(), self.random(), self.random());
+        let tilt = look.spread * a;
+        let turn = std::f32::consts::TAU * b;
+        let direction = Vec3::new(tilt.sin() * turn.cos(), tilt.sin() * turn.sin(), tilt.cos());
+        Particle {
+            position: at,
+            velocity: direction * look.speed * SPEED_SCALE * (0.7 + 0.6 * c),
+            age: 0.0,
+            life: look.lifetime.max(0.05) * (0.8 + 0.4 * d),
+        }
+    }
+
+    /// Writes this frame's sprites, facing the camera at `eye`. Smoke (alpha-
+    /// blended layers) is lit by `smoke_light` (linear RGB); flames light
+    /// themselves.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         view_proj: Mat4,
         eye: Vec3,
+        smoke_light: [f32; 3],
     ) {
         queue.write_buffer(
             &self.uniforms,
@@ -380,7 +435,15 @@ impl Particles {
                         if half <= 0.0 {
                             continue;
                         }
-                        let colour = colour_at(&layer.look.sprite.colours, t);
+                        // Smoke (alpha-blended) reads its keys doubled; flames as
+                        // stored (by eye).
+                        let doubled = !layer.look.additive;
+                        let mut colour = colour_at(&layer.look.sprite.colours, t, doubled);
+                        if !layer.look.additive {
+                            for (c, l) in colour.iter_mut().zip(smoke_light) {
+                                *c *= l;
+                            }
+                        }
                         let (r, u) = (right * half, up * half);
                         let corner = |dx: f32, dy: f32, uv: [f32; 2]| Vertex {
                             position: (p.position + r * dx + u * dy).to_array(),
@@ -446,21 +509,29 @@ fn vertex_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     })
 }
 
-/// A particle's colour at `t` (0..1 of its life), linear RGB and alpha: its
-/// birth colour to its death colour, through the middle one unless that is
-/// opaque black (left unused in torches and candles).
-fn colour_at(keys: &[[u8; 4]; 3], t: f32) -> [f32; 4] {
-    let f = |k: [u8; 4]| k.map(|c| f32::from(c) / 255.0);
+/// A particle's colour at `t` (0..1 of its life), linear RGB and alpha, from
+/// its birth, middle and death keys. A black middle key (torches, candles,
+/// smoke) is taken as no middle colour: the colour runs birth to death while
+/// the alpha still passes through the middle. `doubled` reads the keys with
+/// 128 as 1.0, the old doubled-modulate convention (smoke's grey is 127,
+/// which then leaves its sprite unchanged).
+fn colour_at(keys: &[[u8; 4]; 3], t: f32, doubled: bool) -> [f32; 4] {
+    let unit = if doubled { 127.5 } else { 255.0 };
+    let f = |k: [u8; 4]| k.map(|c| f32::from(c) / unit);
     let (a, b, c) = (f(keys[0]), f(keys[1]), f(keys[2]));
-    let unused_middle = keys[1] == [0, 0, 0, 255];
-    let mix = |x: [f32; 4], y: [f32; 4], s: f32| std::array::from_fn(|i| x[i] + (y[i] - x[i]) * s);
-    let gamma: [f32; 4] = if unused_middle {
-        mix(a, c, t)
-    } else if t < 0.5 {
+    let mix = |x: [f32; 4], y: [f32; 4], s: f32| -> [f32; 4] {
+        std::array::from_fn(|i| x[i] + (y[i] - x[i]) * s)
+    };
+    let through = if t < 0.5 {
         mix(a, b, t * 2.0)
     } else {
         mix(b, c, t * 2.0 - 1.0)
     };
+    let mut gamma = through;
+    if keys[1][..3] == [0, 0, 0] {
+        let straight = mix(a, c, t);
+        gamma[..3].copy_from_slice(&straight[..3]);
+    }
     [
         gamma[0].powf(2.2),
         gamma[1].powf(2.2),
@@ -476,14 +547,24 @@ mod tests {
     #[test]
     fn colours_run_birth_to_death() {
         let keys = [[255, 255, 255, 255], [0, 0, 0, 255], [255, 0, 0, 0]];
-        assert_eq!(colour_at(&keys, 0.0), [1.0, 1.0, 1.0, 1.0]);
-        let end = colour_at(&keys, 1.0);
+        assert_eq!(colour_at(&keys, 0.0, false), [1.0, 1.0, 1.0, 1.0]);
+        let end = colour_at(&keys, 1.0, false);
         assert_eq!(
             (end[0], end[1], end[3]),
             (1.0, 0.0, 0.0),
             "the unused black middle is skipped"
         );
         let keys = [[0, 0, 0, 0], [255, 255, 255, 255], [0, 0, 0, 0]];
-        assert_eq!(colour_at(&keys, 0.5)[3], 1.0, "through a used middle");
+        assert_eq!(
+            colour_at(&keys, 0.5, false)[3],
+            1.0,
+            "through a used middle"
+        );
+        let smoke = [[127, 127, 127, 55], [0, 0, 0, 25], [127, 127, 127, 0]];
+        let mid = colour_at(&smoke, 0.5, true);
+        assert!(
+            mid[0] > 0.9 && (mid[3] - 25.0 / 127.5).abs() < 1e-4,
+            "{mid:?}"
+        );
     }
 }

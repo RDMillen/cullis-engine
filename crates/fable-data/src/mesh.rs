@@ -227,8 +227,21 @@ pub struct Skeleton {
     /// Names of the helpers and dummies (`WEAPON`, `CREATEOBJECT
     /// OBJECT_BUILDING_DOORFRAME_OAKVALE_01`); a dummy refers to one by hash.
     pub helper_names: Vec<String>,
+    pub helpers: Vec<Helper>,
     pub dummies: Vec<Dummy>,
     pub bones: Vec<Bone>,
+}
+
+/// An attachment point (`focus_chimney_01`, `WEAPON`): 20 bytes, a name and a
+/// position with no rotation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Helper {
+    /// [`crate::defs::name_hash`] of its name in [`Skeleton::helper_names`].
+    pub name_hash: u32,
+    /// In mesh units.
+    pub position: [f32; 3],
+    /// Bytes 16–19: perhaps a parent bone.
+    pub unknown: u32,
 }
 
 /// A named point in a mesh. `CREATEOBJECT <definition>` dummies are where the game
@@ -364,7 +377,7 @@ impl Skeleton {
         let dummy_count = r.array().map(u16::from_le_bytes)?;
         let helper_names = r.u32()? as usize;
         let _zero = r.array().map(u16::from_le_bytes)?;
-        optional_stream(r, usize::from(helper_count) * 20)?;
+        let helper_bytes = optional_stream(r, usize::from(helper_count) * 20)?.to_vec();
         let dummy_bytes = optional_stream(r, usize::from(dummy_count) * 56)?;
         let helper_names = optional_stream(r, helper_names)?
             .split(|&b| b == 0)
@@ -430,10 +443,21 @@ impl Skeleton {
                 }
             })
             .collect();
+        let helpers = helper_bytes
+            .as_chunks::<20>()
+            .0
+            .iter()
+            .map(|h| Helper {
+                name_hash: word(h, 0),
+                position: std::array::from_fn(|i| f32::from_bits(word(h, 4 + 4 * i))),
+                unknown: word(h, 16),
+            })
+            .collect();
         Ok(Self {
             helper_count,
             dummy_count,
             helper_names,
+            helpers,
             dummies,
             bones,
         })

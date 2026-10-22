@@ -456,6 +456,7 @@ pub fn load_region(
     wld: &Wld,
     region: &str,
     defs: &Defs,
+    names: &fable_data::defs::Names,
     sections: &[String],
 ) -> Result<(TerrainMesh, Vec<Placement>), Box<dyn std::error::Error>> {
     let region = wld
@@ -486,8 +487,15 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        let (placed, exits, creatures, doors) =
-            load_placements(&wad, &mut file, level, origin, defs, sections, &mut mesh)?;
+        let (placed, exits, creatures, doors) = load_placements(
+            &wad,
+            &mut file,
+            level,
+            origin,
+            (defs, names),
+            sections,
+            &mut mesh,
+        )?;
         placements.extend(placed);
         if region.contains_maps.contains(level) {
             let lev = &maps.last().expect("just pushed").0;
@@ -619,12 +627,43 @@ impl PointLight {
     }
 }
 
+/// The particle emitters a building or object's definition starts, as
+/// (emitter number, mesh helper): its chimney smoke (`CSmokeGeneratorDef`, at
+/// its `focus_chimney` helpers) and its attachers (`CParticleAttacherDef`).
+/// Lamps named unlit or off are left dark, as their lights are.
+fn effects_of(
+    definition: &str,
+    def: &fable_data::defs::Def,
+    defs: &Defs,
+    names: &fable_data::defs::Names,
+) -> Vec<(u32, String)> {
+    let component = |kind: &str| {
+        def.component(kind)
+            .and_then(|i| defs.defs.get(i))
+            .filter(|c| defs.type_name(c) == kind)
+    };
+    let mut effects = Vec::new();
+    if let Some(n) = component("CSmokeGeneratorDef")
+        .and_then(|c| c.value_after(fable_data::particles::SMOKE_EMITTER_FIELD))
+    {
+        effects.push((n, "focus_chimney".to_owned()));
+    }
+    let unlit = definition.contains("_UNLIT") || definition.ends_with("_OFF");
+    if let (Some(c), false) = (component("CParticleAttacherDef"), unlit) {
+        for a in fable_data::particles::parse_attachments(&c.record).unwrap_or_default() {
+            let helper = names.at(a.helper_name).unwrap_or_default().to_owned();
+            effects.push((a.emitter, helper));
+        }
+    }
+    effects
+}
+
 fn load_placements(
     wad: &BbbbFile,
     file: &mut BufReader<File>,
     level: &str,
     origin: Vec3,
-    defs: &Defs,
+    (defs, names): (&Defs, &fable_data::defs::Names),
     sections: &[String],
     // Gains the level's quest-state sections and lights.
     mesh: &mut TerrainMesh,
@@ -686,6 +725,7 @@ fn load_placements(
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,
+                    effects: Vec::new(),
                     position: origin + Vec3::from_array(t.position()?),
                     forward: Vec3::from_array(t.forward()?),
                     up: Vec3::from_array(t.up()?),
@@ -709,6 +749,7 @@ fn load_placements(
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,
+                    effects: Vec::new(),
                     position: origin + Vec3::from_array(t.position()?),
                     forward: Vec3::from_array(t.forward()?),
                     up: Vec3::from_array(t.up()?),
@@ -723,9 +764,11 @@ fn load_placements(
             (t.kind == "Building" || t.kind == "Object") && t.component("CTCDoor").is_none()
         })
         .filter_map(|t| {
-            let def = defs.get(t.definition()?)?;
+            let definition = t.definition()?;
+            let def = defs.get(definition)?;
             let (position, forward, up) = (t.position()?, t.forward()?, t.up()?);
             let uid = t.uid().unwrap_or(0);
+            let effects = effects_of(definition, def, defs, names);
             Some(
                 defs.mesh_entries_of(def)
                     .into_iter()
@@ -739,6 +782,7 @@ fn load_placements(
                         position: origin + Vec3::from_array(position),
                         forward: Vec3::from_array(forward),
                         up: Vec3::from_array(up),
+                        effects: effects.clone(),
                     }),
             )
         })

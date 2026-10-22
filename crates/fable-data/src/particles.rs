@@ -75,15 +75,56 @@ pub struct SpriteLayer {
     /// Seconds a particle lives (`CPSCUpdateNormal` offset 36; 0.8 for a
     /// fireplace flame, 5 for chimney smoke). Not confirmed.
     pub lifetime: f32,
-    /// Particles born a second (`CPSCEmitterGeneric` offset 47; 82 for a
-    /// fireplace flame, 1 for a candle's). Not confirmed.
-    pub rate: f32,
+    /// Births (`CPSCEmitterGeneric` offsets 47, 55, 82, 13; most of the
+    /// emitter's numbers are fixed-point with 1.0 = 1024). Not confirmed.
+    pub births: Births,
+    /// Launch speed (offset 43, 1.0 = 1024: 6.4 for a fireplace flame, 1.6
+    /// for chimney smoke, 0 for dust and fireflies) and the spread about
+    /// straight up (offset 51: 0.5 in most). Units not known.
+    pub speed: f32,
+    pub spread: f32,
     /// Size at birth and death in thousandths (`CPSCRenderSprite` offsets 45
     /// and 49; 248 and 0 for a fireplace flame). Not confirmed.
     pub size: [f32; 2],
     /// `CPSCUpdateNormal` offset 100 (−0.3 for a fireplace, 0.68 for a torch's
     /// flame): taken as an acceleration, negative upwards. Not confirmed.
     pub fall: f32,
+}
+
+/// How a layer's particles are born, as read from `CPSCEmitterGeneric`. The
+/// readings fit the emitters compared (fires, smoke, candles, lamps, blood,
+/// sparks) but are not confirmed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Births {
+    /// Offset 47 as an integer: particles born a second (82 for a fireplace
+    /// flame), or 0 when offset 55 gives the rate.
+    pub rate: u32,
+    /// Offset 55: the rate where offset 47 is 0 (41 for chimney smoke).
+    pub count: u32,
+    /// Offset 82 (15 for a fireplace flame, 41 for chimney smoke): perhaps the
+    /// most alive at once; capping fires to it left them too sparse, so it is
+    /// not used.
+    pub most: u32,
+    /// Particles born at once when the emitter starts (offset 13: 20 for
+    /// sword sparks, 10 for blood, 0 for steady emitters).
+    pub burst: u32,
+}
+
+impl Births {
+    /// A single particle kept alive (count and most both 0: candles, lamp
+    /// glows, each firefly).
+    pub fn single(&self) -> bool {
+        self.count == 0 && self.most == 0
+    }
+
+    /// Particles born a second, for steady emitters.
+    pub fn per_second(&self) -> f32 {
+        if self.rate > 0 {
+            self.rate as f32
+        } else {
+            self.count as f32
+        }
+    }
 }
 
 impl Layer {
@@ -103,7 +144,14 @@ impl Layer {
             sprite,
             additive: sprite.unknown_mode != 2,
             lifetime: f32_at(update, 36),
-            rate: u32_at(emitter, 47) as f32,
+            births: Births {
+                rate: u32_at(emitter, 47),
+                count: u32_at(emitter, 55),
+                most: u32_at(emitter, 82),
+                burst: u32_at(emitter, 13),
+            },
+            speed: u32_at(emitter, 43) as f32 / 1024.0,
+            spread: u32_at(emitter, 51) as f32 / 1024.0,
             size: [u32_at(s, 45) as f32 / 1000.0, u32_at(s, 49) as f32 / 1000.0],
             fall: f32_at(update, 100),
         })
@@ -130,6 +178,17 @@ impl Component {
 }
 
 impl Emitter {
+    /// The three floats in the header (12, 18, 12 for `CANDLE_FLAME`; 10, 15,
+    /// 10 for `FIREPLACE_LOGS_01`; 48, 60, 48 for `CHIMNEY_SMOKE_01` and
+    /// `TORCHFIRE_01`). Meaning not known; the viewer takes the first, over
+    /// 10, as a scale for speeds and sizes.
+    pub fn unknown_floats(&self) -> [f32; 3] {
+        std::array::from_fn(|i| {
+            let at = 7 + 4 * i;
+            f32::from_le_bytes(self.unknown_header[at..at + 4].try_into().unwrap())
+        })
+    }
+
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data);
         let version = r.u32()?;
@@ -201,6 +260,57 @@ fn next_component(data: &[u8], from: usize) -> Option<usize> {
     Some(at)
 }
 
+/// An emitter an entity carries (`CParticleAttacherDef`): which, and at which
+/// helper of its mesh.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Attachment {
+    /// The emitter's number in `particles.h`, which is its bank entry id
+    /// (`LAMPGLOW` = 255).
+    pub emitter: u32,
+    /// Byte offset of the helper's name in `names.bin` ([`crate::defs::Names::at`]):
+    /// `FLARE_POINT`, `LIGHT_POINT`, `EMITTER_LOWERARM`; `0xffffffff` for none
+    /// (taken as the mesh's origin).
+    pub helper_name: u32,
+    /// 10.0 or 20.0 (a distance?).
+    pub unknown_f32: f32,
+    /// 0 on lamps, 1 on creatures.
+    pub unknown_flag: u8,
+}
+
+/// Field of `CParticleAttacherDef` holding the attachments.
+const ATTACHMENTS_FIELD: u32 = 0x3696_f44d;
+
+/// The attachments of a `CParticleAttacherDef` record: `01 00 01`, the field
+/// hash, a u32 count, then 13 bytes each (u32 emitter, u32 helper name offset,
+/// f32, u8).
+pub fn parse_attachments(record: &[u8]) -> Result<Vec<Attachment>> {
+    let mut r = Reader::new(record);
+    let _header: [u8; 3] = r.array()?;
+    let field = r.u32()?;
+    if field != ATTACHMENTS_FIELD {
+        return Err(invalid(&r, format!("field {field:08x}")));
+    }
+    let count = r.u32()?;
+    if count > 64 {
+        return Err(invalid(&r, format!("{count} attachments")));
+    }
+    (0..count)
+        .map(|_| {
+            Ok(Attachment {
+                emitter: r.u32()?,
+                helper_name: r.u32()?,
+                unknown_f32: f32::from_bits(r.u32()?),
+                unknown_flag: r.array::<1>()?[0],
+            })
+        })
+        .collect()
+}
+
+/// Field of `CSmokeGeneratorDef` records holding the emitter's number
+/// (`CHIMNEY_SMOKE_01` = 10 on 318 of 323 buildings, `CAMPFIRE_01` = 64 on the
+/// rest). The record's other field, `0x54a805b2`, is 32.0 in all.
+pub const SMOKE_EMITTER_FIELD: u32 = 0x76e5_195b;
+
 fn invalid(r: &Reader, reason: String) -> Error {
     Error::Invalid {
         offset: r.pos(),
@@ -228,6 +338,21 @@ mod tests {
         sprite[25..29].copy_from_slice(&4u32.to_le_bytes());
         d.extend_from_slice(&sprite);
         d
+    }
+
+    #[test]
+    fn parses_attachments() {
+        let mut d = vec![1, 0, 1];
+        d.extend_from_slice(&ATTACHMENTS_FIELD.to_le_bytes());
+        d.extend_from_slice(&1u32.to_le_bytes());
+        d.extend_from_slice(&255u32.to_le_bytes());
+        d.extend_from_slice(&0x5a005u32.to_le_bytes());
+        d.extend_from_slice(&10.0f32.to_le_bytes());
+        d.push(0);
+        let a = parse_attachments(&d).unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!((a[0].emitter, a[0].helper_name), (255, 0x5a005));
+        assert_eq!(a[0].unknown_f32, 10.0);
     }
 
     #[test]

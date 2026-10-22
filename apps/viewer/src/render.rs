@@ -690,7 +690,14 @@ impl TerrainRenderer {
         }
 
         if let Some(p) = &mut self.particles {
-            p.prepare(device, queue, view_proj, self.eye);
+            // Smoke takes the scene's light as surfaces do: ambient and half
+            // the sun (it scatters rather than faces it), overbright, capped.
+            let l = &self.light;
+            let lit: [f32; 3] = std::array::from_fn(|i| {
+                let sum = (l.ambient[i] + l.sun[i] * 0.5).clamp(0.0, 1.0) * l.brightness;
+                sum.min(l.highlight_limit).powf(2.2)
+            });
+            p.prepare(device, queue, view_proj, self.eye, lit);
         }
         let mut encoder = device.create_command_encoder(&Default::default());
         {

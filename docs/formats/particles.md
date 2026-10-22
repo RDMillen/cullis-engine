@@ -72,13 +72,20 @@ Most `CPSCEmitterGeneric` integers read as fixed-point numbers with 1.0 = 1024: 
 | --- | --- | --- |
 | additive blending, unless mode 2 (alpha) | sprite offset 25 | flames 3 and 4 (sprites on black, no alpha); smoke 2 |
 | lifetime in seconds | update offset 36 | 0.8; 6.3 |
-| particles born a second | emitter offset 47 (as an integer) | 82; 1 (one long-lived flame) |
+| particles born a second | emitter offset 47 as an integer; offset 55 where 47 is 0 | 82; chimney smoke 41 |
+| a single particle kept alive | offsets 55 and 82 both 0 | candles, lamp glows, each firefly, blood stains |
+| a starting burst | emitter offset 13 | 0 for steady emitters; sword sparks 20, blood 10, footstep dust 5 |
+| launch speed and spread from straight up | emitter offsets 43 and 51 (1.0 = 1024) | fireplace 6.4, chimney 1.6, candle 0.16, dust and fireflies 0; spread 0.5 |
 | size at birth and death, thousandths of a metre | sprite offsets 45 and 49 | 0.248 → 0; 0.126 → 0.32 |
 | acceleration, negative upwards | update offset 100 | −0.3; 0.1 |
 
-Starting motion (rising 0.35 m/s for flames, 0.25 for smoke, spreading 0.08) is a stand-in by eye. The colour's middle key is skipped when it is opaque black, as in torches and candles, where it looks unused.
+Emitter offset 82 (15 for a fireplace flame, 41 for chimney smoke) may be the most particles alive; capping fires to it left them too sparse, so it is not used. The header's first float (10 for the fireplace, 48 for chimney smoke and torches) over 10 is taken as a scale for speeds and sizes, and speeds as 0.1 m/s per unit; both by eye (a fireplace flame then rises about half a metre, chimney smoke about 0.8 m/s). A black middle colour key (torches, candles, smoke) is taken as no middle colour, its alpha still used. Smoke (alpha-blended) reads its colour keys with 128 as 1.0 (the doubled-modulate convention; its grey is 127, and the smoke sprite's own alpha is faint, at most 119) and is lit by the scene's light; flames are self-lit. Layers with `CPSCOrbit`, `CPSCSpline` or `CPSCAttractor` (fireflies, spells) are not drawn yet.
+
+## Smoke generators
+
+A building's `CSmokeGeneratorDef` component holds field `0x76e5195b`, its emitter's number (10, `CHIMNEY_SMOKE_01`, on 318 of 323 buildings; 64, `CAMPFIRE_01`, on 5), and field `0x54a805b2` (32.0 in all). The smoke rises from the mesh's `focus_chimney_01` helpers (`mesh.md`): one at the top of each Oakvale house, two on some.
 
 ## Where emitters are placed
 
 - **Mesh dummies** (`Skeleton::created_particles`; the viewer starts these). A mesh's helper names include `CREATEPARTICLE <emitter>` dummies, like the `CREATEOBJECT` ones that place door frames (`mesh.md`): `MESH_INTERNAL_FIREPLACE` has `CREATEPARTICLE FIREPLACE_LOGS_01` 36 units above its origin, next to a `LIGHT_POINT` helper. 160 such dummies in `graphics.big`; the commonest name `BRAZIERFIREFINAL` (27), `CANDLE_FLAME` (20), `STANDARDBRAZIERFIRE` (16).
-- **Entities.** A `CParticleAttacherDef` component (26 definitions: lamps, trolls, the dragon) lists emitters by their number in `particles.h`: a u32 count, then per emitter a u32 number, a u32 (an attachment point?), an f32 (10.0 or 20.0) and a byte. Street lamps attach `LAMPGLOW` (255) and `FIRE_FLIES` (254).
+- **Entities.** A `CParticleAttacherDef` component (26 definitions: lamps, trolls, the dragon) lists emitters by number (`fable_data::particles::parse_attachments`): `01 00 01`, field `0x3696f44d`, a u32 count, then 13 bytes each: u32 emitter number (its bank entry id), u32 byte offset in `names.bin` of the mesh helper it sits at (`FLARE_POINT`, `LIGHT_POINT`, `EMITTER_LOWERARM`, `DRAGON_MOUTH_DUMMY`; `0xffffffff` for none), f32 (10.0 or 20.0), u8 (0 on lamps, 1 on creatures). Street lamps attach `LAMPGLOW` (255) at `FLARE_POINT` and `FIRE_FLIES` (254) at `LIGHT_POINT`. Every attachment's helper name resolves (real-data test).

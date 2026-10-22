@@ -1262,3 +1262,29 @@ fn particle_emitters_parse() {
     assert!(failed.is_empty(), "{ok} parsed; {failed:?}");
     assert!(sprites > 2000, "{sprites} sprite layers");
 }
+
+#[test]
+#[ignore]
+fn particle_attachments_name_helpers() {
+    use fable_data::defs::{Defs, Names};
+    use fable_data::particles::parse_attachments;
+    let dir = data_dir().join("CompiledDefs");
+    let names = Names::parse(&std::fs::read(dir.join("names.bin")).unwrap()).unwrap();
+    let defs = Defs::parse(&std::fs::read(dir.join("game.bin")).unwrap(), &names).unwrap();
+    let mut seen = 0;
+    for d in defs
+        .defs
+        .iter()
+        .filter(|d| defs.type_name(d) == "CParticleAttacherDef")
+    {
+        for a in parse_attachments(&d.record).unwrap() {
+            assert!(
+                a.helper_name == u32::MAX || names.at(a.helper_name).is_some(),
+                "helper name {:#x}",
+                a.helper_name
+            );
+            seen += 1;
+        }
+    }
+    assert!(seen > 20, "{seen} attachments");
+}
