@@ -757,6 +757,10 @@ mod tests {
         fn distance_to(&self, _: &str) -> Option<f32> {
             Some(self.0)
         }
+
+        fn hero(&self) -> [f32; 3] {
+            [0.0; 3]
+        }
     }
 
     fn person(role: &str) -> Person<'_> {

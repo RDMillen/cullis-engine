@@ -10,7 +10,7 @@ use crate::model::{self, ModelData, ModelRenderer, Skin};
 use crate::skin::{AnimBank, Animator, Clip};
 use crate::terrain::CreaturePlacement;
 use crate::walk::{self, HeightGrid, WalkGrid};
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 
 /// One placed creature: one or more skinned meshes (head, torso, legs) playing
 /// the same clip.
@@ -51,12 +51,17 @@ pub struct Npc {
     walk: Option<Wander>,
 }
 
-/// A creature that strolls around where it was placed. Stand-in behaviour: the
-/// game's creature AI is not decoded.
+/// A creature that can walk: one that strolls around where it was placed
+/// (stand-in behaviour: the game's creature AI is not decoded), or one a quest
+/// sends somewhere.
 struct Wander {
     body: walk::Hero,
     home: Vec2,
     clip: usize,
+    /// Whether it strolls by itself (scripted people stand until sent).
+    strolls: bool,
+    /// Where a quest has sent it, and the route there.
+    errand: Option<walk::Follow>,
     /// World units per second (the walk clip's own speed).
     speed: f32,
     target: Option<Vec2>,
@@ -125,6 +130,27 @@ impl Npc {
         let roll = self.random();
         let base = self.base;
         let w = self.walk.as_mut().unwrap();
+        // An errand first: along its route, then back to standing.
+        if let Some(errand) = &mut w.errand {
+            let step = errand.direction(&w.body, layers, heights, dt, blocked, blocked);
+            match step {
+                Some(to) => {
+                    w.body
+                        .step_blocked(to, w.speed, dt, layers, heights, blocked);
+                    self.transform = body_transform(&w.body);
+                    return (current != w.clip).then_some(w.clip);
+                }
+                None => {
+                    w.errand = None;
+                    w.home = w.body.position.truncate();
+                    w.resting = 0.0;
+                    return Some(base);
+                }
+            }
+        }
+        if !w.strolls {
+            return self.fidget(dt, current, finished);
+        }
         if let Some(goal) = w.target {
             let to = goal - w.body.position.truncate();
             if to.length() < 0.3 || w.stuck > 1.0 {
@@ -348,6 +374,52 @@ impl Npc {
         self.transform.w_axis.truncate().truncate()
     }
 
+    /// Sends it walking to `goal` (world position; its height picks the floor
+    /// where floors are stacked), finding a way round; false if it cannot walk.
+    pub fn walk_to(&mut self, goal: Vec3) -> bool {
+        let Some(w) = &mut self.walk else {
+            return false;
+        };
+        w.target = None;
+        w.errand = Some(walk::Follow::to_floor(goal.truncate(), Some(goal.z)));
+        true
+    }
+
+    /// Puts it at world position `at` (on the walking layer nearest that
+    /// height), facing world point `facing`.
+    pub fn place(
+        &mut self,
+        at: Vec3,
+        facing: Vec2,
+        layers: &[WalkGrid],
+        heights: Option<&HeightGrid>,
+    ) {
+        let to = facing - at.truncate();
+        let heading = (-to.x).atan2(to.y);
+        let stand = heights.and_then(|h| walk::stand_at(layers, h, at.truncate(), Some(at.z)));
+        let (layer, position) = match stand {
+            Some((layer, spot, z)) => (layer, spot.extend(z)),
+            None => (0, at),
+        };
+        self.heading = heading;
+        match &mut self.walk {
+            Some(w) => {
+                w.body.position = position;
+                w.body.heading = heading;
+                w.body.layer = layer;
+                w.home = position.truncate();
+                w.errand = None;
+                w.target = None;
+                self.transform = body_transform(&w.body);
+            }
+            None => {
+                self.transform = Mat4::from_translation(position)
+                    * Mat4::from_rotation_z(heading)
+                    * model::hero_local();
+            }
+        }
+    }
+
     /// For a wandering creature, how far it is from its placement.
     pub fn wandered(&self) -> Option<f32> {
         self.walk
@@ -459,7 +531,8 @@ pub fn load(
         };
         let configs = model::bone_configs(data_dir, &c.morphs);
         let wanders = !c.scripted && !c.definition.contains("GUARD");
-        let walk_id = c.idles.walk.filter(|_| wanders);
+        // Scripted people walk too, when a quest sends them somewhere.
+        let walk_id = c.idles.walk.filter(|_| wanders || c.scripted);
         let ids: Vec<u32> = std::iter::once(base)
             .chain(c.idles.fidgets.iter().copied())
             .chain(walk_id)
@@ -526,6 +599,8 @@ pub fn load(
                     },
                     home: p.truncate(),
                     clip: walk_clip,
+                    strolls: wanders,
+                    errand: None,
                     speed: animator.speed(walk_clip).unwrap_or(0.0)
                         * model::MESH_SCALE
                         * animator.stride_ratio(),

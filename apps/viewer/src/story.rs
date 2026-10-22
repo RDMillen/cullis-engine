@@ -2,6 +2,7 @@
 //! what it answers is queued as subtitles, notices and effects.
 
 use eframe::egui;
+use engine_script::guild::{self, GuildTraining};
 use engine_script::prologue::{self, Aftermath, Birthday};
 use engine_script::{Beat, Person, Quest, World};
 use fable_data::strings::TextBank;
@@ -19,6 +20,7 @@ pub const KICK_REACH: f32 = 1.4;
 pub enum Act {
     Birthday(Birthday),
     Aftermath(Aftermath),
+    Guild(GuildTraining),
 }
 
 pub struct Story {
@@ -32,6 +34,7 @@ fn quest(act: &mut Act) -> &mut dyn Quest {
     match act {
         Act::Birthday(q) => q,
         Act::Aftermath(q) => q,
+        Act::Guild(q) => q,
     }
 }
 
@@ -39,6 +42,8 @@ fn quest(act: &mut Act) -> &mut dyn Quest {
 struct People<'a> {
     npcs: &'a [Npc],
     hero: Vec2,
+    /// The height of the Hero's feet.
+    height: f32,
 }
 
 impl World for People<'_> {
@@ -48,6 +53,10 @@ impl World for People<'_> {
             .filter(|n| n.script_name.as_deref() == Some(role))
             .map(|n| n.position().distance(self.hero))
             .min_by(f32::total_cmp)
+    }
+
+    fn hero(&self) -> [f32; 3] {
+        self.hero.extend(self.height).to_array()
     }
 }
 
@@ -87,6 +96,7 @@ impl Story {
         let act = match region {
             "StartOakVale" if has(prologue::SECTIONS[0]) => Act::Birthday(Birthday::new()),
             "StartOakVale" if has(prologue::AFTER[0]) => Act::Aftermath(Aftermath::new()),
+            prologue::GUILD if has(prologue::GUILD_SECTIONS[0]) => Act::Guild(GuildTraining::new()),
             _ => return None,
         };
         Some(Self {
@@ -102,6 +112,7 @@ impl Story {
         match &self.act {
             Act::Birthday(_) => prologue::ROLES.contains(&role),
             Act::Aftermath(_) => role == prologue::DEAD_FATHER,
+            Act::Guild(_) => guild::ROLES.contains(&role),
         }
     }
 
@@ -174,15 +185,17 @@ impl Story {
         self.present(by, true, npcs, hero, text, subs);
     }
 
+    /// Time passes: `dt` seconds, the Hero at `hero` with his feet at `height`.
     pub fn update(
         &mut self,
         dt: f32,
         npcs: &[Npc],
-        hero: Vec2,
+        (hero, height): (Vec2, f32),
         text: &TextBank,
         subs: &mut Subtitles,
     ) {
-        quest(&mut self.act).update(dt, &People { npcs, hero }, &mut self.beats);
+        let world = People { npcs, hero, height };
+        quest(&mut self.act).update(dt, &world, &mut self.beats);
         self.present(None, false, npcs, hero, text, subs);
     }
 

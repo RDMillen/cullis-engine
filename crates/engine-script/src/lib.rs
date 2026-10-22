@@ -12,6 +12,7 @@
 //!
 //! No rendering, windowing or platform dependency, so ports can reuse it.
 
+pub mod guild;
 pub mod prologue;
 
 /// How a text entry is said.
@@ -52,6 +53,24 @@ pub enum Beat {
     Return(&'static str),
     /// The quest is over; the world moves on to these quest states (Tng sections).
     Finish(&'static [&'static str]),
+    /// The person with this role walks to world position `to` (x, y, and the
+    /// height of the floor, which picks a floor where they are stacked),
+    /// finding a way round what is in the way.
+    Walk { who: &'static str, to: [f32; 3] },
+    /// The person with this role is put at world position `at` (x, y and the
+    /// height of the floor), facing world point `facing`.
+    Place {
+        who: &'static str,
+        at: [f32; 3],
+        facing: [f32; 2],
+    },
+    /// Night passes: the screen fades, the clock moves on to `hour`, and the
+    /// Hero wakes at `at` facing `facing` (world coordinates, as for `Place`).
+    Sleep {
+        hour: f32,
+        at: [f32; 3],
+        facing: [f32; 2],
+    },
     /// The quest is over and the Hero is taken to another region, in these quest
     /// states, appearing near world position `at` (x, y, and the height of the
     /// floor he stands on) facing towards world point `facing` (x, y).
@@ -85,9 +104,11 @@ impl Beat {
 
 /// What a quest needs to know about the world each update.
 pub trait World {
-    /// How far the Hero is from where the person with `role` was placed (world
-    /// units), if that person is in the region.
+    /// How far the Hero is from the person with `role` (world units), if that
+    /// person is in the region.
     fn distance_to(&self, role: &str) -> Option<f32>;
+    /// Where the Hero stands (world x, y, and the height of his feet).
+    fn hero(&self) -> [f32; 3];
 }
 
 /// A quest in progress. Each call appends what happens to `out`.

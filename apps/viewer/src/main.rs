@@ -61,7 +61,8 @@ struct Args {
     /// Place the young Hero near the camera target (screenshots).
     walk: bool,
     /// Then walk him towards this point (x, y) before the screenshot.
-    walk_to: Option<[f32; 2]>,
+    /// x, y, and the floor's height (NaN for any floor).
+    walk_to: Option<[f32; 3]>,
     /// Tng sections (quest states) to show besides `NULL`; repeatable. Default:
     /// the region's starting state (`terrain::default_sections`).
     sections: Vec<String>,
@@ -155,7 +156,12 @@ fn parse_args() -> Result<Args, Error> {
                     .split(',')
                     .map(|s| s.trim().parse::<f32>())
                     .collect::<Result<_, _>>()?;
-                args.walk_to = Some(v.try_into().map_err(|_| "--walk-to takes x,y")?);
+                // x,y, or x,y,z for a floor among stacked ones.
+                args.walk_to = match *v.as_slice() {
+                    [x, y] => Some([x, y, f32::NAN]),
+                    [x, y, z] => Some([x, y, z]),
+                    _ => return Err("--walk-to takes x,y or x,y,z".into()),
+                };
                 args.walk = true;
             }
             "--camera" => {
@@ -178,6 +184,11 @@ fn parse_args() -> Result<Args, Error> {
     }
     Ok(args)
 }
+
+/// How long a night passing stays black, and then takes to fade back in
+/// (seconds).
+const NIGHT_HOLD: f32 = 1.0;
+const NIGHT_FADE: f32 = 1.5;
 
 /// The time of day a region opens at: mid-morning (a choice, not the game's).
 const DEFAULT_HOUR: f32 = 10.0;
@@ -480,8 +491,25 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             args.camera.map(|c| c[2]),
         )?
     {
-        if let Some([x, y]) = args.walk_to {
+        if let Some([x, y, z]) = args.walk_to {
             let goal = glam::Vec2::new(x, y);
+            let floor = (!z.is_nan()).then_some(z);
+            if let Some(h) = &renderer.heights {
+                eprintln!(
+                    "walk goal stands at {:?} (layer, spot, floor)",
+                    walk::stand_at(&renderer.walk, h, goal, floor)
+                );
+                for (l, grid) in renderer.walk.iter().enumerate() {
+                    eprintln!(
+                        "  layer {l}: walkable {}, floor {:?}",
+                        grid.walkable(goal),
+                        grid.height(goal, h)
+                    );
+                }
+                if let Some(c) = &renderer.colliders {
+                    eprintln!("  mesh surfaces there: {:?}", c.surfaces(goal));
+                }
+            }
             let mut highest = hero.position.z;
             // With --use: walk, use the nearest door, let it swing, walk on.
             for pass in 0..1 + usize::from(args.use_door) {
@@ -498,7 +526,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     }
                 }
                 // Follow a route there, or head straight for it if there is none.
-                let mut follow = walk::Follow::new(goal);
+                let mut follow = walk::Follow::to_floor(goal, floor);
                 for _ in 0..6000 {
                     let Some(heights) = &renderer.heights else {
                         break;
@@ -836,29 +864,7 @@ fn spawn_hero(
     let Some(heights) = &renderer.heights else {
         return Ok(None);
     };
-    // The walkable spot nearest `near` on each layer, standing on its walking
-    // surface (a floor, not the terrain under it). Given a height, the layer
-    // whose spot is nearest it (an upper floor); else the ground layer.
-    let Some((_, layer, at, z)) = renderer
-        .walk
-        .iter()
-        .enumerate()
-        .filter_map(|(layer, grid)| {
-            let at = grid.nearest_walkable(near)?;
-            let z = match grid.height(at, heights) {
-                Some(z) => z,
-                None if layer == 0 => heights.height(at),
-                None => return None,
-            };
-            let off = match height {
-                Some(h) => (z - h).abs(),
-                None if layer == 0 => 0.0,
-                None => return None,
-            };
-            Some((at.distance(near) + off, layer, at, z))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-    else {
+    let Some((layer, at, z)) = walk::stand_at(&renderer.walk, heights, near, height) else {
         return Ok(None);
     };
     let mut hero = walk::Hero::new(at, heights);
@@ -1052,9 +1058,10 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     app.hour = args.hour;
                     app.brightness = args.brightness;
                     app.highlights = args.highlights;
-                    app.auto_walk = args
-                        .walk_to
-                        .map(|g| walk::Follow::new(glam::Vec2::from_array(g)));
+                    app.auto_walk = args.walk_to.map(|[x, y, z]| {
+                        let height = (!z.is_nan()).then_some(z);
+                        walk::Follow::to_floor(glam::Vec2::new(x, y), height)
+                    });
                     app.auto_talk = args.talk > 0;
                     if let (true, Some(story)) = (args.with_present, &mut app.story)
                         && let story::Act::Birthday(quest) = &mut story.act
@@ -1178,6 +1185,8 @@ struct ViewerApp {
     text_view: Option<String>,
     /// The walking Hero, when walk mode is on.
     walker: Option<walk::Hero>,
+    /// Black over the view, fading out after a night passes (1 opaque).
+    fade: f32,
     /// Preferred camera distance in walk mode (the scroll wheel changes it).
     follow_distance: f32,
     /// Region entrances, for region exits.
@@ -1256,6 +1265,7 @@ impl ViewerApp {
             text_names,
             text_view: None,
             walker: None,
+            fade: 0.0,
             follow_distance: 6.0,
             gtg,
             pending_exit: None,
@@ -1661,8 +1671,14 @@ impl ViewerApp {
             ) {
                 Some(to) => direction = to,
                 None => {
+                    let goal = follow.goal;
                     self.auto_walk = None;
                     let at = hero.position.truncate();
+                    eprintln!(
+                        "walk to {goal}: ended at {} ({:.1} away)",
+                        hero.position,
+                        at.distance(goal)
+                    );
                     if std::mem::take(&mut self.auto_talk)
                         && let (Some(text), Some(story)) = (&self.text, &mut self.story)
                         && let Some(i) =
@@ -1750,7 +1766,8 @@ impl ViewerApp {
             self.subs.walked_away();
         }
         if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
-            story.update(dt, &renderer.npcs, at, text, &mut self.subs);
+            let height = hero.position.z;
+            story.update(dt, &renderer.npcs, (at, height), text, &mut self.subs);
         }
         let (doors, npcs) = (&renderer.doors, &renderer.npcs);
         hero.step_blocked(direction, speed, dt, walk, heights, |p| {
@@ -2067,6 +2084,62 @@ impl ViewerApp {
                     }
                 }
             }
+            Beat::Walk { who, to } => {
+                eprintln!("quest: {who} walks to {to:?}");
+                if let Scene::Terrain(renderer) = &mut self.scene {
+                    for npc in renderer
+                        .npcs
+                        .iter_mut()
+                        .filter(|n| n.script_name.as_deref() == Some(who))
+                    {
+                        if !npc.walk_to(glam::Vec3::from_array(to)) {
+                            eprintln!("{who} cannot walk");
+                        }
+                    }
+                }
+            }
+            Beat::Place {
+                who,
+                at,
+                facing: [fx, fy],
+            } => {
+                if let Scene::Terrain(renderer) = &mut self.scene {
+                    let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+                    for npc in renderer
+                        .npcs
+                        .iter_mut()
+                        .filter(|n| n.script_name.as_deref() == Some(who))
+                    {
+                        npc.hidden = false;
+                        let at = glam::Vec3::from_array(at);
+                        npc.place(at, glam::Vec2::new(fx, fy), layers, heights);
+                    }
+                }
+            }
+            Beat::Sleep {
+                hour,
+                at,
+                facing: [fx, fy],
+            } => {
+                eprintln!("quest: night passes, waking at {at:?} at {hour}:00");
+                // Black at once, fading back in on the new day.
+                self.hour = hour;
+                self.fade = 1.0 + NIGHT_HOLD;
+                if let (Scene::Terrain(renderer), Some(hero)) = (&mut self.scene, &mut self.walker)
+                    && let Some(heights) = &renderer.heights
+                {
+                    let at = glam::Vec3::from_array(at);
+                    if let Some((layer, spot, z)) =
+                        walk::stand_at(&renderer.walk, heights, at.truncate(), Some(at.z))
+                    {
+                        hero.position = spot.extend(z);
+                        hero.layer = layer;
+                    }
+                    let to = glam::Vec2::new(fx, fy) - hero.position.truncate();
+                    hero.heading = (-to.x).atan2(to.y);
+                    renderer.update_interior(hero.position);
+                }
+            }
             Beat::Finish(sections) => {
                 self.story = None;
                 let arrival = self.walker.as_ref().map(|h| {
@@ -2351,6 +2424,14 @@ impl eframe::App for ViewerApp {
                         0.0,
                         black,
                     );
+                }
+                // A night passing: black, fading back in.
+                if self.fade > 0.0 {
+                    let alpha = (conversation::ease(self.fade.min(1.0)) * 255.0) as u8;
+                    ui.painter()
+                        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(alpha));
+                    self.fade -= ui.input(|i| i.stable_dt.min(0.1)) / NIGHT_FADE;
+                    ui.ctx().request_repaint();
                 }
                 // What is being said, notices, and the Hero's gold and items.
                 if let Some(answer) = self.subs.show(ui.ctx(), rect) {

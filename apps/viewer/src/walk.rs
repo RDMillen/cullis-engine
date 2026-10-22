@@ -363,6 +363,37 @@ impl HeightGrid {
     }
 }
 
+/// Where to stand near `near`: the walkable spot nearest it on each layer,
+/// standing on its walking surface (a floor, not the terrain under it), as
+/// (layer, spot, floor height). Given a height, the layer whose spot is nearest
+/// it (an upper floor); else the ground layer.
+pub fn stand_at(
+    layers: &[WalkGrid],
+    heights: &HeightGrid,
+    near: Vec2,
+    height: Option<f32>,
+) -> Option<(usize, Vec2, f32)> {
+    layers
+        .iter()
+        .enumerate()
+        .filter_map(|(layer, grid)| {
+            let at = grid.nearest_walkable(near)?;
+            let z = match grid.height(at, heights) {
+                Some(z) => z,
+                None if layer == 0 => heights.height(at),
+                None => return None,
+            };
+            let off = match height {
+                Some(h) => (z - h).abs(),
+                None if layer == 0 => 0.0,
+                None => return None,
+            };
+            Some((at.distance(near) + off, layer, at, z))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, layer, at, z)| (layer, at, z))
+}
+
 /// A route on foot from `from` (standing on `layer`) to the walkable spot
 /// nearest `to`, as world points from start to goal. A* over the walk cells of
 /// every layer (all layers share one grid): to the 8 neighbours on a layer (a
@@ -371,12 +402,28 @@ impl HeightGrid {
 /// within a step. Points `blocked` returns true for (closed doors, people) are
 /// avoided; when the goal itself is blocked (a person), the route ends beside
 /// it. None if no route reaches the goal.
+#[cfg(test)]
 pub fn route(
     layers: &[WalkGrid],
     ground: &HeightGrid,
     from: Vec3,
     layer: usize,
     to: Vec2,
+    blocked: impl Fn(Vec2) -> bool,
+) -> Option<Vec<Vec2>> {
+    route_to(layers, ground, from, layer, to, None, blocked)
+}
+
+/// As [`route`], to the walkable spot nearest `to` on the floor nearest
+/// height `floor` when one is given (a goal upstairs, over a hall), arriving on
+/// that floor.
+pub fn route_to(
+    layers: &[WalkGrid],
+    ground: &HeightGrid,
+    from: Vec3,
+    layer: usize,
+    to: Vec2,
+    floor: Option<f32>,
     blocked: impl Fn(Vec2) -> bool,
 ) -> Option<Vec<Vec2>> {
     use std::cmp::Ordering;
@@ -396,8 +443,16 @@ pub fn route(
     };
     let start = layer * n + layers.get(layer)?.index(from.truncate())?;
     height(start)?;
-    // The goal: the walkable cell nearest `to` on any layer.
-    let goal_cell = first.index(layers.iter().find_map(|g| g.nearest_walkable(to))?)?;
+    // The goal: the walkable cell nearest `to` on the floor nearest `floor`,
+    // else on any layer.
+    let (goal_layer, goal_spot) = match floor {
+        Some(_) => {
+            let (l, spot, _) = stand_at(layers, ground, to, floor)?;
+            (Some(l), spot)
+        }
+        None => (None, layers.iter().find_map(|g| g.nearest_walkable(to))?),
+    };
+    let goal_cell = first.index(goal_spot)?;
     let goal_point = first.centre(goal_cell);
     // How near the goal counts as there: beside it if it is taken.
     let within = if blocked(goal_point) { 1.2 } else { CELL * 0.5 };
@@ -424,7 +479,7 @@ pub fn route(
     let mut reached = None;
     while let Some(Open(_, node)) = open.pop() {
         let (l, i) = (node / n, node % n);
-        if first.centre(i).distance(goal_point) <= within {
+        if first.centre(i).distance(goal_point) <= within && goal_layer.is_none_or(|g| g == l) {
             reached = Some(node);
             break;
         }
@@ -551,6 +606,8 @@ pub fn steer(
 #[derive(Debug, Clone)]
 pub struct Follow {
     pub goal: Vec2,
+    /// The goal's floor height, when floors are stacked there.
+    height: Option<f32>,
     path: std::collections::VecDeque<Vec2>,
     planned: bool,
     routed: bool,
@@ -564,9 +621,11 @@ impl Follow {
     const STUCK: f32 = 1.0;
     const REPLANS: u32 = 5;
 
-    pub fn new(goal: Vec2) -> Self {
+    /// Towards `goal` on the floor nearest `height` (see [`route_to`]).
+    pub fn to_floor(goal: Vec2, height: Option<f32>) -> Self {
         Self {
             goal,
+            height,
             path: Default::default(),
             planned: false,
             routed: false,
@@ -608,12 +667,13 @@ impl Follow {
         }
         if !self.planned {
             self.planned = true;
-            self.path = route(
+            self.path = route_to(
                 layers,
                 ground,
                 hero.position,
                 hero.layer,
                 self.goal,
+                self.height,
                 &route_blocked,
             )
             .map(Into::into)
