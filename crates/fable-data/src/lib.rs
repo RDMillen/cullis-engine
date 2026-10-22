@@ -22,6 +22,7 @@ pub mod lut;
 pub mod lzo;
 pub mod mesh;
 pub mod nav;
+pub mod particles;
 mod reader;
 pub mod stb;
 pub mod strings;

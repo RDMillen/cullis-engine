@@ -41,6 +41,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         data.len(),
         mesh.info.lod_sizes
     );
+    if let Some(sk) = mesh.skeleton() {
+        println!("helpers and dummies: {:?}", sk.helper_names);
+        for d in &sk.dummies {
+            println!("  dummy {:?} at {:?}", sk.dummy_name(d), d.position);
+        }
+    }
     for (l, lod) in mesh.lods.iter().enumerate() {
         let names: Vec<_> = lod.materials.iter().map(|m| m.name.as_str()).collect();
         println!("LOD {l}: materials {names:?}");

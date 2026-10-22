@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-22: particle emitters, structure
+
+- Emitters are in `Misc/pc/effects.big`, bank `PARTICLE_MAIN_PC`, one entry per `particles.h` number (1,165). `fable_data::particles` reads the structure: a header, named layers, and each layer's components (`CPSCRenderSprite`, `CPSCEmitterGeneric`, `CPSCUpdateNormal`, and seven rarer classes), most of fixed size. Every emitter parses to its last byte (real-data test). Documented in `docs/formats/particles.md`.
+- Decoded so far: a sprite's texture (`GBANK_MAIN_PC` id) and its three colours over a particle's life (stored blue first). The emitter and update components are not decoded yet; the update floats are tabulated across seven emitters.
+- How emitters are placed: `CREATEPARTICLE <emitter>` mesh dummies (160 in the meshes; the house fireplace has `FIREPLACE_LOGS_01`), and `CParticleAttacherDef` components listing emitters by number (street lamps: `LAMPGLOW`, `FIRE_FLIES`). `mesh_dump` now prints a mesh's helpers and dummies.
+- New tools: `big_dump_all` (every entry of a bank to files), `lug_plays`, `def_components`, `tng_component`.
+- Next: decode the emitter and update components (birth rate, lifetime, size, speed, spread) by comparing emitters, then draw sprite particles at the dummies and attachers.
+
 ## 2026-10-17 (later): sky brightness
 
 - The sky looked darker than the scene: the brightness factor (2.1) and night lift scaled lit surfaces but not the sky pass. The sky now takes its own brightness in gamma space (`Light::sky_brightness`): the scene's by day, easing to 75% of it at night (`NIGHT_SKY`), without the night lift. Chosen from screenshots at 11:00, 19:00 and 23:00 comparing shares of 0.48 (the old look), 0.7, 0.85 and 1.0.

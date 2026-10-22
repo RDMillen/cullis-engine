@@ -1222,3 +1222,43 @@ fn every_light_definition_parses() {
     }
     assert!(lights > 40, "{lights} lights");
 }
+
+#[test]
+#[ignore]
+fn particle_emitters_parse() {
+    use fable_data::particles::Emitter;
+    let path = data_dir().join("Misc/pc/effects.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let index = big
+        .bank("PARTICLE_MAIN_PC")
+        .unwrap()
+        .read_index(&mut file)
+        .unwrap();
+    let (mut ok, mut failed) = (0, Vec::new());
+    let mut sprites = 0;
+    for e in &index.entries {
+        match Emitter::parse(&e.read_data(&mut file).unwrap()) {
+            Ok(emitter) => {
+                assert_eq!(emitter.version, 100, "{}", e.name);
+                assert!(
+                    emitter.name.eq_ignore_ascii_case(&e.name),
+                    "{} named {}",
+                    e.name,
+                    emitter.name
+                );
+                sprites += emitter
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.components)
+                    .filter_map(|c| c.sprite())
+                    .filter(|s| s.texture != 0)
+                    .count();
+                ok += 1;
+            }
+            Err(err) => failed.push(format!("{}: {err}", e.name)),
+        }
+    }
+    assert!(failed.is_empty(), "{ok} parsed; {failed:?}");
+    assert!(sprites > 2000, "{sprites} sprite layers");
+}
