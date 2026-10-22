@@ -49,6 +49,9 @@ pub struct ModelData {
     pub images: Vec<Image>,
     pub lo: Vec3,
     pub hi: Vec3,
+    /// Particle emitters started by the meshes (`CREATEPARTICLE` dummies):
+    /// emitter name and where, in the model's space.
+    pub particles: Vec<(String, Vec3)>,
 }
 
 type Error = Box<dyn std::error::Error>;
@@ -107,6 +110,8 @@ struct LocalMesh {
     /// Objects the mesh creates (`CREATEOBJECT` dummies): definition name and
     /// where, in the mesh's own space.
     creates: Vec<(String, Mat4)>,
+    /// Particle emitters it starts (`CREATEPARTICLE` dummies), likewise.
+    particles: Vec<(String, Vec3)>,
 }
 
 /// What a skinned mesh needs to be posed: per vertex, 4 skeleton bone indices and
@@ -221,6 +226,7 @@ impl ModelBuilder {
                 }],
                 lo: Vec3::splat(f32::INFINITY),
                 hi: Vec3::splat(f32::NEG_INFINITY),
+                particles: Vec::new(),
             },
         })
     }
@@ -264,6 +270,12 @@ impl ModelBuilder {
         self.model
             .indices
             .extend(local.indices.iter().map(|i| base + i));
+        self.model.particles.extend(
+            local
+                .particles
+                .iter()
+                .map(|(name, p)| (name.clone(), transform.transform_point3(*p))),
+        );
         self.model.draws.extend(local.draws.iter().map(|d| Draw {
             first: first + d.first,
             count: d.count,
@@ -302,9 +314,19 @@ impl ModelBuilder {
                     .collect()
             })
             .unwrap_or_default();
+        let particles = mesh
+            .skeleton()
+            .map(|s| {
+                s.created_particles()
+                    .into_iter()
+                    .map(|(name, d)| (name.to_owned(), Vec3::from_array(d.position)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let lod = &mesh.lods[0];
         let mut local = LocalMesh {
             creates,
+            particles,
             vertices: Vec::new(),
             indices: Vec::new(),
             draws: Vec::new(),

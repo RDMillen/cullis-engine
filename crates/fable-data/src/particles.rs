@@ -64,6 +64,52 @@ pub struct Sprite {
     pub unknown_mode: u32,
 }
 
+/// How a sprite layer looks and moves, for drawing it: the decoded fields and,
+/// where marked, readings that are not confirmed (see `particles.md`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpriteLayer {
+    pub sprite: Sprite,
+    /// Mode 2 (smoke) blends by alpha; 3 and 4 (flames, glows: sprites drawn on
+    /// black with no alpha) add. A reading of `Sprite::unknown_mode`.
+    pub additive: bool,
+    /// Seconds a particle lives (`CPSCUpdateNormal` offset 36; 0.8 for a
+    /// fireplace flame, 5 for chimney smoke). Not confirmed.
+    pub lifetime: f32,
+    /// Particles born a second (`CPSCEmitterGeneric` offset 47; 82 for a
+    /// fireplace flame, 1 for a candle's). Not confirmed.
+    pub rate: f32,
+    /// Size at birth and death in thousandths (`CPSCRenderSprite` offsets 45
+    /// and 49; 248 and 0 for a fireplace flame). Not confirmed.
+    pub size: [f32; 2],
+    /// `CPSCUpdateNormal` offset 100 (−0.3 for a fireplace, 0.68 for a torch's
+    /// flame): taken as an acceleration, negative upwards. Not confirmed.
+    pub fall: f32,
+}
+
+impl Layer {
+    /// The layer's look and motion, if it draws sprites.
+    pub fn sprite_layer(&self) -> Option<SpriteLayer> {
+        let find = |class: &str| self.components.iter().find(|c| c.class == class);
+        let sprite = find("CPSCRenderSprite")?.sprite()?;
+        let s = &find("CPSCRenderSprite")?.data;
+        let emitter = &find("CPSCEmitterGeneric")?.data;
+        let update = &find("CPSCUpdateNormal")?.data;
+        let u32_at = |d: &[u8], at: usize| {
+            d.get(at..at + 4)
+                .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()))
+        };
+        let f32_at = |d: &[u8], at: usize| f32::from_bits(u32_at(d, at));
+        Some(SpriteLayer {
+            sprite,
+            additive: sprite.unknown_mode != 2,
+            lifetime: f32_at(update, 36),
+            rate: u32_at(emitter, 47) as f32,
+            size: [u32_at(s, 45) as f32 / 1000.0, u32_at(s, 49) as f32 / 1000.0],
+            fall: f32_at(update, 100),
+        })
+    }
+}
+
 impl Component {
     /// The sprite fields, for a `CPSCRenderSprite`.
     pub fn sprite(&self) -> Option<Sprite> {

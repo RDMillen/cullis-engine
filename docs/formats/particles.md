@@ -64,7 +64,21 @@ Floats seen at these offsets, across chimney smoke, dripping blood, footstep dus
 
 `CPSCEmitterGeneric` holds mostly packed integers (`0x0ccd`, `0x1999`, `0x0444`, `1000`); not decoded.
 
+## Readings used for drawing (not confirmed)
+
+Most `CPSCEmitterGeneric` integers read as fixed-point numbers with 1.0 = 1024: the commonest values are 102 (0.1), 205 (0.2), 512 (0.5), 1126 (1.1), 1638 (1.6), 3277 (3.2). The viewer draws sprite layers with these readings (`fable_data::particles::SpriteLayer`), to be checked against the game:
+
+| Reading | From | Fireplace flame, candle |
+| --- | --- | --- |
+| additive blending, unless mode 2 (alpha) | sprite offset 25 | flames 3 and 4 (sprites on black, no alpha); smoke 2 |
+| lifetime in seconds | update offset 36 | 0.8; 6.3 |
+| particles born a second | emitter offset 47 (as an integer) | 82; 1 (one long-lived flame) |
+| size at birth and death, thousandths of a metre | sprite offsets 45 and 49 | 0.248 → 0; 0.126 → 0.32 |
+| acceleration, negative upwards | update offset 100 | −0.3; 0.1 |
+
+Starting motion (rising 0.35 m/s for flames, 0.25 for smoke, spreading 0.08) is a stand-in by eye. The colour's middle key is skipped when it is opaque black, as in torches and candles, where it looks unused.
+
 ## Where emitters are placed
 
-- **Mesh dummies.** A mesh's helper names include `CREATEPARTICLE <emitter>` dummies, like the `CREATEOBJECT` ones that place door frames (`mesh.md`): `MESH_INTERNAL_FIREPLACE` has `CREATEPARTICLE FIREPLACE_LOGS_01` 36 units above its origin, next to a `LIGHT_POINT` helper. 160 such dummies in `graphics.big`; the commonest name `BRAZIERFIREFINAL` (27), `CANDLE_FLAME` (20), `STANDARDBRAZIERFIRE` (16).
+- **Mesh dummies** (`Skeleton::created_particles`; the viewer starts these). A mesh's helper names include `CREATEPARTICLE <emitter>` dummies, like the `CREATEOBJECT` ones that place door frames (`mesh.md`): `MESH_INTERNAL_FIREPLACE` has `CREATEPARTICLE FIREPLACE_LOGS_01` 36 units above its origin, next to a `LIGHT_POINT` helper. 160 such dummies in `graphics.big`; the commonest name `BRAZIERFIREFINAL` (27), `CANDLE_FLAME` (20), `STANDARDBRAZIERFIRE` (16).
 - **Entities.** A `CParticleAttacherDef` component (26 definitions: lamps, trolls, the dragon) lists emitters by their number in `particles.h`: a u32 count, then per emitter a u32 number, a u32 (an attachment point?), an f32 (10.0 or 20.0) and a byte. Street lamps attach `LAMPGLOW` (255) and `FIRE_FLIES` (254).

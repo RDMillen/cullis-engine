@@ -13,9 +13,9 @@ Early, but the Prologue can be played through in the desktop viewer:
 - the Prologue's quests: Theresa's birthday (good and bad deeds, gold, the Trader's sweets), the bandit raid's aftermath, and Maze taking the boy to the Heroes' Guild
 - conversations from the game's own text, spoken in the original voices and shown as subtitles with yes/no questions; speakers gesture as they talk, by the line's mood, their mouths move with the voice, and the camera frames the conversation between letterbox bars; whoever or whatever E would use glows green
 - each region's music, and ambience that follows where the Hero walks (village, shore, sea, river)
-- light, sky and drifting clouds by time of day from the region's environment theme: dawn, day, dusk and night, sun shadows from buildings, people and objects, fireplaces and fires that light their surroundings, warm light indoors, and the red glow over Oakvale after the raid; birdsong by day and night creatures after dark
+- light, sky and drifting clouds by time of day from the region's environment theme: dawn, day, dusk and night, sun shadows from buildings, people and objects, fireplaces and fires that burn and light their surroundings, warm light indoors, and the red glow over Oakvale after the raid; birdsong by day and night creatures after dark
 
-Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, particles (the flames themselves), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, most particle effects (only those meshes start are drawn), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 
 ## Crates
 

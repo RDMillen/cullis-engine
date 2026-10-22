@@ -262,6 +262,20 @@ impl Skeleton {
             .filter_map(|d| Some((self.dummy_name(d)?.strip_prefix("CREATEOBJECT ")?.trim(), d)))
             .collect()
     }
+
+    /// The particle emitters the mesh starts: (emitter name, dummy) for each
+    /// `CREATEPARTICLE` dummy (`FIREPLACE_LOGS_01` above a fireplace's logs).
+    pub fn created_particles(&self) -> Vec<(&str, &Dummy)> {
+        self.dummies
+            .iter()
+            .filter_map(|d| {
+                Some((
+                    self.dummy_name(d)?.strip_prefix("CREATEPARTICLE ")?.trim(),
+                    d,
+                ))
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

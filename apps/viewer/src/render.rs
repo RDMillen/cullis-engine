@@ -131,6 +131,8 @@ pub struct TerrainRenderer {
     pub indoor_light: crate::lighting::Light,
     pub lighting: Option<crate::lighting::Lighting>,
     pub sky: Option<crate::sky::Sky>,
+    /// Particle effects (fires) and what draws them.
+    pub particles: Option<crate::particles::Particles>,
     pub clear: wgpu::Color,
     /// Where the camera looks: the middle of the shadowed area.
     pub focus: Vec3,
@@ -522,6 +524,7 @@ impl TerrainRenderer {
             indoor_light: Default::default(),
             lighting: None,
             sky: None,
+            particles: None,
             clear: SKY,
             focus: Vec3::ZERO,
             point_lights: mesh.lights.clone(),
@@ -686,6 +689,9 @@ impl TerrainRenderer {
             );
         }
 
+        if let Some(p) = &mut self.particles {
+            p.prepare(device, queue, view_proj, self.eye);
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             // Depth from the sun (cleared even when unused, so it reads as lit).
@@ -784,6 +790,9 @@ impl TerrainRenderer {
             if let Some(sea) = &self.sea {
                 pass.set_pipeline(&self.water_pipeline);
                 sea.draw(&mut pass);
+            }
+            if let Some(p) = &self.particles {
+                p.draw(&mut pass);
             }
         }
         queue.submit([encoder.finish()]);

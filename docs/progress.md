@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-22 (later): drawing particles
+
+- Field statistics across the 4,398 standard emitter components show 4-byte little-endian fields packed around flag bytes, most holding fixed-point numbers with 1.0 = 1024. Readings taken for drawing (`SpriteLayer`, not confirmed): blend from the sprite mode (2 alpha, else additive; flame sprites are drawn on black with no alpha), lifetime (update offset 36), birth rate (emitter offset 47), start and end size (sprite offsets 45 and 49, thousandths), acceleration (update offset 100). Tabulated in `docs/formats/particles.md`.
+- Meshes' `CREATEPARTICLE` dummies are collected while placing (`ModelData::particles`), and the viewer runs those emitters within 50 m of the camera's focus as camera-facing sprites (`apps/viewer/src/particles.rs`): additive or alpha-blended, depth-tested, colour over life from the three keys. Starting motion is a stand-in by eye. Headless screenshots run them for two seconds first.
+- Checked: the Hero's family fireplace burns above its logs at night (close-up screenshots). It looks modest; size and brightness are to compare with the game.
+- Not yet: `CParticleAttacherDef` emitters (lamps, creatures), the emitter and update motion fields, and the other component classes (meshes, splines, lights).
+
 ## 2026-10-22: particle emitters, structure
 
 - Emitters are in `Misc/pc/effects.big`, bank `PARTICLE_MAIN_PC`, one entry per `particles.h` number (1,165). `fable_data::particles` reads the structure: a header, named layers, and each layer's components (`CPSCRenderSprite`, `CPSCEmitterGeneric`, `CPSCUpdateNormal`, and seven rarer classes), most of fixed size. Every emitter parses to its last byte (real-data test). Documented in `docs/formats/particles.md`.

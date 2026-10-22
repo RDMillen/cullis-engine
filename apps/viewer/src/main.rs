@@ -14,6 +14,7 @@ mod door;
 mod lighting;
 mod model;
 mod npc;
+mod particles;
 mod render;
 mod shadow;
 mod skin;
@@ -300,6 +301,13 @@ impl Scene {
                 );
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
+                    match particles::Particles::load(device, queue, data_dir, &things.particles) {
+                        Ok(p) => {
+                            eprintln!("{} particle emitters", p.len());
+                            renderer.particles = Some(p);
+                        }
+                        Err(e) => eprintln!("particles: {e}"),
+                    }
                     // Interiors and what stands in them take the indoor light.
                     let indoor: Vec<usize> = renderer
                         .buildings
@@ -663,6 +671,12 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.eye = camera.eye();
         renderer.focus = camera.target;
+        // Fires already burning when the picture is taken.
+        if let Some(p) = &mut renderer.particles {
+            for _ in 0..60 {
+                p.update(1.0 / 30.0, camera.target);
+            }
+        }
         if args.no_lights {
             renderer.point_lights.clear();
         }
@@ -2286,6 +2300,11 @@ impl eframe::App for ViewerApp {
                 }
                 if let Scene::Terrain(renderer) = &mut self.scene {
                     renderer.set_hour(self.hour, self.brightness, self.highlights);
+                    let focus = renderer.focus;
+                    if let Some(p) = &mut renderer.particles {
+                        p.update(dt, focus);
+                        ui.ctx().request_repaint();
+                    }
                 }
                 let recreated = self.scene.render(&rs.device, &rs.queue, size, view_proj);
                 let view = &self.scene.target().unwrap().color_view;
