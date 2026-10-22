@@ -322,6 +322,74 @@ pub fn assign_surfaces(
     }
 }
 
+/// Fills in floors the navigation data leaves out (a dormitory upstairs, the
+/// top of a staircase): from every walkable cell, a neighbouring cell that is
+/// not walkable on that layer becomes walkable where a mesh floor
+/// (`surfaces`) lies within a step of it, nothing above it is lower than
+/// [`HEADROOM`] (not under a table or a low beam), no other layer already
+/// walks there at that height, and `wall` reports nothing between the two at
+/// waist height (it takes the two points and returns true if something is in
+/// the way). Grows until nothing more is reached; returns the cells added.
+/// Run after [`assign_surfaces`].
+pub fn extend_floors(
+    layers: &mut [WalkGrid],
+    ground: &HeightGrid,
+    surfaces: impl Fn(Vec2) -> Vec<f32>,
+    wall: impl Fn(Vec3, Vec3) -> bool,
+) -> usize {
+    const WAIST: f32 = 0.9;
+    let Some(first) = layers.first() else {
+        return 0;
+    };
+    let n = first.cells.len();
+    let mut added = 0;
+    let mut queue = std::collections::VecDeque::new();
+    for (l, layer) in layers.iter().enumerate() {
+        for i in (0..n).filter(|&i| layer.cells[i]) {
+            if let Some(h) = layer.height(layer.centre(i), ground) {
+                queue.push_back((l, i, h));
+            }
+        }
+    }
+    while let Some((l, i, h)) = queue.pop_front() {
+        let from = layers[l].centre(i).extend(h + WAIST);
+        for j in layers[l].neighbours(i).collect::<Vec<_>>() {
+            if layers[l].cells[j] {
+                continue;
+            }
+            let p = layers[l].centre(j);
+            let floors = surfaces(p);
+            let Some(z) = floors
+                .iter()
+                .copied()
+                .filter(|z| (z - h).abs() <= MAX_STEP)
+                .max_by(f32::total_cmp)
+            else {
+                continue;
+            };
+            if floors.iter().any(|&o| o > z + 0.1 && o < z + HEADROOM) {
+                continue;
+            }
+            let taken = layers.iter().any(|g| {
+                g.cells[j]
+                    && g.height(p, ground)
+                        .is_some_and(|o| (o - z).abs() < MAX_STEP)
+            });
+            if taken || wall(from, p.extend(z + WAIST)) {
+                continue;
+            }
+            let layer = &mut layers[l];
+            layer.cells[j] = true;
+            if let Some(surface) = &mut layer.surface {
+                surface[j] = z;
+            }
+            added += 1;
+            queue.push_back((l, j, z));
+        }
+    }
+    added
+}
+
 /// Ground heights on a 1-unit grid, sampled bilinearly.
 #[derive(Debug, Clone)]
 pub struct HeightGrid {

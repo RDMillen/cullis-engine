@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-22 (later): floors from meshes (in progress)
+
+- `walk::extend_floors` grows walkable floor from walkable cells into cells the navigation data leaves out, where a mesh floor lies within a step, there is headroom and no wall crosses at waist height (a collision ray). In the Guild it adds 46,379 cells, but the dormitory is still not reached: at the Guildmaster's bedside marker there is no mesh floor at 30.1 m (only a roof at 44.5), even with `Q_GuildTrainingPreMelee` loaded too, and the stair climbed so far tops out at 27.05 m near (4657.4, 3675.6). The dormitory's floor is reached from somewhere not yet found.
+- Diagnostics: a headless `--walk-to` prints where its goal stands on each layer and the mesh floors there; `CULLIS_PROBE=x,y` samples walkable layers and mesh floors along the line from that point to the goal.
+- Not done: people and the Hero's automatic walks opening doors (routes from the hall to the training grounds are still blocked by closed doors).
+- Next: find the stair to the dormitory (probe other lines from the 27 m landing), check `extend_floors` does not open unintended areas in Oakvale, then doors, then the dummy lesson.
+
 ## 2026-10-22 (later): the Guild training begins
 
 - Quest 028's text (512 lines) and cutscene lines give the childhood stage: arrival and the dormitory, the morning with Whisper, the dummy lesson, the alarm and the beetles, leaving childhood. Its quest states place the markers for each scene (dormitory, Map Room, training ring, dummy). Written up in `docs/quests/guild-training.md`.

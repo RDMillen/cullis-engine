@@ -357,8 +357,19 @@ impl Scene {
                         });
                         let after: Vec<usize> =
                             renderer.walk.iter().map(|l| l.walkable_cells()).collect();
+                        // Floors the navigation leaves out, from the meshes.
+                        let extra = walk::extend_floors(
+                            &mut renderer.walk,
+                            heights,
+                            |p| colliders.surfaces(p),
+                            |a, b| {
+                                let d = b - a;
+                                let len = d.length();
+                                len > 0.0 && colliders.ray(a, d / len, len, &[]).is_some()
+                            },
+                        );
                         eprintln!(
-                            "walk layers: {before:?} navigation cells, {after:?} with a surface height"
+                            "walk layers: {before:?} navigation cells, {after:?} with a surface height, {extra} more from mesh floors"
                         );
                         let (v, i) = terrain::TerrainMesh::walk_overlay(
                             &navigation,
@@ -508,6 +519,25 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 }
                 if let Some(c) = &renderer.colliders {
                     eprintln!("  mesh surfaces there: {:?}", c.surfaces(goal));
+                    // CULLIS_PROBE=x,y: sample the line from there to the goal.
+                    if let Some(from) = std::env::var("CULLIS_PROBE").ok().and_then(|v| {
+                        let f: Vec<f32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
+                        (f.len() == 2).then(|| glam::Vec2::new(f[0], f[1]))
+                    }) {
+                        let steps = (from.distance(goal) / 0.5) as usize;
+                        for k in 0..=steps {
+                            let q = from.lerp(goal, k as f32 / steps.max(1) as f32);
+                            let walkable: Vec<(usize, f32)> = renderer
+                                .walk
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(l, g)| Some((l, g.height(q, h)?)))
+                                .collect();
+                            let floors: Vec<String> =
+                                c.surfaces(q).iter().map(|z| format!("{z:.1}")).collect();
+                            eprintln!("  probe {q:.1}: walk {walkable:?} floors {floors:?}");
+                        }
+                    }
                 }
             }
             let mut highest = hero.position.z;
