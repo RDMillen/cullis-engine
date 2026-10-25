@@ -1,39 +1,18 @@
-//! Particle effects: the emitters meshes start at their `CREATEPARTICLE`
-//! dummies (a fireplace's flames), simulated near the camera and drawn as
-//! camera-facing sprites.
-//!
-//! Texture, colours over life and blending come from the emitter data; birth
-//! rate, lifetime and sizes are readings not yet confirmed, and the starting
-//! motion is a stand-in by eye (see `docs/formats/particles.md`).
-
-use std::collections::HashMap;
+//! Draws the world's particle effects (`engine_world::particles`) as
+//! camera-facing sprites: additive for flames, alpha-blended for smoke.
 
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
-use engine_core::assets::{Archive, AssetCache};
-use fable_data::particles::{Emitter as EmitterData, SpriteLayer};
+use engine_core::assets::AssetCache;
+use engine_world::particles::{ParticleSystem, colour_at};
 use glam::{Mat4, Vec3};
+
+pub use engine_world::particles::EmitterRef;
 
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT};
 
-/// Which emitter: by name (a mesh's `CREATEPARTICLE` dummy) or by its number
-/// in `particles.h`, which is its bank entry id (attachers, chimney smoke).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum EmitterRef {
-    Name(String),
-    Id(u32),
-}
-
-/// Emitters this far from the camera's focus are not simulated (world units).
-const REACH: f32 = 50.0;
-/// Most particles a layer keeps at once.
-const MAX_PER_LAYER: usize = 256;
 /// Metres per unit of a layer's size (sizes are stored in thousandths).
 const SIZE_SCALE: f32 = 1.0;
-/// Metres a second per unit of a layer's launch speed (by eye: a fireplace
-/// flame's 6.4 rises about half a metre in its 0.8 s).
-const SPEED_SCALE: f32 = 0.1;
-
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
@@ -43,32 +22,10 @@ struct Vertex {
     layer: f32,
 }
 
-struct Particle {
-    position: Vec3,
-    velocity: Vec3,
-    age: f32,
-    life: f32,
-}
-
-struct Layer {
-    look: SpriteLayer,
-    /// Its sprite's layer in the texture array.
-    texture: f32,
-    particles: Vec<Particle>,
-    /// Particles owed by the birth rate, carried between frames, and whether
-    /// its starting burst has been born.
-    owed: f32,
-    started: bool,
-}
-
-struct Emitter {
-    position: Vec3,
-    layers: Vec<Layer>,
-}
-
 /// The region's particle effects and what draws them.
 pub struct Particles {
-    emitters: Vec<Emitter>,
+    /// What is simulated.
+    pub system: ParticleSystem,
     additive: wgpu::RenderPipeline,
     alpha: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
@@ -78,7 +35,6 @@ pub struct Particles {
     /// Vertices written this frame: alpha-blended ones first, then additive.
     alpha_count: u32,
     additive_count: u32,
-    rng: u64,
     scratch: Vec<Vertex>,
 }
 
@@ -91,83 +47,9 @@ impl Particles {
         assets: &AssetCache,
         placed: &[(EmitterRef, Vec3)],
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut assets = assets.clone();
-        let index = assets.index(Archive::Effects)?;
-        let mut parsed: HashMap<EmitterRef, Option<Vec<SpriteLayer>>> = HashMap::new();
-        let mut textures: Vec<u32> = Vec::new();
-        let mut emitters = Vec::new();
-        for (which, position) in placed {
-            let name = match which {
-                EmitterRef::Name(n) => n.clone(),
-                EmitterRef::Id(id) => format!("#{id}"),
-            };
-            let looks = parsed.entry(which.clone()).or_insert_with(|| {
-                // Dummies name emitters in any case; the bank's names are
-                // upper case.
-                let id = match which {
-                    EmitterRef::Name(n) => index.by_name(&n.to_ascii_uppercase())?.id,
-                    EmitterRef::Id(id) => *id,
-                };
-                let (_, data) = assets.read(Archive::Effects, id).ok()?;
-                let emitter = EmitterData::parse(&data)
-                    .map_err(|e| log::warn!("particles {name}: {e}"))
-                    .ok()?;
-                // The header's first float over 10 scales speeds and sizes:
-                // 1 for the fireplace (as drawn and checked), 4.8 for chimney
-                // smoke. A guess.
-                let scale = (emitter.unknown_floats()[0] / 10.0).clamp(0.1, 10.0);
-                Some(
-                    emitter
-                        .layers
-                        .iter()
-                        // Layers moved by undecoded components (fireflies'
-                        // orbits, splines, attractors) would sit still: left
-                        // out until those are decoded.
-                        .filter(|l| {
-                            !l.components.iter().any(|c| {
-                                matches!(
-                                    c.class.as_str(),
-                                    "CPSCOrbit" | "CPSCSpline" | "CPSCAttractor"
-                                )
-                            })
-                        })
-                        .filter_map(|l| l.sprite_layer())
-                        .map(|mut l| {
-                            l.speed *= scale;
-                            l.size = l.size.map(|s| s * scale);
-                            l
-                        })
-                        .collect(),
-                )
-            });
-            let Some(looks) = looks else {
-                log::info!("particles: no emitter {name}");
-                continue;
-            };
-            let layers = looks
-                .iter()
-                .map(|look| {
-                    let id = look.sprite.texture;
-                    let k = textures.iter().position(|&t| t == id).unwrap_or_else(|| {
-                        textures.push(id);
-                        textures.len() - 1
-                    });
-                    Layer {
-                        look: *look,
-                        texture: k as f32,
-                        particles: Vec::new(),
-                        owed: 0.0,
-                        started: false,
-                    }
-                })
-                .collect();
-            emitters.push(Emitter {
-                position: *position,
-                layers,
-            });
-        }
+        let system = ParticleSystem::load(assets, placed)?;
         // At least two layers, so the array binds as an array everywhere.
-        let mut layers = crate::themes::load_ids(&assets, &textures)?;
+        let mut layers = crate::themes::load_ids(assets, &system.textures)?;
         while layers.len() < 2 {
             layers.push(layers.first().cloned().unwrap_or_else(|| {
                 vec![vec![
@@ -178,10 +60,10 @@ impl Particles {
             }));
         }
         let view = crate::render::layer_array(device, queue, "particle sprites", &layers);
-        Ok(Self::with(device, emitters, &view))
+        Ok(Self::with(device, system, &view))
     }
 
-    fn with(device: &wgpu::Device, emitters: Vec<Emitter>, view: &wgpu::TextureView) -> Self {
+    fn with(device: &wgpu::Device, system: ParticleSystem, view: &wgpu::TextureView) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("particles.wgsl"));
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("particle uniforms"),
@@ -310,7 +192,7 @@ impl Particles {
         let capacity = 1024;
         let vertices = vertex_buffer(device, capacity);
         Self {
-            emitters,
+            system,
             additive,
             alpha,
             uniforms,
@@ -319,81 +201,13 @@ impl Particles {
             capacity,
             alpha_count: 0,
             additive_count: 0,
-            rng: 0x2545_f491_4f6c_dd1d,
             scratch: Vec::new(),
         }
     }
 
     /// How many emitters were placed.
     pub fn len(&self) -> usize {
-        self.emitters.len()
-    }
-
-    fn random(&mut self) -> f32 {
-        self.rng ^= self.rng << 13;
-        self.rng ^= self.rng >> 7;
-        self.rng ^= self.rng << 17;
-        (self.rng >> 40) as f32 / (1u64 << 24) as f32
-    }
-
-    /// Moves time on `dt` seconds for the emitters near `focus`: particles are
-    /// born, rise and die.
-    pub fn update(&mut self, dt: f32, focus: Vec3) {
-        let mut emitters = std::mem::take(&mut self.emitters);
-        for emitter in &mut emitters {
-            let near = emitter.position.distance(focus) < REACH;
-            for layer in &mut emitter.layers {
-                let look = layer.look;
-                for p in &mut layer.particles {
-                    p.velocity.z -= look.fall * dt;
-                    p.position += p.velocity * dt;
-                    p.age += dt;
-                }
-                layer.particles.retain(|p| p.age < p.life);
-                if !near {
-                    layer.owed = 0.0;
-                    layer.started = false;
-                    continue;
-                }
-                let births = look.births;
-                let most = MAX_PER_LAYER;
-                let mut due = 0;
-                if births.single() {
-                    // One particle kept alive: a candle's flame, a lamp's glow.
-                    due = usize::from(layer.particles.is_empty());
-                } else {
-                    if !layer.started {
-                        due += births.burst as usize;
-                    }
-                    layer.owed += births.per_second() * dt;
-                    due += layer.owed as usize;
-                    layer.owed = layer.owed.fract();
-                }
-                layer.started = true;
-                let room = most.saturating_sub(layer.particles.len());
-                for _ in 0..due.min(room) {
-                    let p = self.born(emitter.position, &look);
-                    layer.particles.push(p);
-                }
-            }
-        }
-        self.emitters = emitters;
-    }
-
-    /// A new particle of `look` at `at`: launched at its speed in a direction
-    /// tilted from straight up by up to its spread (radians, a reading), living
-    /// its lifetime, both varied a little.
-    fn born(&mut self, at: Vec3, look: &SpriteLayer) -> Particle {
-        let (a, b, c, d) = (self.random(), self.random(), self.random(), self.random());
-        let tilt = look.spread * a;
-        let turn = std::f32::consts::TAU * b;
-        let direction = Vec3::new(tilt.sin() * turn.cos(), tilt.sin() * turn.sin(), tilt.cos());
-        Particle {
-            position: at,
-            velocity: direction * look.speed * SPEED_SCALE * (0.7 + 0.6 * c),
-            age: 0.0,
-            life: look.lifetime.max(0.05) * (0.8 + 0.4 * d),
-        }
+        self.system.emitters.len()
     }
 
     /// Writes this frame's sprites, facing the camera at `eye`. Smoke (alpha-
@@ -415,7 +229,7 @@ impl Particles {
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.clear();
         for pass_additive in [false, true] {
-            for emitter in &self.emitters {
+            for emitter in &self.system.emitters {
                 let to_eye = (eye - emitter.position).normalize_or(Vec3::Y);
                 let right = to_eye.cross(Vec3::Z).normalize_or(Vec3::X);
                 let up = right.cross(to_eye).normalize_or(Vec3::Z);
@@ -424,7 +238,7 @@ impl Particles {
                         continue;
                     }
                     for p in &layer.particles {
-                        let t = (p.age / p.life).clamp(0.0, 1.0);
+                        let t = p.progress();
                         let [s0, s1] = layer.look.size;
                         let half = (s0 + (s1 - s0) * t) * SIZE_SCALE * 0.5;
                         if half <= 0.0 {
@@ -444,7 +258,7 @@ impl Particles {
                             position: (p.position + r * dx + u * dy).to_array(),
                             uv,
                             colour,
-                            layer: layer.texture,
+                            layer: layer.texture as f32,
                         };
                         let quad = [
                             corner(-1.0, -1.0, [0.0, 1.0]),
@@ -502,64 +316,4 @@ fn vertex_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
-}
-
-/// A particle's colour at `t` (0..1 of its life), linear RGB and alpha, from
-/// its birth, middle and death keys. A black middle key (torches, candles,
-/// smoke) is taken as no middle colour: the colour runs birth to death while
-/// the alpha still passes through the middle. `doubled` reads the keys with
-/// 128 as 1.0, the old doubled-modulate convention (smoke's grey is 127,
-/// which then leaves its sprite unchanged).
-fn colour_at(keys: &[[u8; 4]; 3], t: f32, doubled: bool) -> [f32; 4] {
-    let unit = if doubled { 127.5 } else { 255.0 };
-    let f = |k: [u8; 4]| k.map(|c| f32::from(c) / unit);
-    let (a, b, c) = (f(keys[0]), f(keys[1]), f(keys[2]));
-    let mix = |x: [f32; 4], y: [f32; 4], s: f32| -> [f32; 4] {
-        std::array::from_fn(|i| x[i] + (y[i] - x[i]) * s)
-    };
-    let through = if t < 0.5 {
-        mix(a, b, t * 2.0)
-    } else {
-        mix(b, c, t * 2.0 - 1.0)
-    };
-    let mut gamma = through;
-    if keys[1][..3] == [0, 0, 0] {
-        let straight = mix(a, c, t);
-        gamma[..3].copy_from_slice(&straight[..3]);
-    }
-    [
-        gamma[0].powf(2.2),
-        gamma[1].powf(2.2),
-        gamma[2].powf(2.2),
-        gamma[3],
-    ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn colours_run_birth_to_death() {
-        let keys = [[255, 255, 255, 255], [0, 0, 0, 255], [255, 0, 0, 0]];
-        assert_eq!(colour_at(&keys, 0.0, false), [1.0, 1.0, 1.0, 1.0]);
-        let end = colour_at(&keys, 1.0, false);
-        assert_eq!(
-            (end[0], end[1], end[3]),
-            (1.0, 0.0, 0.0),
-            "the unused black middle is skipped"
-        );
-        let keys = [[0, 0, 0, 0], [255, 255, 255, 255], [0, 0, 0, 0]];
-        assert_eq!(
-            colour_at(&keys, 0.5, false)[3],
-            1.0,
-            "through a used middle"
-        );
-        let smoke = [[127, 127, 127, 55], [0, 0, 0, 25], [127, 127, 127, 0]];
-        let mid = colour_at(&smoke, 0.5, true);
-        assert!(
-            mid[0] > 0.9 && (mid[3] - 25.0 / 127.5).abs() < 1e-4,
-            "{mid:?}"
-        );
-    }
 }

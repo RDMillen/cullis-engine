@@ -11,4 +11,5 @@ pub mod camera;
 pub mod collide;
 pub mod conversation;
 pub mod lighting;
+pub mod particles;
 pub mod walk;

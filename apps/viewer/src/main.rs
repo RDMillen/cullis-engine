@@ -772,7 +772,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         // Fires already burning when the picture is taken.
         if let Some(p) = &mut renderer.particles {
             for _ in 0..240 {
-                p.update(TICK, camera.target);
+                p.system.update(TICK, camera.target);
             }
         }
         if args.no_lights {
@@ -1736,7 +1736,7 @@ impl ViewerApp {
         }
         let focus = renderer.focus;
         if let Some(p) = &mut renderer.particles {
-            p.update(dt, focus);
+            p.system.update(dt, focus);
         }
     }
 

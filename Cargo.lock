@@ -759,6 +759,7 @@ dependencies = [
  "engine-core",
  "fable-data",
  "glam",
+ "log",
 ]
 
 [[package]]

@@ -6,7 +6,9 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - New crate `engine-world`. Moved in unchanged: `walk` (navigation grid, routes, floors), `collide`, `camera`, `conversation`, `lighting` (now holding `PointLight` and its construction from a placed thing). The viewer imports them at their old paths, so callers did not change.
 - Skeletal animation split: `engine_world::anim` has clips, `AnimBank` (through the asset cache), posing, blending, crossfades, mouth shapes and `Rig` (skeleton and bone-config morph, with `stride_ratio` and `set_morph`); its `Animator` returns bone matrices and it has its own `Error` enum. The viewer's `skin` keeps the mesh side (`Skin`: per-vertex weights and a `Rig`; `deform`) and a `skin::Animator` that wraps the world's animator and deforms the bind pose.
-- 21 tests now run in `engine-world`; all pass, clippy clean; Oakvale renders and people animate as before.
+- Particles split: `engine_world::particles::ParticleSystem` loads emitters through the asset cache and simulates them (births, motion, ageing, colour over life); the viewer's `particles::Particles` draws them. Step 2 done.
+- 22 tests now run in `engine-world`; all pass, clippy clean; Oakvale renders, people animate and the fireplace burns as before.
+- Next: step 3, the `World` with `hecs` entities.
 
 ## 2026-10-25: architecture standard, migration step 1
 
