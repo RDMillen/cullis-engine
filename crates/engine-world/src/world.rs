@@ -25,6 +25,8 @@ pub struct World {
     pub ecs: hecs::World,
     /// The region's creatures (to become entities next).
     pub npcs: Vec<crate::creature::Npc>,
+    /// The Hero's body, when he is in the world.
+    pub hero: Option<crate::walk::Hero>,
     /// The Hero's animator (idle, walk, run, fidgets, then his kick at
     /// `hero_kick`), once he is placed.
     pub hero_animator: Option<Animator>,

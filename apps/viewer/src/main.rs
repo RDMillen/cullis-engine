@@ -1270,8 +1270,6 @@ struct ViewerApp {
     /// Entry names of the text, sorted, and the one shown.
     text_names: Vec<String>,
     text_view: Option<String>,
-    /// The walking Hero, when walk mode is on.
-    walker: Option<walk::Hero>,
     /// Black over the view, fading out after a night passes (1 opaque).
     fade: f32,
     /// Turns frame times into fixed simulation ticks.
@@ -1354,7 +1352,6 @@ impl ViewerApp {
             text,
             text_names,
             text_view: None,
-            walker: None,
             fade: 0.0,
             time: engine_core::time::Clock::new(),
             follow_distance: 6.0,
@@ -1494,7 +1491,6 @@ impl ViewerApp {
                     rs.renderer.write().free_texture(&id);
                 }
                 self.subject = subject;
-                self.walker = None;
                 self.want_walk = false;
                 self.subs.clear();
                 self.kicking = false;
@@ -1518,7 +1514,7 @@ impl ViewerApp {
                         world,
                         self.follow_distance,
                     );
-                    self.walker = Some(hero);
+                    world.hero = Some(hero);
                     self.want_walk = true;
                     self.exits_armed = false;
                 }
@@ -1694,7 +1690,7 @@ impl ViewerApp {
         let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
-        match (self.want_walk, self.walker.is_some()) {
+        match (self.want_walk, world.hero.is_some()) {
             (true, false) => {
                 match spawn_hero(
                     renderer,
@@ -1713,7 +1709,7 @@ impl ViewerApp {
                             world,
                             self.follow_distance,
                         );
-                        self.walker = Some(hero);
+                        world.hero = Some(hero);
                     }
                     Ok(None) => {
                         self.status = "nowhere walkable in this region".into();
@@ -1727,13 +1723,21 @@ impl ViewerApp {
             }
             (false, true) => {
                 renderer.hero = None;
-                self.walker = None;
+                world.hero = None;
             }
             _ => {}
         }
     }
 
     /// Moves the Hero from the keyboard, relative to the camera, and follows it.
+    /// The Hero, when he is in the world.
+    fn hero(&self) -> Option<&walk::Hero> {
+        match &self.scene {
+            Scene::Terrain(_, world) => world.hero.as_ref(),
+            Scene::Model(_) => None,
+        }
+    }
+
     /// One simulation tick ([`TICK`] seconds): the Hero, what is being said
     /// and its effects, gestures and mouths, creatures, doors, the clock and
     /// particles.
@@ -1754,7 +1758,7 @@ impl ViewerApp {
             return;
         };
         let (_layers, _heights) = (&world.walk, world.heights.as_ref());
-        let hero = self.walker.as_ref().map(|h| h.position.truncate());
+        let hero = world.hero.as_ref().map(|h| h.position.truncate());
         world.step_creatures(dt, hero, PERSON_RADIUS);
         world.tick(dt);
         let focus = world.focus;
@@ -1770,8 +1774,22 @@ impl ViewerApp {
         if self.loading.is_some() {
             return;
         }
-        let (Some(hero), Scene::Terrain(renderer, world)) = (&mut self.walker, &mut self.scene)
-        else {
+        // The Hero comes out of the world for his step, which reads the world
+        // around him, and goes back after.
+        let Scene::Terrain(_, world) = &mut self.scene else {
+            return;
+        };
+        let Some(mut hero) = world.hero.take() else {
+            return;
+        };
+        self.walk_with(&mut hero, input, dt);
+        if let Scene::Terrain(_, world) = &mut self.scene {
+            world.hero = Some(hero);
+        }
+    }
+
+    fn walk_with(&mut self, hero: &mut walk::Hero, input: &mut Actions, dt: f32) {
+        let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
         let (walk, Some(heights)) = (&world.walk, &world.heights) else {
@@ -1955,8 +1973,8 @@ impl ViewerApp {
         }
         let (music, bank, night, indoors) = match &self.scene {
             Scene::Terrain(r, world) => {
-                let at = self
-                    .walker
+                let at = world
+                    .hero
                     .as_ref()
                     .map_or(self.camera.target.truncate(), |h| h.position.truncate());
                 // Night when the sun's light is low (as the lighting reckons it).
@@ -1987,7 +2005,7 @@ impl ViewerApp {
         renderer.eye = shown.eye();
         world.focus = shown.target;
         renderer.highlight = None;
-        let Some(hero) = &self.walker else {
+        let Some(hero) = &world.hero else {
             return;
         };
         if self.subs.in_scene() || self.subs.asking().is_some() {
@@ -2029,8 +2047,11 @@ impl ViewerApp {
     /// Afterwards it eases back to the follow camera.
     fn frame_conversation(&mut self, dt: f32) {
         const EASE: f32 = 0.5;
-        let active = match (self.subs.waiting_on(), &mut self.walker, &mut self.scene) {
-            (Some(talked), Some(hero), Scene::Terrain(renderer, world)) => {
+        let active = match (self.subs.waiting_on(), &mut self.scene) {
+            (Some(talked), Scene::Terrain(renderer, world)) if world.hero.is_some() => {
+                // The Hero and the creatures are separate fields of the world.
+                let world: &mut World = world;
+                let hero = world.hero.as_mut().expect("checked");
                 let speaker = self.subs.speaker().unwrap_or(talked);
                 let tags = self
                     .subs
@@ -2260,9 +2281,8 @@ impl ViewerApp {
                 // Black at once, fading back in on the new day.
                 self.hour = hour;
                 self.fade = 1.0 + NIGHT_HOLD;
-                if let (Scene::Terrain(renderer, world), Some(hero)) =
-                    (&mut self.scene, &mut self.walker)
-                    && let Some(heights) = &world.heights
+                if let Scene::Terrain(renderer, world) = &mut self.scene
+                    && let (Some(heights), Some(hero)) = (&world.heights, &mut world.hero)
                 {
                     let at = glam::Vec3::from_array(at);
                     if let Some((layer, spot, z)) =
@@ -2278,7 +2298,7 @@ impl ViewerApp {
             }
             Beat::Finish(sections) => {
                 self.story = None;
-                let arrival = self.walker.as_ref().map(|h| {
+                let arrival = self.hero().map(|h| {
                     (
                         h.position,
                         glam::Vec3::new(-h.heading.sin(), h.heading.cos(), 0.0),
@@ -2457,7 +2477,7 @@ impl eframe::App for ViewerApp {
                 }
                 if response.hovered() {
                     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-                    if self.walker.is_some() {
+                    if self.hero().is_some() {
                         self.follow_distance =
                             (self.follow_distance * (-scroll * 0.002).exp()).clamp(2.0, 15.0);
                     } else {
@@ -2476,7 +2496,7 @@ impl eframe::App for ViewerApp {
                 self.frame_conversation(frame_dt);
                 self.choose_highlight(ui.input(|i| i.time) as f32);
                 self.play_soundscape(frame_dt);
-                if self.walker.is_some() || ticks > 0 {
+                if self.hero().is_some() || ticks > 0 {
                     ui.ctx().request_repaint();
                 }
                 if let Scene::Terrain(_renderer, world) = &mut self.scene
@@ -2560,7 +2580,7 @@ impl eframe::App for ViewerApp {
                 if let (Some(story), Some(text), true) = (
                     &self.story,
                     &self.text,
-                    self.walker.is_some() && self.conversation == 0.0,
+                    self.hero().is_some() && self.conversation == 0.0,
                 ) {
                     story.hud(ui.ctx(), rect, text);
                 }

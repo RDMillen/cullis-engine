@@ -7,7 +7,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.
 - Checked: 29 creatures load in Oakvale and wander up to 4.4 m in 20 simulated seconds; the father's mouth takes the AH shape; tests pass, clippy clean.
 - The Hero's animator and kick clip moved to `World::hero_animator`/`hero_kick`; the renderer keeps his mesh as a `skin::SkinnedMesh`, posed from the world when drawn. The viewer's animator wrapper is gone: doors, creatures and the Hero all draw from world poses.
-- Next: the Hero's body and movement into the world; then creatures, the Hero and emitters as `hecs` entities.
+- The Hero's body moved too: `World::hero` replaces the app's `walker`. His step takes him out of the world, runs, and puts him back (`walk` around `walk_with`), so it can query doors and paths in the same world; the app reads him through `hero()`. Checked: walks reach their goals headless and in the window.
+- Next: the Hero's movement logic (now in the app's `walk_with`) as a world system driven by actions; then creatures, the Hero and emitters as `hecs` entities.
 
 ## 2026-10-25 (later): migration step 3, doors as entities
 
