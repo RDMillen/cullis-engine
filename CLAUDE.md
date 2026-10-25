@@ -25,6 +25,8 @@ Clean-room Rust engine for Fable: The Lost Chapters (requires the original game)
 
 ## Code rules
 
+- Follow `docs/architecture.md`: crate layers (nothing above `engine-render` names wgpu or a window), the fixed 30 Hz simulation tick, the world owning game state and the renderer only GPU resources, entities in `hecs`, one asset cache, per-crate error enums, `log` instead of `eprintln!` in engine crates, modules of about 800 lines at most, headless simulation tests for logic.
+
 - Desktop only: this repo targets x86-64 desktop with wgpu. A PS Vita port will be a separate repository that reuses these crates, so follow the portability rules:
   - No x86-specific code: no SIMD intrinsics or inline assembly without a portable fallback.
   - Parse with explicit little-endian reads, never by casting structs over bytes; never assume a pointer width.

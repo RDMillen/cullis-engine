@@ -83,6 +83,8 @@ Formats we need parsers for: Big (archives), Bbm (mesh), Bba (animation), Bncfg 
 
 ## Architecture
 
+The code standard, the target crate layout and the migration from the current prototype are in [docs/architecture.md](docs/architecture.md); it supersedes the crate list below where they differ (the simulation lives in `engine-world`).
+
 ```
 Game files ($FABLE_DIR, read-only)
    └─> fable-data (format parsers, written clean-room)
