@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-25: architecture standard, migration step 1
+
+- `docs/architecture.md` sets the code standard and target layout (engine-core, engine-world, engine-render, engine-ui, apps/game) with a six-step migration from the viewer prototype; adopted with entities in `hecs` and feature work paused until step 3. PLAN.md and CLAUDE.md point to it.
+- Step 1: new crate `engine-core` with the fixed-step `Clock` (30 Hz, at most 5 ticks a frame after a stall) and the `AssetCache` (each archive indexed once, shared by clones across loading threads; meshes, textures, effects), with unit tests. The viewer's simulation now runs in fixed ticks (`ViewerApp::tick`: the Hero, subtitles and quest effects, gestures, mouths, creatures, doors, the clock, particles), with keyboard input read once a frame into `Actions` whose presses fire once however many ticks run; camera framing, highlight, fades and audio stay per frame. Meshes, textures, animations and emitters load through the cache (19 separate archive opens before). The viewer logs through `log` and `env_logger` (default `info`, `RUST_LOG` to change), replacing 75 `eprintln!` calls.
+- Checked: Oakvale and the Guild load and render as before; walks in the window and headless reach their goals. Routes from inside a house with a closed door fail, as before (doors are still to come).
+- Next: step 2, moving navigation, collision, animation sampling, lighting and particle simulation into `engine-world`.
+
 ## 2026-10-22 (later): floors from meshes (in progress)
 
 - `walk::extend_floors` grows walkable floor from walkable cells into cells the navigation data leaves out, where a mesh floor lies within a step, there is headroom and no wall crosses at waist height (a collision ray). In the Guild it adds 46,379 cells, but the dormitory is still not reached: at the Guildmaster's bedside marker there is no mesh floor at 30.1 m (only a roof at 44.5), even with `Q_GuildTrainingPreMelee` loaded too, and the stair climbed so far tops out at 27.05 m near (4657.4, 3675.6). The dormitory's floor is reached from somewhere not yet found.

@@ -9,6 +9,9 @@ publish = false
 
 [dependencies]
 fable-data = { path = "../../crates/fable-data" }
+engine-core = { path = "../../crates/engine-core" }
+log = "0.4.34"
+env_logger = { version = "0.11.3", default-features = false, features = ["auto-color"] }
 engine-audio = { path = "../../crates/engine-audio" }
 engine-script = { path = "../../crates/engine-script" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "x11", "wayland", "default_fonts"] }

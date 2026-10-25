@@ -66,7 +66,7 @@ fable-data       file formats                                        (portable)
 
 Each step is one session, leaves the game playable, and keeps every test passing.
 
-1. **engine-core**: `Clock` (fixed 30 Hz tick with interpolation), input actions, `log` logging, `AssetCache` over the archives. The viewer moves to the fixed tick and the cache; `eprintln!` becomes `log`.
+1. **engine-core** (**done** 2026-10-25): `Clock` (fixed 30 Hz tick), `AssetCache` over the archives, `log` logging. The viewer runs its simulation in ticks (`ViewerApp::tick`, input read once a frame into `Actions`), loads meshes, textures, animations and emitters through the cache, and logs through `log` with `env_logger` (`RUST_LOG`). Left for step 3: interpolating drawn positions between ticks (`Clock::alpha`) once state lives in the world, and the archives still opened directly by the region loader, voices and text.
 2. **engine-world, pure parts**: move navigation and collision (`walk.rs`, `collide.rs`), CPU animation sampling (`skin.rs` without GPU types), light and time of day (`lighting.rs`), particle simulation, conversation framing, with their tests.
 3. **World and entities**: `World` with `hecs`; the Hero, creatures (behaviour split from `npc.rs` drawing), doors, emitters and lights become entities; region loading (`terrain.rs`) builds a `World`; quest glue (`story.rs`) and the audio scene (`soundscape.rs`) run as systems.
 4. **engine-render**: move GPU code and shaders; `RenderScene` extraction; the renderer drops its game state.

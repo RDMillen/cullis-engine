@@ -1,12 +1,8 @@
 //! Plays animations on a skinned mesh: samples a clip into bone matrices and
 //! deforms the bind-pose vertices on the CPU.
 
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
-
+use engine_core::assets::{Archive, AssetCache};
 use fable_data::anim::{ANIMATION_TYPES, Animation, Track};
-use fable_data::big::BigFile;
 use fable_data::mesh::{Affine, Bone, Skeleton, mul_affine};
 use glam::{Mat4, Quat, Vec3, Vec4};
 
@@ -26,50 +22,42 @@ pub struct Clip {
     movement: f32,
 }
 
-/// The animations in `graphics/graphics.big`, opened once for many clips.
+/// The animations in `graphics/graphics.big`, through the asset cache.
 pub struct AnimBank {
-    file: BufReader<File>,
-    entries: std::collections::HashMap<u32, fable_data::bank::Entry>,
+    assets: AssetCache,
 }
 
 impl AnimBank {
-    pub fn open(data_dir: &Path) -> Result<Self, Error> {
-        let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
-        let big = BigFile::read(&mut file)?;
-        let index = big
-            .bank("MBANK_ALLMESHES")
-            .ok_or("no MBANK_ALLMESHES")?
-            .read_index(&mut file)?;
-        let entries = index
-            .entries
-            .into_iter()
-            .filter(|e| ANIMATION_TYPES.contains(&e.entry_type))
-            .map(|e| (e.id, e))
-            .collect();
-        Ok(Self { file, entries })
+    pub fn open(assets: &AssetCache) -> Result<Self, Error> {
+        Ok(Self {
+            assets: assets.clone(),
+        })
     }
 
     /// The bank id of the animation named `name`.
-    pub fn id(&self, name: &str) -> Option<u32> {
-        self.entries.values().find(|e| e.name == name).map(|e| e.id)
+    pub fn id(&mut self, name: &str) -> Option<u32> {
+        let index = self.assets.index(Archive::Meshes).ok()?;
+        let entry = index.by_name(name)?;
+        ANIMATION_TYPES
+            .contains(&entry.entry_type)
+            .then_some(entry.id)
     }
 
     /// Loads animation `id` for `skeleton`.
     pub fn clip(&mut self, id: u32, skeleton: &Skeleton) -> Result<Clip, Error> {
-        let entry = self
-            .entries
-            .get(&id)
-            .ok_or_else(|| format!("no animation {id}"))?;
-        let name = entry.name.clone();
-        let anim = Animation::parse(&entry.read_data(&mut self.file)?)?;
-        Clip::from_animation(name, anim, skeleton)
+        let (entry, data) = self.assets.read(Archive::Meshes, id)?;
+        if !ANIMATION_TYPES.contains(&entry.entry_type) {
+            return Err(format!("{} is not an animation", entry.name).into());
+        }
+        let anim = Animation::parse(&data)?;
+        Clip::from_animation(entry.name, anim, skeleton)
     }
 }
 
 impl Clip {
     /// Loads animation `name` from `graphics/graphics.big` for `skeleton`.
-    pub fn load(data_dir: &Path, name: &str, skeleton: &Skeleton) -> Result<Self, Error> {
-        let mut bank = AnimBank::open(data_dir)?;
+    pub fn load(assets: &AssetCache, name: &str, skeleton: &Skeleton) -> Result<Self, Error> {
+        let mut bank = AnimBank::open(assets)?;
         let id = bank
             .id(name)
             .ok_or_else(|| format!("no animation {name}"))?;

@@ -118,7 +118,7 @@ impl Story {
 
     /// After a region loads: hides the people the quest has sent away and
     /// poses those it poses.
-    pub fn place(&mut self, npcs: &mut [Npc], data_dir: &std::path::Path) {
+    pub fn place(&mut self, npcs: &mut [Npc], assets: &engine_core::assets::AssetCache) {
         let mut bank = None;
         for npc in npcs {
             let Some(role) = npc.script_name.clone() else {
@@ -127,14 +127,14 @@ impl Story {
             npc.hidden = matches!(&self.act, Act::Birthday(q) if q.away(&role));
             if let Some(mood) = quest(&mut self.act).mood(&role) {
                 if bank.is_none() {
-                    bank = AnimBank::open(data_dir)
-                        .map_err(|e| eprintln!("animations: {e}"))
+                    bank = AnimBank::open(assets)
+                        .map_err(|e| log::warn!("animations: {e}"))
                         .ok();
                 }
                 if let Some(bank) = &mut bank
                     && !npc.set_mood(bank, mood)
                 {
-                    eprintln!("{role}: no {mood} idle");
+                    log::info!("{role}: no {mood} idle");
                 }
             }
         }

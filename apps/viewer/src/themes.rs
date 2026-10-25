@@ -1,8 +1,6 @@
 //! Theme textures for the terrain: every theme's base and cliff textures, resampled
 //! to one size with mip chains, ready for texture arrays.
 
-use std::path::Path;
-
 use crate::model::{Image, TextureBank};
 use crate::terrain::ThemeLayer;
 
@@ -19,17 +17,17 @@ pub struct ThemeTextures {
 
 /// Loads base and cliff textures for every layer; missing ones become grey.
 pub fn load(
-    data_dir: &Path,
+    assets: &engine_core::assets::AssetCache,
     layers: &[ThemeLayer],
 ) -> Result<ThemeTextures, Box<dyn std::error::Error>> {
-    let mut bank = TextureBank::open(data_dir)?;
+    let mut bank = TextureBank::open(assets);
     let mut get = |id: u32, what: &str, name: &str| -> Mips {
         let level0 = match id {
             0 => grey(),
             id => match bank.load(id) {
                 Ok(img) => resample(&img, LAYER_SIZE),
                 Err(e) => {
-                    eprintln!("{what} texture {id} for theme {name}: {e}");
+                    log::warn!("{what} texture {id} for theme {name}: {e}");
                     grey()
                 }
             },
@@ -48,15 +46,18 @@ pub fn load(
 }
 
 /// Loads textures by id as array layers (missing ones grey).
-pub fn load_ids(data_dir: &Path, ids: &[u32]) -> Result<Vec<Mips>, Box<dyn std::error::Error>> {
-    let mut bank = TextureBank::open(data_dir)?;
+pub fn load_ids(
+    assets: &engine_core::assets::AssetCache,
+    ids: &[u32],
+) -> Result<Vec<Mips>, Box<dyn std::error::Error>> {
+    let mut bank = TextureBank::open(assets);
     Ok(ids
         .iter()
         .map(|&id| {
             let level0 = match bank.load(id) {
                 Ok(img) => resample(&img, LAYER_SIZE),
                 Err(e) => {
-                    eprintln!("texture {id}: {e}");
+                    log::warn!("texture {id}: {e}");
                     grey()
                 }
             };

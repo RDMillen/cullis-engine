@@ -31,6 +31,8 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use eframe::{egui, egui_wgpu, wgpu};
+use engine_core::assets::AssetCache;
+use engine_core::time::TICK;
 use fable_data::big::BigFile;
 use fable_data::defs::{Defs, Names};
 use fable_data::gtg::{Gtg, split_connected_uid};
@@ -185,6 +187,45 @@ fn parse_args() -> Result<Args, Error> {
     Ok(args)
 }
 
+/// What the player asks for in a frame, read from the keyboard once and
+/// consumed by the frame's simulation ticks. Held keys (movement, run) apply
+/// to every tick; presses are taken by the first.
+#[derive(Debug, Clone, Default)]
+struct Actions {
+    /// Forward (W minus S) and right (D minus A), -1..1.
+    forward: f32,
+    right: f32,
+    run: bool,
+    /// E: go on, talk, use.
+    use_: bool,
+    /// F: kick.
+    kick: bool,
+    /// Y or N to a question.
+    answer: Option<bool>,
+}
+
+impl Actions {
+    fn read(i: &egui::InputState) -> Self {
+        let axis = |pos: egui::Key, neg: egui::Key| {
+            f32::from(u8::from(i.key_down(pos))) - f32::from(u8::from(i.key_down(neg)))
+        };
+        Self {
+            forward: axis(egui::Key::W, egui::Key::S),
+            right: axis(egui::Key::D, egui::Key::A),
+            run: i.modifiers.shift,
+            use_: i.key_pressed(egui::Key::E),
+            kick: i.key_pressed(egui::Key::F),
+            answer: if i.key_pressed(egui::Key::Y) {
+                Some(true)
+            } else if i.key_pressed(egui::Key::N) {
+                Some(false)
+            } else {
+                None
+            },
+        }
+    }
+}
+
 /// How long a night passing stays black, and then takes to fade back in
 /// (seconds).
 const NIGHT_HOLD: f32 = 1.0;
@@ -205,13 +246,14 @@ enum Scene {
 
 impl Scene {
     fn load(
-        data_dir: &Path,
+        assets: &AssetCache,
         wld: &Wld,
         subject: &Subject,
         sections: &[String],
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(Self, OrbitCamera, String), Error> {
+        let data_dir = assets.data_dir();
         match subject {
             Subject::Region(name) => {
                 let names = Names::parse(&std::fs::read(data_dir.join("CompiledDefs/names.bin"))?)?;
@@ -247,7 +289,7 @@ impl Scene {
                     .unwrap_or_default();
                 let (lo, hi) = mesh.bounds();
                 let themes = match &mesh.themes {
-                    Some(grid) => Some(themes::load(data_dir, &grid.layers)?),
+                    Some(grid) => Some(themes::load(assets, &grid.layers)?),
                     None => None,
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
@@ -258,7 +300,7 @@ impl Scene {
                         &defs,
                         std::mem::take(&mut mesh.sound_areas),
                     );
-                    eprintln!(
+                    log::info!(
                         "sound: music {:?}, ambience {:?}",
                         renderer
                             .soundscape
@@ -273,18 +315,18 @@ impl Scene {
                     match lighting::Lighting::load(data_dir, &defs, &r.region_def, outside) {
                         Ok(l) => {
                             let ids = l.sky_textures();
-                            eprintln!(
+                            log::info!(
                                 "lighting: {} (inside {:?}), sky textures {ids:?}",
                                 l.outside.0,
                                 l.inside.as_ref().map(|i| &i.0)
                             );
                             if !ids.is_empty() {
-                                let layers = themes::load_ids(data_dir, &ids)?;
+                                let layers = themes::load_ids(assets, &ids)?;
                                 renderer.sky = Some(sky::Sky::new(device, queue, &ids, &layers));
                             }
                             renderer.lighting = Some(l);
                         }
-                        Err(e) => eprintln!("lighting: {e}"),
+                        Err(e) => log::warn!("lighting: {e}"),
                     }
                     renderer.set_hour(
                         DEFAULT_HOUR,
@@ -292,7 +334,7 @@ impl Scene {
                         lighting::HIGHLIGHT_LIMIT,
                     );
                 }
-                eprintln!("{} placed lights", renderer.point_lights.len());
+                log::info!("{} placed lights", renderer.point_lights.len());
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
                 let resolve = |object: &str| {
@@ -301,7 +343,7 @@ impl Scene {
                         .unwrap_or_default()
                 };
                 let (things, buildings) =
-                    model::load_placements(data_dir, name, &placements, &resolve)?;
+                    model::load_placements(assets, name, &placements, &resolve)?;
                 renderer.buildings = buildings;
                 let status = format!(
                     "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",
@@ -312,12 +354,12 @@ impl Scene {
                 );
                 if !things.indices.is_empty() {
                     renderer.things = Some(ModelRenderer::new(device, queue, &things));
-                    match particles::Particles::load(device, queue, data_dir, &things.particles) {
+                    match particles::Particles::load(device, queue, assets, &things.particles) {
                         Ok(p) => {
-                            eprintln!("{} particle emitters", p.len());
+                            log::info!("{} particle emitters", p.len());
                             renderer.particles = Some(p);
                         }
-                        Err(e) => eprintln!("particles: {e}"),
+                        Err(e) => log::warn!("particles: {e}"),
                     }
                     // Interiors and what stands in them take the indoor light.
                     let indoor: Vec<usize> = renderer
@@ -328,10 +370,10 @@ impl Scene {
                     if let Some(things) = &mut renderer.things {
                         things.set_indoor(&indoor);
                     }
-                    renderer.npcs = npc::load(data_dir, device, queue, &mesh.creatures);
-                    renderer.doors = door::load(data_dir, device, queue, &mesh.doors);
-                    eprintln!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
-                    eprintln!(
+                    renderer.npcs = npc::load(assets, device, queue, &mesh.creatures);
+                    renderer.doors = door::load(assets, device, queue, &mesh.doors);
+                    log::info!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
+                    log::info!(
                         "{} creatures placed of {}",
                         renderer.npcs.len(),
                         mesh.creatures.len()
@@ -368,7 +410,7 @@ impl Scene {
                                 len > 0.0 && colliders.ray(a, d / len, len, &[]).is_some()
                             },
                         );
-                        eprintln!(
+                        log::info!(
                             "walk layers: {before:?} navigation cells, {after:?} with a surface height, {extra} more from mesh floors"
                         );
                         let (v, i) = terrain::TerrainMesh::walk_overlay(
@@ -386,7 +428,7 @@ impl Scene {
                 ))
             }
             Subject::Mesh(name) => {
-                let model = model::load_mesh(data_dir, name)?;
+                let model = model::load_mesh(assets, name)?;
                 let status = format!(
                     "{}: {} vertices, {} triangles, {} textures",
                     model.name,
@@ -425,6 +467,10 @@ impl Scene {
 }
 
 fn main() -> Result<(), Error> {
+    // Engine messages at info and above unless RUST_LOG says otherwise.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp(None)
+        .init();
     let args = parse_args()?;
     let data_dir =
         PathBuf::from(std::env::var_os("FABLE_DIR").ok_or("set FABLE_DIR to the game install")?)
@@ -437,18 +483,19 @@ fn main() -> Result<(), Error> {
 }
 
 fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<(), Error> {
+    let assets = AssetCache::new(data_dir);
     let (subject, size) = (&args.subject, args.size);
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;
-    eprintln!("adapter: {}", adapter.get_info().name);
+    log::info!("adapter: {}", adapter.get_info().name);
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
     let sections = match subject {
         Subject::Region(name) if args.sections.is_empty() => terrain::default_sections(name),
         _ => args.sections.clone(),
     };
     let (mut scene, mut camera, status) =
-        Scene::load(data_dir, wld, subject, &sections, &device, &queue)?;
+        Scene::load(&assets, wld, subject, &sections, &device, &queue)?;
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.show_nav = args.nav;
         if let (true, Some(heights)) = (args.ledges, &renderer.heights) {
@@ -458,7 +505,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     for dy in -6..=6 {
                         for dx in -6..=6 {
                             let p = n + glam::Vec2::new(dx as f32, dy as f32) * walk::CELL;
-                            eprintln!(
+                            log::info!(
                                 "cell {p}: terrain {:.2}, walks at {:?}, surfaces {:?}",
                                 heights.height(p),
                                 grid.height(p, heights),
@@ -469,7 +516,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 }
                 for (p, lo, hi) in grid.ledges(heights) {
                     if near.is_none_or(|n| n.distance(p) < 12.0) {
-                        eprintln!("ledge layer {layer} at {p}: {lo:.2} .. {hi:.2}");
+                        log::info!("ledge layer {layer} at {p}: {lo:.2} .. {hi:.2}");
                     }
                 }
             }
@@ -481,7 +528,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         Subject::Mesh(_) => None,
     };
     if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
-        story.place(&mut renderer.npcs, data_dir);
+        story.place(&mut renderer.npcs, &assets);
     }
     if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
         camera = OrbitCamera {
@@ -495,7 +542,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let (true, Scene::Terrain(renderer)) = (args.walk, &mut scene)
         && let Some(mut hero) = spawn_hero(
             renderer,
-            data_dir,
+            &assets,
             &device,
             &queue,
             camera.target.truncate(),
@@ -506,19 +553,19 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             let goal = glam::Vec2::new(x, y);
             let floor = (!z.is_nan()).then_some(z);
             if let Some(h) = &renderer.heights {
-                eprintln!(
+                log::info!(
                     "walk goal stands at {:?} (layer, spot, floor)",
                     walk::stand_at(&renderer.walk, h, goal, floor)
                 );
                 for (l, grid) in renderer.walk.iter().enumerate() {
-                    eprintln!(
+                    log::info!(
                         "  layer {l}: walkable {}, floor {:?}",
                         grid.walkable(goal),
                         grid.height(goal, h)
                     );
                 }
                 if let Some(c) = &renderer.colliders {
-                    eprintln!("  mesh surfaces there: {:?}", c.surfaces(goal));
+                    log::info!("  mesh surfaces there: {:?}", c.surfaces(goal));
                     // CULLIS_PROBE=x,y: sample the line from there to the goal.
                     if let Some(from) = std::env::var("CULLIS_PROBE").ok().and_then(|v| {
                         let f: Vec<f32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
@@ -535,7 +582,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                                 .collect();
                             let floors: Vec<String> =
                                 c.surfaces(q).iter().map(|z| format!("{z:.1}")).collect();
-                            eprintln!("  probe {q:.1}: walk {walkable:?} floors {floors:?}");
+                            log::info!("  probe {q:.1}: walk {walkable:?} floors {floors:?}");
                         }
                     }
                 }
@@ -547,12 +594,12 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     match door::nearest(&renderer.doors, hero.position) {
                         Some(d) => {
                             renderer.doors[d].toggle();
-                            eprintln!("used door {d} (open: {})", renderer.doors[d].open);
+                            log::info!("used door {d} (open: {})", renderer.doors[d].open);
                             for door in &mut renderer.doors {
                                 door.animate(&queue, 3.0);
                             }
                         }
-                        None => eprintln!("no door within reach"),
+                        None => log::info!("no door within reach"),
                     }
                 }
                 // Follow a route there, or head straight for it if there is none.
@@ -566,24 +613,19 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                         &hero,
                         &renderer.walk,
                         heights,
-                        1.0 / 30.0,
+                        TICK,
                         |p| blocked_for_route(doors, npcs, p),
                         |p| blocked_for_hero(doors, npcs, p),
                     ) else {
                         break;
                     };
-                    hero.step_blocked(
-                        to,
-                        walk::WALK_SPEED,
-                        1.0 / 30.0,
-                        &renderer.walk,
-                        heights,
-                        |p| blocked_for_hero(doors, npcs, p),
-                    );
+                    hero.step_blocked(to, walk::WALK_SPEED, TICK, &renderer.walk, heights, |p| {
+                        blocked_for_hero(doors, npcs, p)
+                    });
                     highest = highest.max(hero.position.z);
                 }
-                eprintln!("walk pass {pass} ended at {}", hero.position);
-                eprintln!(
+                log::info!("walk pass {pass} ended at {}", hero.position);
+                log::warn!(
                     "{}",
                     if follow.routed() {
                         "followed a route"
@@ -593,9 +635,10 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 );
             }
             camera.yaw = hero.heading - std::f32::consts::FRAC_PI_2;
-            eprintln!(
+            log::info!(
                 "walked to {} on layer {} (highest {highest:.1})",
-                hero.position, hero.layer
+                hero.position,
+                hero.layer
             );
             if let Some((_, transform)) = &mut renderer.hero {
                 *transform = hero_transform(&hero);
@@ -608,7 +651,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             for _ in 0..args.talk {
                 let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
                 let (Some(story), Some(i)) = (&mut story, near) else {
-                    eprintln!("nobody to talk to");
+                    log::info!("nobody to talk to");
                     continue;
                 };
                 story.talk(&renderer.npcs, i, at, &text, &mut subs);
@@ -617,11 +660,11 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 loop {
                     subs.step(0.0, &mut effects);
                     if let Some((line, _)) = subs.line() {
-                        eprintln!("{who}: {}: {}", line.speaker, line.text);
+                        log::info!("{who}: {}: {}", line.speaker, line.text);
                         subs.advance();
                     } else {
                         if let Some(question) = subs.asking() {
-                            eprintln!("{who} asks: {question}");
+                            log::info!("{who} asks: {question}");
                         }
                         break;
                     }
@@ -631,7 +674,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         pending_exit = exit_at(renderer, &hero);
         if pending_exit.is_none() {
-            pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
+            pose_and_frame(renderer, &assets, &queue, &mut camera, &hero, args)?;
         }
     }
     // Walked into a region exit: load where it leads, as the game would.
@@ -639,10 +682,10 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         let gtg = load_gtg(data_dir)?;
         let (region, at, forward) =
             resolve_exit(wld, &gtg, connection).ok_or("exit leads nowhere")?;
-        eprintln!("region exit -> {region} at {at}");
+        log::info!("region exit -> {region} at {at}");
         let sections = terrain::default_sections(&region);
         scene = Scene::load(
-            data_dir,
+            &assets,
             wld,
             &Subject::Region(region),
             &sections,
@@ -655,7 +698,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         };
         let mut hero = spawn_hero(
             renderer,
-            data_dir,
+            &assets,
             &device,
             &queue,
             at.truncate(),
@@ -667,10 +710,10 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(&hero);
         }
-        pose_and_frame(renderer, data_dir, &queue, &mut camera, &hero, args)?;
+        pose_and_frame(renderer, &assets, &queue, &mut camera, &hero, args)?;
     }
     if let (Some((role, shape)), Scene::Terrain(renderer)) = (&args.mouth, &mut scene) {
-        let mut bank = skin::AnimBank::open(data_dir)?;
+        let mut bank = skin::AnimBank::open(&assets)?;
         match renderer
             .npcs
             .iter_mut()
@@ -678,13 +721,13 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         {
             Some(npc) => {
                 npc.mouth(&mut bank, &[(shape.as_str(), 1.0)]);
-                eprintln!("mouth {role}: {shape}, face bones {}", npc.has_face());
+                log::info!("mouth {role}: {shape}, face bones {}", npc.has_face());
             }
-            None => eprintln!("mouth: no creature with role {role}"),
+            None => log::info!("mouth: no creature with role {role}"),
         }
     }
     if let (Some(role), Scene::Terrain(renderer)) = (&args.gesture, &mut scene) {
-        let mut bank = skin::AnimBank::open(data_dir)?;
+        let mut bank = skin::AnimBank::open(&assets)?;
         match renderer
             .npcs
             .iter_mut()
@@ -693,19 +736,19 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             Some(npc) => {
                 let ids = npc.gesture_ids(None, "CONVERSATION_HAPPY");
                 let played = ids.first().is_some_and(|&id| npc.gesture(&mut bank, id));
-                eprintln!("gesture {role}: {ids:?}, played {played}");
+                log::info!("gesture {role}: {ids:?}, played {played}");
             }
-            None => eprintln!("gesture: no creature with role {role}"),
+            None => log::info!("gesture: no creature with role {role}"),
         }
     }
     if let Scene::Terrain(renderer) = &mut scene {
         let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
-        let steps = (args.npc_time * 30.0) as u32;
+        let steps = (args.npc_time / TICK) as u32;
         let doors = &renderer.doors;
         let blocked = |p: glam::Vec2| doors.iter().any(|d| d.blocks(p));
         for _ in 0..steps {
             for npc in &mut renderer.npcs {
-                npc.animate(&queue, 1.0 / 30.0, layers, heights, &blocked);
+                npc.animate(&queue, TICK, layers, heights, &blocked);
             }
         }
         for door in &mut renderer.doors {
@@ -719,20 +762,20 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             .filter_map(|n| n.wandered())
             .map(|d| format!("{d:.1}"))
             .collect();
-        eprintln!(
+        log::info!(
             "{} wandering creatures, distances from home after {} s: {wandered:?}",
             wandered.len(),
             args.npc_time
         );
     }
-    eprintln!("{subject:?}: {status}");
+    log::info!("{subject:?}: {status}");
     if let Scene::Terrain(renderer) = &mut scene {
         renderer.eye = camera.eye();
         renderer.focus = camera.target;
         // Fires already burning when the picture is taken.
         if let Some(p) = &mut renderer.particles {
             for _ in 0..240 {
-                p.update(1.0 / 30.0, camera.target);
+                p.update(TICK, camera.target);
             }
         }
         if args.no_lights {
@@ -754,7 +797,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         size[1],
         image::ExtendedColorType::Rgba8,
     )?;
-    eprintln!("wrote {}", path.display());
+    log::info!("wrote {}", path.display());
     Ok(())
 }
 
@@ -806,7 +849,7 @@ fn hero_idle_clip(
 /// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
 fn pose_and_frame(
     renderer: &mut TerrainRenderer,
-    data_dir: &Path,
+    assets: &AssetCache,
     queue: &wgpu::Queue,
     camera: &mut OrbitCamera,
     hero: &walk::Hero,
@@ -816,19 +859,19 @@ fn pose_and_frame(
     if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
         clip = match HERO_CLIPS.iter().position(|c| c == name) {
             Some(i) => i,
-            None => animator.add_clip(skin::Clip::load(data_dir, name, animator.skeleton())?),
+            None => animator.add_clip(skin::Clip::load(assets, name, animator.skeleton())?),
         };
     }
     if let Some(animator) = &renderer.hero_animator {
         for (i, name) in HERO_CLIPS.iter().enumerate() {
             let speed =
                 animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * animator.stride_ratio();
-            eprintln!("{name}: {speed:.2} m/s");
+            log::info!("{name}: {speed:.2} m/s");
         }
     }
     animate_hero(renderer, queue, clip, args.anim_time);
     if let Some(animator) = &renderer.hero_animator {
-        eprintln!(
+        log::info!(
             "posed with {:?} at {}s",
             animator.clip_name(),
             args.anim_time
@@ -836,11 +879,11 @@ fn pose_and_frame(
     }
     renderer.update_interior(hero.position);
     if let Some(i) = renderer.inside {
-        eprintln!("inside building {i} (roof hidden)");
+        log::info!("inside building {i} (roof hidden)");
     }
     let distance = camera.distance.clamp(3.0, 12.0);
     follow(camera, hero, renderer, distance);
-    eprintln!("hero at {}", hero.position);
+    log::info!("hero at {}", hero.position);
     Ok(())
 }
 
@@ -885,7 +928,7 @@ fn exit_at(renderer: &TerrainRenderer, hero: &walk::Hero) -> Option<u64> {
 /// Places the young Hero on the walkable cell nearest `near`.
 fn spawn_hero(
     renderer: &mut TerrainRenderer,
-    data_dir: &Path,
+    assets: &AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     near: glam::Vec2,
@@ -900,14 +943,14 @@ fn spawn_hero(
     let mut hero = walk::Hero::new(at, heights);
     hero.position.z = z;
     hero.layer = layer;
-    let (model, skin) = model::hero_model(data_dir)?;
+    let (model, skin) = model::hero_model(assets)?;
     renderer.hero = Some((
         ModelRenderer::new(device, queue, &model),
         hero_transform(&hero),
     ));
-    let mut bank = skin::AnimBank::open(data_dir)?;
+    let mut bank = skin::AnimBank::open(assets)?;
     let animations = renderer.hero_animations.clone();
-    let configs = model::bone_configs(data_dir, &renderer.hero_morphs);
+    let configs = model::bone_configs(assets.data_dir(), &renderer.hero_morphs);
     renderer.hero_animator = skin.and_then(|mut skin| {
         skin.set_morph(&configs);
         // Idle, walk and run from his table (or by name), then his fidgets.
@@ -925,7 +968,7 @@ fn spawn_hero(
             .chain(&animations.fidgets)
             .filter_map(|&id| {
                 bank.clip(id, &skin.skeleton)
-                    .map_err(|e| eprintln!("animation {id}: {e}"))
+                    .map_err(|e| log::warn!("animation {id}: {e}"))
                     .ok()
             })
             .collect();
@@ -939,7 +982,7 @@ fn spawn_hero(
     {
         match bank.clip(id, animator.skeleton()) {
             Ok(clip) => renderer.hero_kick = Some(animator.add_clip(clip)),
-            Err(e) => eprintln!("kick: {e}"),
+            Err(e) => log::warn!("kick: {e}"),
         }
     }
     Ok(Some(hero))
@@ -1202,7 +1245,8 @@ struct ViewerApp {
     auto_walk: Option<walk::Follow>,
     /// Talk to whoever is near once `auto_walk` arrives (`--talk`).
     auto_talk: bool,
-    data_dir: PathBuf,
+    /// The game's archives, opened once; background loads take clones.
+    assets: AssetCache,
     wld: Wld,
     mesh_names: Vec<String>,
     textures: model::TextureBank,
@@ -1217,6 +1261,8 @@ struct ViewerApp {
     walker: Option<walk::Hero>,
     /// Black over the view, fading out after a night passes (1 opaque).
     fade: f32,
+    /// Turns frame times into fixed simulation ticks.
+    time: engine_core::time::Clock,
     /// Preferred camera distance in walk mode (the scroll wheel changes it).
     follow_distance: f32,
     /// Region entrances, for region exits.
@@ -1249,8 +1295,9 @@ impl ViewerApp {
             Subject::Region(name) if sections.is_empty() => terrain::default_sections(name),
             _ => sections,
         };
+        let assets = AssetCache::new(&data_dir);
         let (mut scene, camera, status) =
-            Scene::load(&data_dir, &wld, &subject, &sections, &rs.device, &rs.queue)?;
+            Scene::load(&assets, &wld, &subject, &sections, &rs.device, &rs.queue)?;
         // The region's quest, if it has one, with its people placed.
         let story = match &subject {
             Subject::Region(name) => story::Story::for_region(name, &sections),
@@ -1258,26 +1305,26 @@ impl ViewerApp {
         };
         let mut story = story;
         if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
-            story.place(&mut renderer.npcs, &data_dir);
+            story.place(&mut renderer.npcs, &assets);
         }
         let list = match subject {
             Subject::Region(_) => ListMode::Regions,
             Subject::Mesh(_) => ListMode::Meshes,
         };
-        let textures = model::TextureBank::open(&data_dir)?;
+        let mut textures = model::TextureBank::open(&assets);
         let text = fable_data::strings::TextBank::open(&data_dir, "English")
-            .map_err(|e| eprintln!("text: {e}"))
+            .map_err(|e| log::warn!("text: {e}"))
             .ok();
         let audio = audio::Audio::start()
-            .map_err(|e| eprintln!("audio: {e}"))
+            .map_err(|e| log::warn!("audio: {e}"))
             .ok();
         let voices = text.as_ref().and_then(|t| {
             audio::Voices::open(&data_dir, t)
-                .map_err(|e| eprintln!("voices: {e}"))
+                .map_err(|e| log::warn!("voices: {e}"))
                 .ok()
         });
         if let Some(v) = &voices {
-            eprintln!("voices: {} lines voiced", v.len());
+            log::info!("voices: {} lines voiced", v.len());
         }
         let text_names = text
             .as_ref()
@@ -1286,7 +1333,7 @@ impl ViewerApp {
         let gtg = load_gtg(&data_dir)?;
         let texture_names = textures.names();
         Ok(Self {
-            data_dir,
+            assets,
             wld,
             mesh_names,
             texture_names,
@@ -1296,6 +1343,7 @@ impl ViewerApp {
             text_view: None,
             walker: None,
             fade: 0.0,
+            time: engine_core::time::Clock::new(),
             follow_distance: 6.0,
             gtg,
             pending_exit: None,
@@ -1355,8 +1403,8 @@ impl ViewerApp {
     ) {
         self.sections = sections.clone();
         let (tx, rx) = std::sync::mpsc::channel();
-        let (data_dir, wld, device, queue) = (
-            self.data_dir.clone(),
+        let (assets, wld, device, queue) = (
+            self.assets.clone(),
             self.wld.clone(),
             rs.device.clone(),
             rs.queue.clone(),
@@ -1365,12 +1413,12 @@ impl ViewerApp {
         std::thread::spawn(move || {
             let result = (|| -> Result<Loaded, Error> {
                 let (mut scene, mut camera, status) =
-                    Scene::load(&data_dir, &wld, &job, &sections, &device, &queue)?;
+                    Scene::load(&assets, &wld, &job, &sections, &device, &queue)?;
                 let mut hero = None;
                 if let (Some((at, forward)), Scene::Terrain(renderer)) = (arrival, &mut scene) {
                     let mut h = spawn_hero(
                         renderer,
-                        &data_dir,
+                        &assets,
                         &device,
                         &queue,
                         at.truncate(),
@@ -1441,7 +1489,7 @@ impl ViewerApp {
                 }
                 if let (Some(story), Scene::Terrain(renderer)) = (&mut self.story, &mut self.scene)
                 {
-                    story.place(&mut renderer.npcs, &self.data_dir);
+                    story.place(&mut renderer.npcs, &self.assets);
                 }
                 if let (Some(hero), Scene::Terrain(renderer)) = (loaded.hero, &mut self.scene) {
                     follow(&mut self.camera, &hero, renderer, self.follow_distance);
@@ -1625,7 +1673,7 @@ impl ViewerApp {
             (true, false) => {
                 match spawn_hero(
                     renderer,
-                    &self.data_dir,
+                    &self.assets,
                     &rs.device,
                     &rs.queue,
                     self.camera.target.truncate(),
@@ -1654,7 +1702,48 @@ impl ViewerApp {
     }
 
     /// Moves the Hero from the keyboard, relative to the camera, and follows it.
-    fn walk(&mut self, ui: &egui::Ui, queue: &wgpu::Queue) {
+    /// One simulation tick ([`TICK`] seconds): the Hero, what is being said
+    /// and its effects, gestures and mouths, creatures, doors, the clock and
+    /// particles.
+    fn tick(&mut self, rs: &egui_wgpu::RenderState, actions: &mut Actions) {
+        let dt = TICK;
+        self.walk(actions, dt, &rs.queue);
+        let mut effects = Vec::new();
+        self.subs.step(dt, &mut effects);
+        self.gesture(dt);
+        self.move_mouth(dt);
+        for effect in effects {
+            self.apply(rs, effect);
+        }
+        if self.clock {
+            self.hour = (self.hour + dt * CLOCK_RATE).rem_euclid(24.0);
+        }
+        let Scene::Terrain(renderer) = &mut self.scene else {
+            return;
+        };
+        let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+        let hero = self.walker.as_ref().map(|h| h.position.truncate());
+        let doors = &renderer.doors;
+        let blocked = |p: glam::Vec2| {
+            doors.iter().any(|d| d.blocks(p))
+                || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
+        };
+        for npc in &mut renderer.npcs {
+            npc.animate(&rs.queue, dt, layers, heights, &blocked);
+        }
+        for door in &mut renderer.doors {
+            door.animate(&rs.queue, dt);
+        }
+        let focus = renderer.focus;
+        if let Some(p) = &mut renderer.particles {
+            p.update(dt, focus);
+        }
+    }
+
+    /// One simulation tick of the walking Hero: `input` this frame's actions
+    /// (presses are taken, so a frame running two ticks acts once), `dt` the
+    /// tick's length.
+    fn walk(&mut self, input: &mut Actions, dt: f32, queue: &wgpu::Queue) {
         if self.loading.is_some() {
             return;
         }
@@ -1664,17 +1753,7 @@ impl ViewerApp {
         let (walk, Some(heights)) = (&renderer.walk, &renderer.heights) else {
             return;
         };
-        let (forward, right, run, dt) = ui.input(|i| {
-            let axis = |pos: egui::Key, neg: egui::Key| {
-                f32::from(u8::from(i.key_down(pos))) - f32::from(u8::from(i.key_down(neg)))
-            };
-            (
-                axis(egui::Key::W, egui::Key::S),
-                axis(egui::Key::D, egui::Key::A),
-                i.modifiers.shift,
-                i.stable_dt.min(0.1),
-            )
-        });
+        let (forward, right, run) = (input.forward, input.right, input.run);
         let view = (self.camera.target - self.camera.eye())
             .truncate()
             .normalize_or_zero();
@@ -1704,7 +1783,7 @@ impl ViewerApp {
                     let goal = follow.goal;
                     self.auto_walk = None;
                     let at = hero.position.truncate();
-                    eprintln!(
+                    log::info!(
                         "walk to {goal}: ended at {} ({:.1} away)",
                         hero.position,
                         at.distance(goal)
@@ -1735,20 +1814,11 @@ impl ViewerApp {
         });
         let before = hero.position;
         let at = hero.position.truncate();
-        let (talk_key, kick_key, answer_key) = ui.input(|i| {
-            let answer = if i.key_pressed(egui::Key::Y) {
-                Some(true)
-            } else if i.key_pressed(egui::Key::N) {
-                Some(false)
-            } else {
-                None
-            };
-            (
-                i.key_pressed(egui::Key::E),
-                i.key_pressed(egui::Key::F),
-                answer,
-            )
-        });
+        let (talk_key, kick_key, answer_key) = (
+            std::mem::take(&mut input.use_),
+            std::mem::take(&mut input.kick),
+            input.answer.take(),
+        );
         // E: go on with what is being said, else talk to someone near, else use a door.
         if talk_key && !self.subs.advance() && self.subs.asking().is_none() {
             let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
@@ -1830,7 +1900,6 @@ impl ViewerApp {
             self.hero_standing = 0.0;
         }
         animate_hero(renderer, queue, clip, dt);
-        ui.ctx().request_repaint();
         renderer.update_interior(hero.position);
         follow(&mut self.camera, hero, renderer, self.follow_distance);
         match exit_at(renderer, hero) {
@@ -2015,8 +2084,8 @@ impl ViewerApp {
             return;
         }
         if self.anim_bank.is_none() {
-            self.anim_bank = skin::AnimBank::open(&self.data_dir)
-                .map_err(|e| eprintln!("animations: {e}"))
+            self.anim_bank = skin::AnimBank::open(&self.assets)
+                .map_err(|e| log::warn!("animations: {e}"))
                 .ok();
         }
         let Some(bank) = &mut self.anim_bank else {
@@ -2086,8 +2155,8 @@ impl ViewerApp {
             .collect();
         let who = self.lip.as_ref().map(|l| l.0);
         if self.anim_bank.is_none() {
-            self.anim_bank = skin::AnimBank::open(&self.data_dir)
-                .map_err(|e| eprintln!("animations: {e}"))
+            self.anim_bank = skin::AnimBank::open(&self.assets)
+                .map_err(|e| log::warn!("animations: {e}"))
                 .ok();
         }
         if let (Some(who), Scene::Terrain(renderer), Some(bank)) =
@@ -2115,7 +2184,7 @@ impl ViewerApp {
                 }
             }
             Beat::Walk { who, to } => {
-                eprintln!("quest: {who} walks to {to:?}");
+                log::info!("quest: {who} walks to {to:?}");
                 if let Scene::Terrain(renderer) = &mut self.scene {
                     for npc in renderer
                         .npcs
@@ -2123,7 +2192,7 @@ impl ViewerApp {
                         .filter(|n| n.script_name.as_deref() == Some(who))
                     {
                         if !npc.walk_to(glam::Vec3::from_array(to)) {
-                            eprintln!("{who} cannot walk");
+                            log::warn!("{who} cannot walk");
                         }
                     }
                 }
@@ -2151,7 +2220,7 @@ impl ViewerApp {
                 at,
                 facing: [fx, fy],
             } => {
-                eprintln!("quest: night passes, waking at {at:?} at {hour}:00");
+                log::info!("quest: night passes, waking at {at:?} at {hour}:00");
                 // Black at once, fading back in on the new day.
                 self.hour = hour;
                 self.fade = 1.0 + NIGHT_HOLD;
@@ -2358,36 +2427,24 @@ impl eframe::App for ViewerApp {
                         self.camera.zoom(scroll);
                     }
                 }
-                self.walk(ui, &rs.queue);
-                let mut effects = Vec::new();
-                self.subs
-                    .step(ui.input(|i| i.stable_dt.min(0.1)), &mut effects);
+                // The simulation runs in fixed ticks; what is only seen
+                // (camera framing, highlight, fades) runs per frame.
+                let frame_dt = ui.input(|i| i.stable_dt.min(0.1));
+                let ticks = self.time.advance(frame_dt);
+                let mut actions = ui.input(Actions::read);
+                for _ in 0..ticks {
+                    self.tick(&rs, &mut actions);
+                }
                 self.speak();
-                self.gesture(ui.input(|i| i.stable_dt.min(0.1)));
-                self.move_mouth(ui.input(|i| i.stable_dt.min(0.1)));
-                self.frame_conversation(ui.input(|i| i.stable_dt.min(0.1)));
+                self.frame_conversation(frame_dt);
                 self.choose_highlight(ui.input(|i| i.time) as f32);
-                self.play_soundscape(ui.input(|i| i.stable_dt.min(0.1)));
-                for effect in effects {
-                    self.apply(&rs, effect);
+                self.play_soundscape(frame_dt);
+                if self.walker.is_some() || ticks > 0 {
+                    ui.ctx().request_repaint();
                 }
                 if let Scene::Terrain(renderer) = &mut self.scene
                     && !renderer.npcs.is_empty()
                 {
-                    let dt = ui.input(|i| i.stable_dt.min(0.1));
-                    let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
-                    let hero = self.walker.as_ref().map(|h| h.position.truncate());
-                    let doors = &renderer.doors;
-                    let blocked = |p: glam::Vec2| {
-                        doors.iter().any(|d| d.blocks(p))
-                            || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
-                    };
-                    for npc in &mut renderer.npcs {
-                        npc.animate(&rs.queue, dt, layers, heights, &blocked);
-                    }
-                    for door in &mut renderer.doors {
-                        door.animate(&rs.queue, dt);
-                    }
                     ui.ctx().request_repaint();
                 }
 
@@ -2396,16 +2453,12 @@ impl eframe::App for ViewerApp {
                 let view_proj = self
                     .shown_camera()
                     .view_proj(rect.width() / rect.height().max(1.0));
-                let dt = ui.input(|i| i.stable_dt.min(0.1));
                 if self.clock {
-                    self.hour = (self.hour + dt * CLOCK_RATE).rem_euclid(24.0);
                     ui.ctx().request_repaint();
                 }
                 if let Scene::Terrain(renderer) = &mut self.scene {
                     renderer.set_hour(self.hour, self.brightness, self.highlights);
-                    let focus = renderer.focus;
-                    if let Some(p) = &mut renderer.particles {
-                        p.update(dt, focus);
+                    if renderer.particles.is_some() {
                         ui.ctx().request_repaint();
                     }
                 }

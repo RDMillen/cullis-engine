@@ -1,14 +1,12 @@
 //! Loads a static mesh with its textures and draws it into an offscreen target.
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
-use fable_data::big::BigFile;
+use engine_core::assets::{Archive, AssetCache};
 use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE, Skeleton};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
@@ -140,10 +138,10 @@ pub fn bone_configs(data_dir: &Path, files: &[String]) -> Vec<fable_data::bncfg:
         .iter()
         .filter_map(|f| {
             let text = std::fs::read(data_dir.join("Bones").join(f))
-                .map_err(|e| eprintln!("{f}: {e}"))
+                .map_err(|e| log::warn!("{f}: {e}"))
                 .ok()?;
             fable_data::bncfg::BoneConfig::parse(&String::from_utf8_lossy(&text))
-                .map_err(|e| eprintln!("{f}: {e}"))
+                .map_err(|e| log::warn!("{f}: {e}"))
                 .ok()
         })
         .collect()
@@ -191,8 +189,7 @@ impl Skin {
 /// Accumulates meshes, placed or not, into one [`ModelData`], loading each mesh
 /// and texture once.
 pub struct ModelBuilder {
-    file: BufReader<File>,
-    entries: HashMap<u32, fable_data::bank::Entry>,
+    assets: AssetCache,
     textures: TextureBank,
     images: HashMap<u32, usize>,
     meshes: HashMap<u32, Option<LocalMesh>>,
@@ -202,23 +199,10 @@ pub struct ModelBuilder {
 }
 
 impl ModelBuilder {
-    pub fn open(data_dir: &Path, name: &str) -> Result<Self, Error> {
-        let mut file = BufReader::new(File::open(data_dir.join("graphics/graphics.big"))?);
-        let big = BigFile::read(&mut file)?;
-        let index = big
-            .bank("MBANK_ALLMESHES")
-            .ok_or("no MBANK_ALLMESHES")?
-            .read_index(&mut file)?;
-        let entries = index
-            .entries
-            .into_iter()
-            .filter(|e| [STATIC_MESH_TYPE, SKINNED_MESH_TYPE].contains(&e.entry_type))
-            .map(|e| (e.id, e))
-            .collect();
+    pub fn open(assets: &AssetCache, name: &str) -> Result<Self, Error> {
         Ok(Self {
-            file,
-            entries,
-            textures: TextureBank::open(data_dir)?,
+            assets: assets.clone(),
+            textures: TextureBank::open(assets),
             images: HashMap::new(),
             meshes: HashMap::new(),
             swaps: HashMap::new(),
@@ -240,9 +224,14 @@ impl ModelBuilder {
     }
 
     /// Id of the first mesh named `needle`, or containing it (case-insensitive).
-    pub fn find(&self, needle: &str) -> Option<(u32, String)> {
+    pub fn find(&mut self, needle: &str) -> Option<(u32, String)> {
         let needle = needle.to_ascii_uppercase();
-        let mut entries: Vec<_> = self.entries.values().collect();
+        let index = self.assets.index(Archive::Meshes).ok()?;
+        let mut entries: Vec<_> = index
+            .entries
+            .iter()
+            .filter(|e| [STATIC_MESH_TYPE, SKINNED_MESH_TYPE].contains(&e.entry_type))
+            .collect();
         entries.sort_by_key(|e| e.id);
         entries
             .iter()
@@ -255,7 +244,7 @@ impl ModelBuilder {
     /// not be loaded. Skinned meshes are drawn in their bind pose.
     pub fn add(&mut self, id: u32, transform: Mat4) -> bool {
         if !self.meshes.contains_key(&id) {
-            let local = self.load(id).map_err(|e| eprintln!("mesh {id}: {e}")).ok();
+            let local = self.load(id).map_err(|e| log::warn!("mesh {id}: {e}")).ok();
             self.meshes.insert(id, local);
         }
         let Some(Some(local)) = self.meshes.get(&id) else {
@@ -296,11 +285,10 @@ impl ModelBuilder {
     }
 
     fn load(&mut self, id: u32) -> Result<LocalMesh, Error> {
-        let entry = self
-            .entries
-            .get(&id)
-            .ok_or("not a static or skinned mesh")?;
-        let data = entry.read_data(&mut self.file)?;
+        let (entry, data) = self.assets.read(Archive::Meshes, id)?;
+        if ![STATIC_MESH_TYPE, SKINNED_MESH_TYPE].contains(&entry.entry_type) {
+            return Err("not a static or skinned mesh".into());
+        }
         let mesh = if entry.entry_type == SKINNED_MESH_TYPE {
             Mesh::parse_skinned(&entry.info, &data)?
         } else {
@@ -489,7 +477,7 @@ impl ModelBuilder {
                 self.model.images.len() - 1
             }
             Err(e) => {
-                eprintln!("texture {id} for {material}: {e}");
+                log::warn!("texture {id} for {material}: {e}");
                 0
             }
         };
@@ -508,8 +496,8 @@ impl ModelBuilder {
 
 /// Loads the most detailed level of the first static mesh whose name contains
 /// `needle` (case-insensitive), with its materials' main textures.
-pub fn load_mesh(data_dir: &Path, needle: &str) -> Result<ModelData, Error> {
-    let probe = ModelBuilder::open(data_dir, needle)?;
+pub fn load_mesh(assets: &AssetCache, needle: &str) -> Result<ModelData, Error> {
+    let mut probe = ModelBuilder::open(assets, needle)?;
     let (id, name) = probe
         .find(needle)
         .ok_or_else(|| format!("no static mesh matching {needle}"))?;
@@ -532,22 +520,22 @@ pub fn hero_local() -> Mat4 {
 
 /// The young Hero in his bind pose, in mesh units (see [`hero_local`]), with his
 /// skin for animation.
-pub fn hero_model(data_dir: &Path) -> Result<(ModelData, Option<Skin>), Error> {
-    let builder = ModelBuilder::open(data_dir, "Hero")?;
+pub fn hero_model(assets: &AssetCache) -> Result<(ModelData, Option<Skin>), Error> {
+    let mut builder = ModelBuilder::open(assets, "Hero")?;
     let (id, _) = builder
         .find(YOUNG_HERO_MESH)
         .ok_or_else(|| format!("no {YOUNG_HERO_MESH}"))?;
-    skinned_model(data_dir, id, &[])
+    skinned_model(assets, id, &[])
 }
 
 /// Mesh `id` in its own units with its textures (with `swaps` applied: texture
 /// named -> texture used), and its skin if it has one.
 pub fn skinned_model(
-    data_dir: &Path,
+    assets: &AssetCache,
     id: u32,
     swaps: &[(u32, u32)],
 ) -> Result<(ModelData, Option<Skin>), Error> {
-    let mut builder = ModelBuilder::open(data_dir, &id.to_string())?;
+    let mut builder = ModelBuilder::open(assets, &id.to_string())?;
     builder.swaps = swaps.iter().copied().collect();
     if !builder.add(id, Mat4::IDENTITY) {
         return Err(format!("could not load mesh {id}").into());
@@ -560,12 +548,12 @@ pub fn skinned_model(
 /// `resolve` gives the meshes of an object definition, for the objects meshes
 /// create at their `CREATEOBJECT` dummies (a building's door frames and windows).
 pub fn load_placements(
-    data_dir: &Path,
+    assets: &AssetCache,
     name: &str,
     placements: &[Placement],
     resolve: &dyn Fn(&str) -> Vec<u32>,
 ) -> Result<(ModelData, Vec<Building>), Error> {
-    let mut builder = ModelBuilder::open(data_dir, name)?;
+    let mut builder = ModelBuilder::open(assets, name)?;
     let mut buildings: HashMap<u64, Building> = HashMap::new();
     let mut placed = 0;
     // Plain meshes' draws and centres, to find those standing indoors.
@@ -622,7 +610,7 @@ pub fn load_placements(
     for p in placements {
         created += builder.add_created(p.mesh, p.transform(), resolve, 2);
     }
-    eprintln!(
+    log::info!(
         "{name}: placed {placed} of {} meshes, and {created} they create",
         placements.len()
     );
@@ -708,28 +696,26 @@ fn uniforms(
     }
 }
 
+/// Textures from the asset cache, decoded to RGBA.
 pub(crate) struct TextureBank {
-    file: BufReader<File>,
-    entries: HashMap<u32, fable_data::bank::Entry>,
+    assets: AssetCache,
 }
 
 impl TextureBank {
-    pub(crate) fn open(data_dir: &Path) -> Result<Self, Error> {
-        let mut file = BufReader::new(File::open(data_dir.join("graphics/pc/textures.big"))?);
-        let big = BigFile::read(&mut file)?;
-        let index = big
-            .bank("GBANK_MAIN_PC")
-            .ok_or("no GBANK_MAIN_PC")?
-            .read_index(&mut file)?;
-        let entries = index.entries.into_iter().map(|e| (e.id, e)).collect();
-        Ok(Self { file, entries })
+    pub(crate) fn open(assets: &AssetCache) -> Self {
+        Self {
+            assets: assets.clone(),
+        }
     }
 
     /// Every texture's id and short name (the source file name, without its path).
-    pub(crate) fn names(&self) -> Vec<(u32, String)> {
-        let mut names: Vec<(u32, String)> = self
+    pub(crate) fn names(&mut self) -> Vec<(u32, String)> {
+        let Ok(index) = self.assets.index(Archive::Textures) else {
+            return Vec::new();
+        };
+        let mut names: Vec<(u32, String)> = index
             .entries
-            .values()
+            .iter()
             .map(|e| {
                 let short = e.name.rsplit('\\').next().unwrap_or(&e.name);
                 (e.id, short.trim_end_matches(']').to_owned())
@@ -740,12 +726,9 @@ impl TextureBank {
     }
 
     pub(crate) fn load(&mut self, id: u32) -> Result<Image, Error> {
-        let entry = self
-            .entries
-            .get(&id)
-            .ok_or_else(|| format!("no texture {id}"))?;
+        let (entry, data) = self.assets.read(Archive::Textures, id)?;
         let info = TextureInfo::parse(&entry.info)?;
-        let texture = Texture::unpack(&info, entry.entry_type, &entry.read_data(&mut self.file)?)?;
+        let texture = Texture::unpack(&info, entry.entry_type, &data)?;
         Ok(Image {
             width: texture.width,
             height: texture.height,

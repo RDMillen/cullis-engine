@@ -1,0 +1,11 @@
+[package]
+name = "engine-core"
+version = "0.1.0"
+description = "CullisEngine core: the fixed simulation clock, the asset cache and logging"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fable-data = { path = "../fable-data" }
+log = "0.4.34"

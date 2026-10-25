@@ -1,7 +1,6 @@
 //! Creatures placed in a region, each skinned and playing an idle animation.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use eframe::wgpu;
 use glam::Mat4;
@@ -201,7 +200,7 @@ impl Npc {
             match bank.clip(id, animator.skeleton()) {
                 Ok(clip) => clips.push(clip),
                 Err(e) => {
-                    eprintln!("mood {modifier} ({id}): {e}");
+                    log::warn!("mood {modifier} ({id}): {e}");
                     return false;
                 }
             }
@@ -321,7 +320,7 @@ impl Npc {
                 match bank.clip(id, animator.skeleton()) {
                     Ok(clip) => clips.push(clip),
                     Err(e) => {
-                        eprintln!("gesture {id}: {e}");
+                        log::warn!("gesture {id}: {e}");
                         return false;
                     }
                 }
@@ -508,7 +507,7 @@ fn idle_for(definition: &str) -> &'static str {
 
 /// Loads and poses every creature (each mesh and clip is decoded once).
 pub fn load(
-    data_dir: &Path,
+    assets: &engine_core::assets::AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     creatures: &[CreaturePlacement],
@@ -516,10 +515,10 @@ pub fn load(
     type Key = (u32, Vec<(u32, u32)>);
     let mut meshes: HashMap<Key, Option<(ModelData, Skin)>> = HashMap::new();
     let mut clips: HashMap<(u32, u32), Option<Clip>> = HashMap::new();
-    let mut bank = match AnimBank::open(data_dir) {
+    let mut bank = match AnimBank::open(assets) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("animations: {e}");
+            log::warn!("animations: {e}");
             return Vec::new();
         }
     };
@@ -529,7 +528,7 @@ pub fn load(
         let Some(base) = c.idles.base.or_else(|| bank.id(idle_for(&c.definition))) else {
             continue;
         };
-        let configs = model::bone_configs(data_dir, &c.morphs);
+        let configs = model::bone_configs(assets.data_dir(), &c.morphs);
         let wanders = !c.scripted && !c.definition.contains("GUARD");
         // Scripted people walk too, when a quest sends them somewhere.
         let walk_id = c.idles.walk.filter(|_| wanders || c.scripted);
@@ -543,11 +542,11 @@ pub fn load(
             let id = key.0;
             let Some((model, skin)) = meshes
                 .entry(key.clone())
-                .or_insert_with(|| match model::skinned_model(data_dir, id, &key.1) {
+                .or_insert_with(|| match model::skinned_model(assets, id, &key.1) {
                     Ok((m, Some(s))) => Some((m, s)),
                     Ok((_, None)) => None,
                     Err(e) => {
-                        eprintln!("creature mesh {id}: {e}");
+                        log::warn!("creature mesh {id}: {e}");
                         None
                     }
                 })
@@ -562,7 +561,7 @@ pub fn load(
                         .entry((id, anim))
                         .or_insert_with(|| {
                             bank.clip(anim, &skin.skeleton)
-                                .map_err(|e| eprintln!("animation {anim}: {e}"))
+                                .map_err(|e| log::warn!("animation {anim}: {e}"))
                                 .ok()
                         })
                         .clone()

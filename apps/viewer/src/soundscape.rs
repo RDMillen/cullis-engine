@@ -129,7 +129,7 @@ impl Music {
                     self.pending = None;
                 }
                 Ok(Err(e)) => {
-                    eprintln!("music {}: {e}", path.display());
+                    log::warn!("music {}: {e}", path.display());
                     self.playing = Some(path.clone());
                     self.pending = None;
                 }
@@ -284,7 +284,7 @@ impl Ambience {
                     Some(p.clone())
                 }
                 Ok(Err(e)) => {
-                    eprintln!("ambience {}: {e}", p.display());
+                    log::warn!("ambience {}: {e}", p.display());
                     self.loaded.insert(
                         p.clone(),
                         Arc::new(Bank {
@@ -385,7 +385,7 @@ impl Ambience {
         }
         self.current = to.map(|(p, _)| (p.to_owned(), night));
         if let Some((p, bank)) = to {
-            eprintln!(
+            log::info!(
                 "ambience: {} by {} ({} beds, {} spot sounds)",
                 p.file_stem().and_then(|s| s.to_str()).unwrap_or("?"),
                 if night { "night" } else { "day" },

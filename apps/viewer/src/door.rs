@@ -1,8 +1,6 @@
 //! Doors: skinned meshes posed by their `DOOR_OPEN` and `DOOR_CLOSE` animations,
 //! blocking their doorway while closed.
 
-use std::path::Path;
-
 use eframe::wgpu;
 use glam::{Mat4, Vec2, Vec3};
 
@@ -55,15 +53,15 @@ impl Door {
 
 /// Loads every door, posed open or closed as its level file says.
 pub fn load(
-    data_dir: &Path,
+    assets: &engine_core::assets::AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     doors: &[DoorPlacement],
 ) -> Vec<Door> {
-    let mut bank = match AnimBank::open(data_dir) {
+    let mut bank = match AnimBank::open(assets) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("animations: {e}");
+            log::warn!("animations: {e}");
             return Vec::new();
         }
     };
@@ -72,10 +70,10 @@ pub fn load(
         let [Some(open), Some(close)] = d.animations else {
             continue;
         };
-        let (model, Some(skin)) = (match model::skinned_model(data_dir, d.placement.mesh, &[]) {
+        let (model, Some(skin)) = (match model::skinned_model(assets, d.placement.mesh, &[]) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("door mesh {}: {e}", d.placement.mesh);
+                log::warn!("door mesh {}: {e}", d.placement.mesh);
                 continue;
             }
         }) else {
@@ -85,7 +83,7 @@ pub fn load(
             .iter()
             .filter_map(|&id| {
                 bank.clip(id, &skin.skeleton)
-                    .map_err(|e| eprintln!("door animation {id}: {e}"))
+                    .map_err(|e| log::warn!("door animation {id}: {e}"))
                     .ok()
             })
             .collect();

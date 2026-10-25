@@ -7,12 +7,10 @@
 //! motion is a stand-in by eye (see `docs/formats/particles.md`).
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
+use engine_core::assets::{Archive, AssetCache};
 use fable_data::particles::{Emitter as EmitterData, SpriteLayer};
 use glam::{Mat4, Vec3};
 
@@ -90,16 +88,11 @@ impl Particles {
     pub fn load(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        data_dir: &Path,
+        assets: &AssetCache,
         placed: &[(EmitterRef, Vec3)],
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let path = data_dir.join("Misc/pc/effects.big");
-        let mut file = BufReader::new(File::open(&path)?);
-        let big = fable_data::big::BigFile::read(&mut file)?;
-        let index = big
-            .bank("PARTICLE_MAIN_PC")
-            .ok_or("no PARTICLE_MAIN_PC")?
-            .read_index(&mut file)?;
+        let mut assets = assets.clone();
+        let index = assets.index(Archive::Effects)?;
         let mut parsed: HashMap<EmitterRef, Option<Vec<SpriteLayer>>> = HashMap::new();
         let mut textures: Vec<u32> = Vec::new();
         let mut emitters = Vec::new();
@@ -109,13 +102,15 @@ impl Particles {
                 EmitterRef::Id(id) => format!("#{id}"),
             };
             let looks = parsed.entry(which.clone()).or_insert_with(|| {
-                let entry = index.entries.iter().find(|e| match which {
-                    EmitterRef::Name(n) => e.name.eq_ignore_ascii_case(n),
-                    EmitterRef::Id(id) => e.id == *id,
-                })?;
-                let data = entry.read_data(&mut file).ok()?;
+                // Dummies name emitters in any case; the bank's names are
+                // upper case.
+                let id = match which {
+                    EmitterRef::Name(n) => index.by_name(&n.to_ascii_uppercase())?.id,
+                    EmitterRef::Id(id) => *id,
+                };
+                let (_, data) = assets.read(Archive::Effects, id).ok()?;
                 let emitter = EmitterData::parse(&data)
-                    .map_err(|e| eprintln!("particles {name}: {e}"))
+                    .map_err(|e| log::warn!("particles {name}: {e}"))
                     .ok()?;
                 // The header's first float over 10 scales speeds and sizes:
                 // 1 for the fireplace (as drawn and checked), 4.8 for chimney
@@ -146,7 +141,7 @@ impl Particles {
                 )
             });
             let Some(looks) = looks else {
-                eprintln!("particles: no emitter {name}");
+                log::info!("particles: no emitter {name}");
                 continue;
             };
             let layers = looks
@@ -172,7 +167,7 @@ impl Particles {
             });
         }
         // At least two layers, so the array binds as an array everywhere.
-        let mut layers = crate::themes::load_ids(data_dir, &textures)?;
+        let mut layers = crate::themes::load_ids(&assets, &textures)?;
         while layers.len() < 2 {
             layers.push(layers.first().cloned().unwrap_or_else(|| {
                 vec![vec![

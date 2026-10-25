@@ -38,7 +38,7 @@ impl Audio {
         m.set_channel_volume(Channel::Ambience, crate::soundscape::AMBIENCE_VOLUME);
         let mixer = Arc::new(Mutex::new(m));
         let shared = mixer.clone();
-        let error = |e: cpal::Error| eprintln!("audio: {e}");
+        let error = |e: cpal::Error| log::warn!("audio: {e}");
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 config.into(),
@@ -150,7 +150,7 @@ impl Voices {
             }
             Ok((file, entries))
         })()
-        .map_err(|e| eprintln!("lip sync: {e}"))
+        .map_err(|e| log::warn!("lip sync: {e}"))
         .ok();
         Ok(Self {
             index: VoiceIndex::build(data_dir, "English", text)?,
@@ -172,7 +172,7 @@ impl Voices {
         let entry = entries.get(&format!("{}_{}", voice.bank, voice.sound))?;
         let data = entry.read_data(file).ok()?;
         fable_data::lipsync::LipSync::parse(&data)
-            .map_err(|e| eprintln!("lip sync {}: {e}", entry.name))
+            .map_err(|e| log::warn!("lip sync {}: {e}", entry.name))
             .ok()
     }
 
@@ -187,7 +187,7 @@ impl Voices {
                 let path = dir.join(format!("{}.lut", voice.bank));
                 let mut file = BufReader::new(File::open(&path).ok()?);
                 let bank = SoundBank::read(&mut file)
-                    .map_err(|e| eprintln!("{}: {e}", path.display()))
+                    .map_err(|e| log::warn!("{}: {e}", path.display()))
                     .ok()?;
                 Some((file, bank))
             })
@@ -196,7 +196,7 @@ impl Voices {
         let sound = bank
             .1
             .read_sound(&mut bank.0, entry)
-            .map_err(|e| eprintln!("voice {} {}: {e}", voice.bank, voice.sound))
+            .map_err(|e| log::warn!("voice {} {}: {e}", voice.bank, voice.sound))
             .ok()?;
         let samples = sound.wave.decode().ok()?;
         Some(Sound::new(
