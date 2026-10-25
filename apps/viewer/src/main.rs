@@ -375,12 +375,14 @@ impl Scene {
                     if let Some(things) = &mut renderer.things {
                         things.set_indoor(&indoor);
                     }
-                    renderer.npcs = npc::load(assets, device, queue, &mesh.creatures);
+                    let (npcs, models) = npc::load(assets, device, queue, &mesh.creatures);
+                    world.npcs = npcs;
+                    renderer.creatures = models;
                     renderer.doors = door::load(assets, device, queue, &mesh.doors, &mut world);
                     log::info!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
                     log::info!(
                         "{} creatures placed of {}",
-                        renderer.npcs.len(),
+                        world.npcs.len(),
                         mesh.creatures.len()
                     );
                     let p = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].position);
@@ -525,8 +527,8 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         Subject::Region(region) => story::Story::for_region(region, &sections),
         Subject::Mesh(_) => None,
     };
-    if let (Some(story), Scene::Terrain(renderer, _)) = (&mut story, &mut scene) {
-        story.place(&mut renderer.npcs, &assets);
+    if let (Some(story), Scene::Terrain(_renderer, world)) = (&mut story, &mut scene) {
+        story.place(&mut world.npcs, &assets);
     }
     if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
         camera = OrbitCamera {
@@ -608,7 +610,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     let Some(heights) = &world.heights else {
                         break;
                     };
-                    let (doors, npcs) = (&**world, &renderer.npcs);
+                    let (doors, npcs) = (&**world, &world.npcs);
                     let Some(to) = follow.direction(
                         &hero,
                         &world.walk,
@@ -649,13 +651,13 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             let mut subs = talk::Subtitles::default();
             let at = hero.position.truncate();
             for _ in 0..args.talk {
-                let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
+                let near = story::nearest_person(&world.npcs, at, story::TALK_REACH, None);
                 let (Some(story), Some(i)) = (&mut story, near) else {
                     log::info!("nobody to talk to");
                     continue;
                 };
-                story.talk(&renderer.npcs, i, at, &text, &mut subs);
-                let who = renderer.npcs[i].script_name.as_deref().unwrap_or("?");
+                story.talk(&world.npcs, i, at, &text, &mut subs);
+                let who = world.npcs[i].script_name.as_deref().unwrap_or("?");
                 let mut effects = Vec::new();
                 loop {
                     subs.step(0.0, &mut effects);
@@ -713,9 +715,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         pose_and_frame(renderer, world, &assets, &queue, &mut camera, &hero, args)?;
     }
-    if let (Some((role, shape)), Scene::Terrain(renderer, _)) = (&args.mouth, &mut scene) {
+    if let (Some((role, shape)), Scene::Terrain(_renderer, world)) = (&args.mouth, &mut scene) {
         let mut bank = skin::AnimBank::open(&assets)?;
-        match renderer
+        match world
             .npcs
             .iter_mut()
             .find(|n| n.script_name.as_deref() == Some(role.as_str()))
@@ -727,9 +729,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             None => log::info!("mouth: no creature with role {role}"),
         }
     }
-    if let (Some(role), Scene::Terrain(renderer, _)) = (&args.gesture, &mut scene) {
+    if let (Some(role), Scene::Terrain(_renderer, world)) = (&args.gesture, &mut scene) {
         let mut bank = skin::AnimBank::open(&assets)?;
-        match renderer
+        match world
             .npcs
             .iter_mut()
             .find(|n| n.script_name.as_deref() == Some(role.as_str()))
@@ -742,21 +744,18 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             None => log::info!("gesture: no creature with role {role}"),
         }
     }
-    if let Scene::Terrain(renderer, world) = &mut scene {
-        let (layers, heights) = (&world.walk, world.heights.as_ref());
+    if let Scene::Terrain(_renderer, world) = &mut scene {
+        let (_layers, _heights) = (&world.walk, world.heights.as_ref());
         let steps = (args.npc_time / TICK) as u32;
-        let blocked = |p: glam::Vec2| world.door_blocks(p);
         for _ in 0..steps {
-            for npc in &mut renderer.npcs {
-                npc.animate(&queue, TICK, layers, heights, &blocked);
-            }
+            world.step_creatures(TICK, None, PERSON_RADIUS);
         }
         for _ in 0..steps {
             world.tick(TICK);
         }
     }
-    if let (Scene::Terrain(renderer, _), true) = (&scene, args.npc_time > 0.0) {
-        let wandered: Vec<String> = renderer
+    if let (Scene::Terrain(_renderer, world), true) = (&scene, args.npc_time > 0.0) {
+        let wandered: Vec<String> = world
             .npcs
             .iter()
             .filter_map(|n| n.wandered())
@@ -806,7 +805,7 @@ const PERSON_RADIUS: f32 = 0.35;
 
 /// Where a route should not go: where the Hero may not stand, with a margin
 /// around people so that walking between the route's points does not graze them.
-fn blocked_for_route(doors: &World, npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+fn blocked_for_route(doors: &World, npcs: &[engine_world::creature::Npc], p: glam::Vec2) -> bool {
     blocked_for_hero(doors, npcs, p)
         || npcs
             .iter()
@@ -814,7 +813,7 @@ fn blocked_for_route(doors: &World, npcs: &[npc::Npc], p: glam::Vec2) -> bool {
 }
 
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
-fn blocked_for_hero(doors: &World, npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+fn blocked_for_hero(doors: &World, npcs: &[engine_world::creature::Npc], p: glam::Vec2) -> bool {
     doors.door_blocks(p)
         || npcs
             .iter()
@@ -1315,8 +1314,8 @@ impl ViewerApp {
             Subject::Mesh(_) => None,
         };
         let mut story = story;
-        if let (Some(story), Scene::Terrain(renderer, _)) = (&mut story, &mut scene) {
-            story.place(&mut renderer.npcs, &assets);
+        if let (Some(story), Scene::Terrain(_renderer, world)) = (&mut story, &mut scene) {
+            story.place(&mut world.npcs, &assets);
         }
         let list = match subject {
             Subject::Region(_) => ListMode::Regions,
@@ -1501,10 +1500,10 @@ impl ViewerApp {
                 {
                     self.story = story::Story::for_region(region, &self.sections);
                 }
-                if let (Some(story), Scene::Terrain(renderer, _)) =
+                if let (Some(story), Scene::Terrain(_renderer, world)) =
                     (&mut self.story, &mut self.scene)
                 {
-                    story.place(&mut renderer.npcs, &self.assets);
+                    story.place(&mut world.npcs, &self.assets);
                 }
                 if let (Some(hero), Scene::Terrain(renderer, world)) =
                     (loaded.hero, &mut self.scene)
@@ -1751,15 +1750,9 @@ impl ViewerApp {
         let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
-        let (layers, heights) = (&world.walk, world.heights.as_ref());
+        let (_layers, _heights) = (&world.walk, world.heights.as_ref());
         let hero = self.walker.as_ref().map(|h| h.position.truncate());
-        let doors: &World = world;
-        let blocked = |p: glam::Vec2| {
-            doors.door_blocks(p) || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
-        };
-        for npc in &mut renderer.npcs {
-            npc.animate(&rs.queue, dt, layers, heights, &blocked);
-        }
+        world.step_creatures(dt, hero, PERSON_RADIUS);
         world.tick(dt);
         let focus = world.focus;
         if let Some(p) = &mut renderer.particles {
@@ -1797,7 +1790,7 @@ impl ViewerApp {
             && !held
             && let Some(follow) = &mut self.auto_walk
         {
-            let (doors, npcs) = (&**world, &renderer.npcs);
+            let (doors, npcs) = (&**world, &world.npcs);
             match follow.direction(
                 hero,
                 walk,
@@ -1819,9 +1812,9 @@ impl ViewerApp {
                     if std::mem::take(&mut self.auto_talk)
                         && let (Some(text), Some(story)) = (&self.text, &mut self.story)
                         && let Some(i) =
-                            story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None)
+                            story::nearest_person(&world.npcs, at, story::TALK_REACH, None)
                     {
-                        story.talk(&renderer.npcs, i, at, text, &mut self.subs);
+                        story.talk(&world.npcs, i, at, text, &mut self.subs);
                     }
                 }
             }
@@ -1850,9 +1843,9 @@ impl ViewerApp {
         let mut use_door = None;
         // E: go on with what is being said, else talk to someone near, else use a door.
         if talk_key && !self.subs.advance() && self.subs.asking().is_none() {
-            let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
+            let near = story::nearest_person(&world.npcs, at, story::TALK_REACH, None);
             if let (Some(story), Some(text), Some(i)) = (&mut self.story, &self.text, near) {
-                story.talk(&renderer.npcs, i, at, text, &mut self.subs);
+                story.talk(&world.npcs, i, at, text, &mut self.subs);
             } else {
                 // Used at the end of the step, once the walk grids are free.
                 use_door = world.nearest_door(hero.position);
@@ -1863,7 +1856,7 @@ impl ViewerApp {
             && self.subs.asking().is_some()
             && let (Some(story), Some(text)) = (&mut self.story, &self.text)
         {
-            story.answer(yes, &renderer.npcs, at, text, &mut self.subs);
+            story.answer(yes, &world.npcs, at, text, &mut self.subs);
         }
         // F: kick whoever is in front.
         if kick_key
@@ -1874,12 +1867,11 @@ impl ViewerApp {
             animator.play_once(kick, 0.0);
             self.kicking = true;
             let facing = glam::Vec2::new(-hero.heading.sin(), hero.heading.cos());
-            if let Some(i) =
-                story::nearest_person(&renderer.npcs, at, story::KICK_REACH, Some(facing))
+            if let Some(i) = story::nearest_person(&world.npcs, at, story::KICK_REACH, Some(facing))
             {
-                renderer.npcs[i].flinch();
+                world.npcs[i].flinch();
                 if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
-                    story.hit(&renderer.npcs, i, at, text, &mut self.subs);
+                    story.hit(&world.npcs, i, at, text, &mut self.subs);
                 }
             }
         }
@@ -1888,7 +1880,7 @@ impl ViewerApp {
         }
         // Walking away ends a conversation.
         if let Some(i) = self.subs.waiting_on()
-            && renderer
+            && world
                 .npcs
                 .get(i)
                 .is_none_or(|n| n.position().distance(at) > 4.0)
@@ -1897,9 +1889,9 @@ impl ViewerApp {
         }
         if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
             let height = hero.position.z;
-            story.update(dt, &renderer.npcs, (at, height), text, &mut self.subs);
+            story.update(dt, &world.npcs, (at, height), text, &mut self.subs);
         }
-        let (doors, npcs) = (&**world, &renderer.npcs);
+        let (doors, npcs) = (&**world, &world.npcs);
         hero.step_blocked(direction, speed, dt, walk, heights, |p| {
             blocked_for_hero(doors, npcs, p)
         });
@@ -2000,8 +1992,8 @@ impl ViewerApp {
         }
         let at = hero.position.truncate();
         let person = self.story.as_ref().and_then(|story| {
-            story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None).filter(|&i| {
-                renderer.npcs[i]
+            story::nearest_person(&world.npcs, at, story::TALK_REACH, None).filter(|&i| {
+                world.npcs[i]
                     .script_name
                     .as_deref()
                     .is_some_and(|r| story.knows(r))
@@ -2035,14 +2027,14 @@ impl ViewerApp {
     fn frame_conversation(&mut self, dt: f32) {
         const EASE: f32 = 0.5;
         let active = match (self.subs.waiting_on(), &mut self.walker, &mut self.scene) {
-            (Some(talked), Some(hero), Scene::Terrain(renderer, _)) => {
+            (Some(talked), Some(hero), Scene::Terrain(renderer, world)) => {
                 let speaker = self.subs.speaker().unwrap_or(talked);
                 let tags = self
                     .subs
                     .line()
                     .map(|(l, _)| l.tags.clone())
                     .unwrap_or_default();
-                match renderer.npcs.get_mut(speaker) {
+                match world.npcs.get_mut(speaker) {
                     Some(npc) => {
                         npc.turn_towards(hero.position.truncate(), dt);
                         // The Hero turns to the speaker too.
@@ -2089,7 +2081,7 @@ impl ViewerApp {
     /// the line asks for, or one for its mood, then another as each ends, until
     /// the line is done.
     fn gesture(&mut self, dt: f32) {
-        let Scene::Terrain(renderer, _) = &mut self.scene else {
+        let Scene::Terrain(_renderer, world) = &mut self.scene else {
             return;
         };
         let line = self.subs.line().map(|(l, _)| (l.id, l.tags.clone()));
@@ -2097,7 +2089,7 @@ impl ViewerApp {
         // A new line: who says it, and the gestures to pick from.
         if let (Some((id, tags)), Some(i)) = (&line, speaker)
             && self.talking.as_ref().is_none_or(|t| t.1 != *id)
-            && let Some(npc) = renderer.npcs.get(i)
+            && let Some(npc) = world.npcs.get(i)
         {
             let (slot, mood) = talk::gesture_of(tags);
             self.talking = Some((i, *id, npc.gesture_ids(slot, mood), 0.0));
@@ -2118,7 +2110,7 @@ impl ViewerApp {
         if *since >= saying {
             return;
         }
-        let Some(npc) = renderer.npcs.get_mut(*i) else {
+        let Some(npc) = world.npcs.get_mut(*i) else {
             return;
         };
         if choices.is_empty() || npc.gesturing() {
@@ -2169,9 +2161,9 @@ impl ViewerApp {
 
     /// Releases the mouth of whoever was speaking.
     fn stop_mouth(&mut self) {
-        if let (Some((who, ..)), Scene::Terrain(renderer, _), Some(bank)) =
+        if let (Some((who, ..)), Scene::Terrain(_renderer, world), Some(bank)) =
             (self.lip.take(), &mut self.scene, &mut self.anim_bank)
-            && let Some(npc) = renderer.npcs.get_mut(who)
+            && let Some(npc) = world.npcs.get_mut(who)
         {
             npc.mouth(bank, &[]);
         }
@@ -2200,9 +2192,9 @@ impl ViewerApp {
                 .map_err(|e| log::warn!("animations: {e}"))
                 .ok();
         }
-        if let (Some(who), Scene::Terrain(renderer, _), Some(bank)) =
+        if let (Some(who), Scene::Terrain(_renderer, world), Some(bank)) =
             (who, &mut self.scene, &mut self.anim_bank)
-            && let Some(npc) = renderer.npcs.get_mut(who)
+            && let Some(npc) = world.npcs.get_mut(who)
         {
             let shapes: Vec<(&str, f32)> = shapes.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             npc.mouth(bank, &shapes);
@@ -2216,8 +2208,8 @@ impl ViewerApp {
         use engine_script::Beat;
         match beat {
             Beat::Leave(role) | Beat::Return(role) => {
-                if let Scene::Terrain(renderer, _) = &mut self.scene {
-                    for npc in &mut renderer.npcs {
+                if let Scene::Terrain(_renderer, world) = &mut self.scene {
+                    for npc in &mut world.npcs {
                         if npc.script_name.as_deref() == Some(role) {
                             npc.hidden = matches!(beat, Beat::Leave(_));
                         }
@@ -2226,8 +2218,8 @@ impl ViewerApp {
             }
             Beat::Walk { who, to } => {
                 log::info!("quest: {who} walks to {to:?}");
-                if let Scene::Terrain(renderer, _) = &mut self.scene {
-                    for npc in renderer
+                if let Scene::Terrain(_renderer, world) = &mut self.scene {
+                    for npc in world
                         .npcs
                         .iter_mut()
                         .filter(|n| n.script_name.as_deref() == Some(who))
@@ -2243,9 +2235,9 @@ impl ViewerApp {
                 at,
                 facing: [fx, fy],
             } => {
-                if let Scene::Terrain(renderer, world) = &mut self.scene {
+                if let Scene::Terrain(_renderer, world) = &mut self.scene {
                     let (layers, heights) = (&world.walk, world.heights.as_ref());
-                    for npc in renderer
+                    for npc in world
                         .npcs
                         .iter_mut()
                         .filter(|n| n.script_name.as_deref() == Some(who))
@@ -2484,8 +2476,8 @@ impl eframe::App for ViewerApp {
                 if self.walker.is_some() || ticks > 0 {
                     ui.ctx().request_repaint();
                 }
-                if let Scene::Terrain(renderer, _) = &mut self.scene
-                    && !renderer.npcs.is_empty()
+                if let Scene::Terrain(_renderer, world) = &mut self.scene
+                    && !world.npcs.is_empty()
                 {
                     ui.ctx().request_repaint();
                 }

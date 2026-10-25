@@ -101,8 +101,7 @@ impl Placement {
     }
 }
 
-/// World units per mesh unit.
-pub const MESH_SCALE: f32 = 0.01;
+pub use engine_world::body::MESH_SCALE;
 
 /// A mesh's most detailed level, in its own space, with image indices into the model.
 struct LocalMesh {
@@ -462,11 +461,7 @@ pub fn load_mesh(assets: &AssetCache, needle: &str) -> Result<ModelData, Error> 
 /// The Prologue Hero's mesh (face, torso, mouth and hair materials).
 const YOUNG_HERO_MESH: &str = "MESH_YOUNGHERO_02";
 
-/// Takes the young Hero's mesh to his local space: feet at the origin, facing +y
-/// (meshes face their local -y, so he is turned round), in world units.
-pub fn hero_local() -> Mat4 {
-    Mat4::from_scale(Vec3::splat(MESH_SCALE)) * Mat4::from_rotation_z(std::f32::consts::PI)
-}
+pub use engine_world::body::local as hero_local;
 
 /// The young Hero in his bind pose, in mesh units (see [`hero_local`]), with his
 /// skin for animation.

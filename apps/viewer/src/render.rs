@@ -107,7 +107,8 @@ pub struct TerrainRenderer {
     /// Doors, posed open or closed.
     pub doors: Vec<crate::door::DoorModel>,
     /// Creatures standing in the region.
-    pub npcs: Vec<crate::npc::Npc>,
+    /// Creatures' meshes, at the indices of the world's creatures.
+    pub creatures: Vec<crate::npc::CreatureModel>,
     /// The Hero's animations from his animation table, and his bone configs.
     pub hero_animations: crate::HeroAnimations,
     pub hero_morphs: Vec<String>,
@@ -513,7 +514,7 @@ impl TerrainRenderer {
             eye: Vec3::ZERO,
             hero_animations: Default::default(),
             hero_morphs: Vec::new(),
-            npcs: Vec::new(),
+            creatures: Vec::new(),
             doors: Vec::new(),
             buildings: Vec::new(),
             inside: None,
@@ -621,9 +622,13 @@ impl TerrainRenderer {
             Some((h, colour)) if h == what => colour,
             _ => [0.0; 4],
         };
-        for (i, npc) in self.npcs.iter().enumerate().filter(|(_, n)| !n.hidden) {
-            for (part, _) in &npc.parts {
-                part.prepare_placed(
+        for (i, (model, npc)) in self.creatures.iter_mut().zip(&world.npcs).enumerate() {
+            if npc.hidden {
+                continue;
+            }
+            model.update(queue, npc);
+            for part in &model.parts {
+                part.renderer.prepare_placed(
                     queue,
                     view_proj,
                     npc.transform,
@@ -683,11 +688,12 @@ impl TerrainRenderer {
                 if let Some((hero, _)) = &self.hero {
                     hero.draw_shadow(&mut pass);
                 }
-                for (part, _) in self
-                    .npcs
+                for part in self
+                    .creatures
                     .iter()
-                    .filter(|n| !n.hidden)
-                    .flat_map(|n| &n.parts)
+                    .zip(&world.npcs)
+                    .filter(|(_, n)| !n.hidden)
+                    .flat_map(|(m, _)| m.parts.iter().map(|p| &p.renderer))
                 {
                     part.draw_shadow(&mut pass);
                 }
@@ -736,11 +742,12 @@ impl TerrainRenderer {
             if let Some((hero, _)) = &self.hero {
                 hero.draw(&mut pass);
             }
-            for (part, _) in self
-                .npcs
+            for part in self
+                .creatures
                 .iter()
-                .filter(|n| !n.hidden)
-                .flat_map(|n| &n.parts)
+                .zip(&world.npcs)
+                .filter(|(_, n)| !n.hidden)
+                .flat_map(|(m, _)| m.parts.iter().map(|p| &p.renderer))
             {
                 part.draw(&mut pass);
             }

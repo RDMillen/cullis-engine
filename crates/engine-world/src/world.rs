@@ -23,6 +23,8 @@ const NIGHT_LIFT: f32 = 0.3;
 pub struct World {
     /// The region's entities.
     pub ecs: hecs::World,
+    /// The region's creatures (to become entities next).
+    pub npcs: Vec<crate::creature::Npc>,
     /// Where things can walk (one grid per walking level) and the ground's
     /// height.
     pub walk: Vec<WalkGrid>,
@@ -71,6 +73,26 @@ impl World {
             animator.advance(dt);
         }
         self.place_point_lights();
+    }
+
+    /// Moves the creatures on `dt` seconds: standing, fidgeting, strolling,
+    /// errands. Closed doors stop them, and so does the Hero (at `hero`,
+    /// `radius` wide).
+    pub fn step_creatures(&mut self, dt: f32, hero: Option<Vec2>, radius: f32) {
+        let Self {
+            ecs,
+            npcs,
+            walk,
+            heights,
+            ..
+        } = self;
+        let blocked = |p: Vec2| {
+            ecs.query::<&Door>().iter().any(|(_, d)| d.blocks(p))
+                || hero.is_some_and(|h| h.distance(p) < radius * 2.0)
+        };
+        for npc in npcs.iter_mut() {
+            npc.animate(dt, walk, heights.as_ref(), &blocked);
+        }
     }
 
     /// Adds a door, held at the end of its opening animation (open) or its

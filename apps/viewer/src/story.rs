@@ -8,9 +8,9 @@ use engine_script::{Beat, Person, Quest, World};
 use fable_data::strings::TextBank;
 use glam::Vec2;
 
-use crate::npc::Npc;
 use crate::skin::AnimBank;
 use crate::talk::{self, Item, Subtitles};
+use engine_world::creature::Npc;
 
 /// How near the Hero must be to talk to someone, and to kick them.
 pub const TALK_REACH: f32 = 2.5;

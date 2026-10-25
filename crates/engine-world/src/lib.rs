@@ -7,9 +7,11 @@
 //! `docs/architecture.md`.
 
 pub mod anim;
+pub mod body;
 pub mod camera;
 pub mod collide;
 pub mod conversation;
+pub mod creature;
 pub mod door;
 pub mod lighting;
 pub mod particles;

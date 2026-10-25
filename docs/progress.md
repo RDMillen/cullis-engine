@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-25 (later): migration step 3, creatures in the world
+
+- Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.
+- Checked: 29 creatures load in Oakvale and wander up to 4.4 m in 20 simulated seconds; the father's mouth takes the AH shape; tests pass, clippy clean.
+- Next: the Hero into the world; then creatures, the Hero and emitters as `hecs` entities.
+
 ## 2026-10-25 (later): migration step 3, doors as entities
 
 - `World` gains a `hecs` world (hecs 0.10, no default features so it builds without std where needed). Doors are its first entities: `engine_world::door::Door` (placement, doorway extent, open) and an `anim::Animator`, spawned held at the end of their opening or closing clip; `World::tick` advances every animator; `door_blocks`, `nearest_door` and `toggle_door` replace the viewer's door list. `anim::Animator::matrices` exposes the last pose.
