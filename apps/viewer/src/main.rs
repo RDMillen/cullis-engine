@@ -676,7 +676,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         pending_exit = exit_at(renderer, &hero);
         if pending_exit.is_none() {
-            pose_and_frame(renderer, world, &assets, &queue, &mut camera, &hero, args)?;
+            pose_and_frame(renderer, world, &assets, &mut camera, &hero, args)?;
         }
     }
     // Walked into a region exit: load where it leads, as the game would.
@@ -713,7 +713,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(&hero);
         }
-        pose_and_frame(renderer, world, &assets, &queue, &mut camera, &hero, args)?;
+        pose_and_frame(renderer, world, &assets, &mut camera, &hero, args)?;
     }
     if let (Some((role, shape)), Scene::Terrain(_renderer, world)) = (&args.mouth, &mut scene) {
         let mut bank = skin::AnimBank::open(&assets)?;
@@ -823,7 +823,7 @@ fn blocked_for_hero(doors: &World, npcs: &[engine_world::creature::Npc], p: glam
 /// The clip the standing Hero plays: his idle (0), or after he has stood for a
 /// while one of his fidgets (clips from 3 up to `end`), played once.
 fn hero_idle_clip(
-    animator: Option<&skin::Animator>,
+    animator: Option<&engine_world::anim::Animator>,
     end: usize,
     standing: &mut f32,
     fidgets: &mut usize,
@@ -848,15 +848,14 @@ fn hero_idle_clip(
 /// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
 fn pose_and_frame(
     renderer: &mut TerrainRenderer,
-    world: &World,
+    world: &mut World,
     assets: &AssetCache,
-    queue: &wgpu::Queue,
     camera: &mut OrbitCamera,
     hero: &walk::Hero,
     args: &Args,
 ) -> Result<(), Error> {
     let mut clip = usize::from(args.walk_to.is_some());
-    if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
+    if let (Some(name), Some(animator)) = (&args.anim, &mut world.hero_animator) {
         clip = match HERO_CLIPS.iter().position(|c| c == name) {
             Some(i) => i,
             None => {
@@ -865,15 +864,15 @@ fn pose_and_frame(
             }
         };
     }
-    if let Some(animator) = &renderer.hero_animator {
+    if let Some(animator) = &world.hero_animator {
         for (i, name) in HERO_CLIPS.iter().enumerate() {
             let speed =
                 animator.speed(i).unwrap_or(0.0) * model::MESH_SCALE * animator.stride_ratio();
             log::info!("{name}: {speed:.2} m/s");
         }
     }
-    animate_hero(renderer, queue, clip, args.anim_time);
-    if let Some(animator) = &renderer.hero_animator {
+    animate_hero(world, clip, args.anim_time);
+    if let Some(animator) = &world.hero_animator {
         log::info!(
             "posed with {:?} at {}s",
             animator.clip_name(),
@@ -931,7 +930,7 @@ fn exit_at(renderer: &TerrainRenderer, hero: &walk::Hero) -> Option<u64> {
 /// Places the young Hero on the walkable cell nearest `near`.
 fn spawn_hero(
     renderer: &mut TerrainRenderer,
-    world: &World,
+    world: &mut World,
     assets: &AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -955,7 +954,7 @@ fn spawn_hero(
     let mut bank = skin::AnimBank::open(assets)?;
     let animations = renderer.hero_animations.clone();
     let configs = model::bone_configs(assets.data_dir(), &renderer.hero_morphs);
-    renderer.hero_animator = skin.and_then(|mut skin| {
+    world.hero_animator = skin.and_then(|mut skin| {
         skin.rig.set_morph(&configs);
         // Idle, walk and run from his table (or by name), then his fidgets.
         let ids: Vec<u32> = animations
@@ -976,16 +975,20 @@ fn spawn_hero(
                     .ok()
             })
             .collect();
-        (clips.len() >= HERO_CLIPS.len())
-            .then(|| skin::Animator::new(model.vertices.clone(), skin, clips))
+        if clips.len() < HERO_CLIPS.len() {
+            return None;
+        }
+        let animator = engine_world::anim::Animator::new(skin.rig.clone(), clips);
+        renderer.hero_mesh = Some(skin::SkinnedMesh::new(model.vertices.clone(), skin));
+        Some(animator)
     });
     // His kick, after the fidgets.
-    renderer.hero_kick = None;
-    if let Some(animator) = &mut renderer.hero_animator
+    world.hero_kick = None;
+    if let Some(animator) = &mut world.hero_animator
         && let Some(id) = bank.id(HERO_KICK)
     {
         match bank.clip(id, animator.skeleton()) {
-            Ok(clip) => renderer.hero_kick = Some(animator.add_clip(clip)),
+            Ok(clip) => world.hero_kick = Some(animator.add_clip(clip)),
             Err(e) => log::warn!("kick: {e}"),
         }
     }
@@ -1027,10 +1030,10 @@ impl HeroAnimations {
 }
 
 /// Poses the Hero with clip `clip` advanced by `dt` and uploads his vertices.
-fn animate_hero(renderer: &mut TerrainRenderer, queue: &wgpu::Queue, clip: usize, dt: f32) {
-    if let (Some(animator), Some((model, _))) = (&mut renderer.hero_animator, &renderer.hero) {
+fn animate_hero(world: &mut World, clip: usize, dt: f32) {
+    if let Some(animator) = &mut world.hero_animator {
         animator.play(clip);
-        model.set_vertices(queue, animator.advance(dt));
+        animator.advance(dt);
     }
 }
 
@@ -1736,7 +1739,7 @@ impl ViewerApp {
     /// particles.
     fn tick(&mut self, rs: &egui_wgpu::RenderState, actions: &mut Actions) {
         let dt = TICK;
-        self.walk(actions, dt, &rs.queue);
+        self.walk(actions, dt);
         let mut effects = Vec::new();
         self.subs.step(dt, &mut effects);
         self.gesture(dt);
@@ -1763,7 +1766,7 @@ impl ViewerApp {
     /// One simulation tick of the walking Hero: `input` this frame's actions
     /// (presses are taken, so a frame running two ticks acts once), `dt` the
     /// tick's length.
-    fn walk(&mut self, input: &mut Actions, dt: f32, queue: &wgpu::Queue) {
+    fn walk(&mut self, input: &mut Actions, dt: f32) {
         if self.loading.is_some() {
             return;
         }
@@ -1820,7 +1823,7 @@ impl ViewerApp {
             }
         }
         // The clips' own movement sets the speed, so the feet do not slide.
-        let clip_speed = renderer
+        let clip_speed = world
             .hero_animator
             .as_ref()
             .and_then(|a| {
@@ -1862,7 +1865,7 @@ impl ViewerApp {
         if kick_key
             && !held
             && !self.kicking
-            && let (Some(kick), Some(animator)) = (renderer.hero_kick, &mut renderer.hero_animator)
+            && let (Some(kick), Some(animator)) = (world.hero_kick, &mut world.hero_animator)
         {
             animator.play_once(kick, 0.0);
             self.kicking = true;
@@ -1899,9 +1902,9 @@ impl ViewerApp {
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
-        let kick = renderer.hero_kick;
+        let kick = world.hero_kick;
         let kicking = self.kicking
-            && renderer
+            && world
                 .hero_animator
                 .as_ref()
                 .is_some_and(|a| Some(a.current()) == kick && !a.finished());
@@ -1909,7 +1912,7 @@ impl ViewerApp {
         let clip = match (moved, run) {
             _ if kicking => kick.unwrap_or(0),
             (false, _) => hero_idle_clip(
-                renderer.hero_animator.as_ref(),
+                world.hero_animator.as_ref(),
                 kick.unwrap_or(usize::MAX),
                 &mut self.hero_standing,
                 &mut self.hero_fidgets,
@@ -1921,7 +1924,7 @@ impl ViewerApp {
         if moved {
             self.hero_standing = 0.0;
         }
-        animate_hero(renderer, queue, clip, dt);
+        animate_hero(world, clip, dt);
         renderer.update_interior(hero.position);
         follow(
             &mut self.camera,

@@ -1,5 +1,5 @@
-//! Draws animated creatures: the world's animator poses a rig into bone
-//! matrices (`engine_world::anim`), and this deforms the mesh's bind-pose
+//! Skinned meshes for drawing: the world's animators pose rigs into bone
+//! matrices (`engine_world::anim`), and this deforms a mesh's bind-pose
 //! vertices with them on the CPU.
 
 use glam::{Mat4, Vec3};
@@ -43,45 +43,26 @@ pub fn deform(skin: &Skin, bind: &[ModelVertex], matrices: &[Mat4], out: &mut Ve
     );
 }
 
-/// A skinned mesh playing the world animator's clips: the animator's methods
-/// (play, play_once, set_face, …) through `Deref`, and posed vertices from
-/// [`Animator::advance`].
-pub struct Animator {
-    inner: engine_world::anim::Animator,
+/// A skinned mesh's bind pose and weights, posed on demand from bone matrices.
+pub struct SkinnedMesh {
     bind: Vec<ModelVertex>,
     skin: Skin,
     posed: Vec<ModelVertex>,
 }
 
-impl Animator {
-    pub fn new(bind: Vec<ModelVertex>, skin: Skin, clips: Vec<Clip>) -> Self {
+impl SkinnedMesh {
+    pub fn new(bind: Vec<ModelVertex>, skin: Skin) -> Self {
         Self {
-            inner: engine_world::anim::Animator::new(skin.rig.clone(), clips),
             bind,
             skin,
             posed: Vec::new(),
         }
     }
 
-    /// Advances the current clip by `dt` seconds and returns the posed vertices.
-    pub fn advance(&mut self, dt: f32) -> &[ModelVertex] {
-        let matrices = self.inner.advance(dt);
+    /// The vertices posed by `matrices`.
+    pub fn pose(&mut self, matrices: &[Mat4]) -> &[ModelVertex] {
         deform(&self.skin, &self.bind, matrices, &mut self.posed);
         &self.posed
-    }
-}
-
-impl std::ops::Deref for Animator {
-    type Target = engine_world::anim::Animator;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl std::ops::DerefMut for Animator {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 

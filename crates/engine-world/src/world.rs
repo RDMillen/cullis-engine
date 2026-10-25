@@ -25,6 +25,10 @@ pub struct World {
     pub ecs: hecs::World,
     /// The region's creatures (to become entities next).
     pub npcs: Vec<crate::creature::Npc>,
+    /// The Hero's animator (idle, walk, run, fidgets, then his kick at
+    /// `hero_kick`), once he is placed.
+    pub hero_animator: Option<Animator>,
+    pub hero_kick: Option<usize>,
     /// Where things can walk (one grid per walking level) and the ground's
     /// height.
     pub walk: Vec<WalkGrid>,

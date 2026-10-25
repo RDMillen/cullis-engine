@@ -112,10 +112,8 @@ pub struct TerrainRenderer {
     /// The Hero's animations from his animation table, and his bone configs.
     pub hero_animations: crate::HeroAnimations,
     pub hero_morphs: Vec<String>,
-    /// Plays the Hero's animations, when his mesh is skinned.
-    pub hero_animator: Option<crate::skin::Animator>,
-    /// The Hero's kick among his clips, if it loaded.
-    pub hero_kick: Option<usize>,
+    /// The Hero's skinned mesh, posed from the world's animator when drawn.
+    pub hero_mesh: Option<crate::skin::SkinnedMesh>,
     /// The region's music and ambience.
     pub soundscape: crate::soundscape::Soundscape,
     /// This frame's light outdoors and indoors (the world's, with shadows
@@ -498,8 +496,7 @@ impl TerrainRenderer {
             sea,
             things: None,
             hero: None,
-            hero_animator: None,
-            hero_kick: None,
+            hero_mesh: None,
             soundscape: Default::default(),
             light: Default::default(),
             indoor_light: Default::default(),
@@ -608,6 +605,11 @@ impl TerrainRenderer {
                 light
             }
         };
+        if let (Some((hero, _)), Some(mesh), Some(animator)) =
+            (&self.hero, &mut self.hero_mesh, &world.hero_animator)
+        {
+            hero.set_vertices(queue, mesh.pose(animator.matrices()));
+        }
         if let Some((hero, transform)) = &self.hero {
             hero.prepare_placed(
                 queue,
