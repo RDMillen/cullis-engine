@@ -10,6 +10,7 @@ pub mod anim;
 pub mod camera;
 pub mod collide;
 pub mod conversation;
+pub mod door;
 pub mod lighting;
 pub mod particles;
 pub mod walk;

@@ -84,7 +84,7 @@ impl Geometry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Highlight {
     Npc(usize),
-    Door(usize),
+    Door(hecs::Entity),
 }
 
 pub struct TerrainRenderer {
@@ -105,7 +105,7 @@ pub struct TerrainRenderer {
     pub buildings: Vec<crate::model::Building>,
     pub inside: Option<usize>,
     /// Doors, posed open or closed.
-    pub doors: Vec<crate::door::Door>,
+    pub doors: Vec<crate::door::DoorModel>,
     /// Creatures standing in the region.
     pub npcs: Vec<crate::npc::Npc>,
     /// The Hero's animations from his animation table, and his bone configs.
@@ -633,14 +633,17 @@ impl TerrainRenderer {
                 );
             }
         }
-        for (i, door) in self.doors.iter().enumerate() {
+        for door in &mut self.doors {
+            let Some(transform) = door.update(queue, world) else {
+                continue;
+            };
             door.renderer.prepare_placed(
                 queue,
                 view_proj,
-                door.transform,
+                transform,
                 self.eye,
-                glow(Highlight::Door(i)),
-                light_at(&door.transform),
+                glow(Highlight::Door(door.entity)),
+                light_at(&transform),
             );
         }
 

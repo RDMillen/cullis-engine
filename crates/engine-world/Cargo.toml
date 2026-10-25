@@ -10,4 +10,5 @@ repository.workspace = true
 engine-core = { path = "../engine-core" }
 fable-data = { path = "../fable-data" }
 glam = "0.34.1"
+hecs = { version = "0.10", default-features = false }
 log = "0.4.34"

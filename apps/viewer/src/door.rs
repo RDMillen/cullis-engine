@@ -1,63 +1,50 @@
-//! Doors: skinned meshes posed by their `DOOR_OPEN` and `DOOR_CLOSE` animations,
-//! blocking their doorway while closed.
+//! Draws doors: each door is a world entity (`engine_world::door::Door` and its
+//! animator); this holds its skinned mesh and deforms it with the animator's
+//! pose each frame.
 
 use eframe::wgpu;
-use glam::{Mat4, Vec2, Vec3};
+use engine_world::anim::Animator;
+use engine_world::door::Door;
+use engine_world::world::World;
+use hecs::Entity;
 
-use crate::model::{self, ModelRenderer};
-use crate::skin::{AnimBank, Animator};
+use crate::model::{self, ModelRenderer, ModelVertex};
+use crate::skin::{AnimBank, Skin, deform};
 use crate::terrain::DoorPlacement;
 
-/// How far in front of and behind a closed door it blocks, in world units.
-const HALF_DEPTH: f32 = 0.25;
-/// How near the Hero must be to use a door.
-pub const REACH: f32 = 2.0;
-
-pub struct Door {
+/// A door's mesh, for the door entity it draws.
+pub struct DoorModel {
+    pub entity: Entity,
     pub renderer: ModelRenderer,
-    pub transform: Mat4,
-    animator: Animator,
-    /// World to the door's mesh space, for the blocking test.
-    inverse: Mat4,
-    /// The mesh's extent across the doorway (its local x), in mesh units.
-    width: (f32, f32),
-    pub open: bool,
+    bind: Vec<ModelVertex>,
+    skin: Skin,
+    posed: Vec<ModelVertex>,
 }
 
-impl Door {
-    pub fn centre(&self) -> Vec2 {
-        self.transform.w_axis.truncate().truncate()
-    }
-
-    /// Whether a closed door is in the way at `p`.
-    pub fn blocks(&self, p: Vec2) -> bool {
-        if self.open {
-            return false;
-        }
-        let z = self.transform.w_axis.z;
-        let local = self.inverse.transform_point3(p.extend(z));
-        let depth = HALF_DEPTH / model::MESH_SCALE;
-        local.x >= self.width.0 && local.x <= self.width.1 && local.y.abs() <= depth
-    }
-
-    /// Opens a closed door or closes an open one, animating it.
-    pub fn toggle(&mut self) {
-        self.open = !self.open;
-        self.animator.play_once(if self.open { 0 } else { 1 }, 0.0);
-    }
-
-    pub fn animate(&mut self, queue: &wgpu::Queue, dt: f32) {
-        self.renderer.set_vertices(queue, self.animator.advance(dt));
+impl DoorModel {
+    /// Poses the mesh as its entity's animator stands and uploads it; the
+    /// door's placement, if the entity is still there.
+    pub fn update(&mut self, queue: &wgpu::Queue, world: &World) -> Option<glam::Mat4> {
+        let mut q = world
+            .ecs
+            .query_one::<(&Door, &Animator)>(self.entity)
+            .ok()?;
+        let (door, animator) = q.get()?;
+        deform(&self.skin, &self.bind, animator.matrices(), &mut self.posed);
+        self.renderer.set_vertices(queue, &self.posed);
+        Some(door.transform)
     }
 }
 
-/// Loads every door, posed open or closed as its level file says.
+/// Adds every door to the world, posed open or closed as its level file says,
+/// and returns their meshes.
 pub fn load(
     assets: &engine_core::assets::AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     doors: &[DoorPlacement],
-) -> Vec<Door> {
+    world: &mut World,
+) -> Vec<DoorModel> {
     let mut bank = match AnimBank::open(assets) {
         Ok(b) => b,
         Err(e) => {
@@ -90,32 +77,22 @@ pub fn load(
         if clips.len() != 2 {
             continue;
         }
-        let mut animator = Animator::new(model.vertices.clone(), skin, clips);
-        // Hold the end of the opening animation (open) or of the closing one
-        // (closed), so nothing moves until the door is used.
-        animator.play_once(if d.open { 0 } else { 1 }, f32::MAX);
-        let renderer = ModelRenderer::new(device, queue, &model);
-        renderer.set_vertices(queue, animator.advance(0.0));
-        let transform = d.placement.transform();
-        out.push(Door {
-            renderer,
-            transform,
-            animator,
-            inverse: transform.inverse(),
-            width: (model.lo.x, model.hi.x),
-            open: d.open,
-        });
+        let door = Door::new(
+            d.placement.transform(),
+            (model.lo.x, model.hi.x),
+            1.0 / model::MESH_SCALE,
+            d.open,
+        );
+        let entity = world.spawn_door(door, Animator::new(skin.rig.clone(), clips));
+        let mut drawn = DoorModel {
+            entity,
+            renderer: ModelRenderer::new(device, queue, &model),
+            bind: model.vertices.clone(),
+            skin,
+            posed: Vec::new(),
+        };
+        drawn.update(queue, world);
+        out.push(drawn);
     }
     out
-}
-
-/// The door nearest `p` within [`REACH`], if any.
-pub fn nearest(doors: &[Door], p: Vec3) -> Option<usize> {
-    doors
-        .iter()
-        .enumerate()
-        .map(|(i, d)| (i, d.centre().distance(p.truncate())))
-        .filter(|&(i, dist)| dist < REACH && (doors[i].transform.w_axis.z - p.z).abs() < 3.0)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(i, _)| i)
 }

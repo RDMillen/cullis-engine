@@ -485,6 +485,11 @@ impl Animator {
         self.clips.get(self.current).map(|c| c.name.as_str())
     }
 
+    /// The bone matrices of the last [`Animator::advance`].
+    pub fn matrices(&self) -> &[Mat4] {
+        &self.matrices
+    }
+
     /// Advances the current clip by `dt` seconds and returns the bone matrices.
     pub fn advance(&mut self, dt: f32) -> &[Mat4] {
         let hold = |clips: &[Clip], i: usize, once: bool, t: f32| match clips.get(i) {

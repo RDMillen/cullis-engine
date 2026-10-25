@@ -376,7 +376,7 @@ impl Scene {
                         things.set_indoor(&indoor);
                     }
                     renderer.npcs = npc::load(assets, device, queue, &mesh.creatures);
-                    renderer.doors = door::load(assets, device, queue, &mesh.doors);
+                    renderer.doors = door::load(assets, device, queue, &mesh.doors, &mut world);
                     log::info!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
                     log::info!(
                         "{} creatures placed of {}",
@@ -590,12 +590,13 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             // With --use: walk, use the nearest door, let it swing, walk on.
             for pass in 0..1 + usize::from(args.use_door) {
                 if pass == 1 {
-                    match door::nearest(&renderer.doors, hero.position) {
+                    match world.nearest_door(hero.position) {
                         Some(d) => {
-                            renderer.doors[d].toggle();
-                            log::info!("used door {d} (open: {})", renderer.doors[d].open);
-                            for door in &mut renderer.doors {
-                                door.animate(&queue, 3.0);
+                            let open = world.toggle_door(d);
+                            log::info!("used door {d:?} (open: {open:?})");
+                            // Let it swing.
+                            for _ in 0..(3.0 / TICK) as u32 {
+                                world.tick(TICK);
                             }
                         }
                         None => log::info!("no door within reach"),
@@ -607,7 +608,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     let Some(heights) = &world.heights else {
                         break;
                     };
-                    let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+                    let (doors, npcs) = (&**world, &renderer.npcs);
                     let Some(to) = follow.direction(
                         &hero,
                         &world.walk,
@@ -744,15 +745,14 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     if let Scene::Terrain(renderer, world) = &mut scene {
         let (layers, heights) = (&world.walk, world.heights.as_ref());
         let steps = (args.npc_time / TICK) as u32;
-        let doors = &renderer.doors;
-        let blocked = |p: glam::Vec2| doors.iter().any(|d| d.blocks(p));
+        let blocked = |p: glam::Vec2| world.door_blocks(p);
         for _ in 0..steps {
             for npc in &mut renderer.npcs {
                 npc.animate(&queue, TICK, layers, heights, &blocked);
             }
         }
-        for door in &mut renderer.doors {
-            door.animate(&queue, args.npc_time);
+        for _ in 0..steps {
+            world.tick(TICK);
         }
     }
     if let (Scene::Terrain(renderer, _), true) = (&scene, args.npc_time > 0.0) {
@@ -806,7 +806,7 @@ const PERSON_RADIUS: f32 = 0.35;
 
 /// Where a route should not go: where the Hero may not stand, with a margin
 /// around people so that walking between the route's points does not graze them.
-fn blocked_for_route(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+fn blocked_for_route(doors: &World, npcs: &[npc::Npc], p: glam::Vec2) -> bool {
     blocked_for_hero(doors, npcs, p)
         || npcs
             .iter()
@@ -814,8 +814,8 @@ fn blocked_for_route(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> 
 }
 
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
-fn blocked_for_hero(doors: &[door::Door], npcs: &[npc::Npc], p: glam::Vec2) -> bool {
-    doors.iter().any(|d| d.blocks(p))
+fn blocked_for_hero(doors: &World, npcs: &[npc::Npc], p: glam::Vec2) -> bool {
+    doors.door_blocks(p)
         || npcs
             .iter()
             .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0)
@@ -1753,16 +1753,12 @@ impl ViewerApp {
         };
         let (layers, heights) = (&world.walk, world.heights.as_ref());
         let hero = self.walker.as_ref().map(|h| h.position.truncate());
-        let doors = &renderer.doors;
+        let doors: &World = world;
         let blocked = |p: glam::Vec2| {
-            doors.iter().any(|d| d.blocks(p))
-                || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
+            doors.door_blocks(p) || hero.is_some_and(|h| h.distance(p) < PERSON_RADIUS * 2.0)
         };
         for npc in &mut renderer.npcs {
             npc.animate(&rs.queue, dt, layers, heights, &blocked);
-        }
-        for door in &mut renderer.doors {
-            door.animate(&rs.queue, dt);
         }
         world.tick(dt);
         let focus = world.focus;
@@ -1801,7 +1797,7 @@ impl ViewerApp {
             && !held
             && let Some(follow) = &mut self.auto_walk
         {
-            let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+            let (doors, npcs) = (&**world, &renderer.npcs);
             match follow.direction(
                 hero,
                 walk,
@@ -1851,13 +1847,15 @@ impl ViewerApp {
             std::mem::take(&mut input.kick),
             input.answer.take(),
         );
+        let mut use_door = None;
         // E: go on with what is being said, else talk to someone near, else use a door.
         if talk_key && !self.subs.advance() && self.subs.asking().is_none() {
             let near = story::nearest_person(&renderer.npcs, at, story::TALK_REACH, None);
             if let (Some(story), Some(text), Some(i)) = (&mut self.story, &self.text, near) {
                 story.talk(&renderer.npcs, i, at, text, &mut self.subs);
-            } else if let Some(d) = door::nearest(&renderer.doors, hero.position) {
-                renderer.doors[d].toggle();
+            } else {
+                // Used at the end of the step, once the walk grids are free.
+                use_door = world.nearest_door(hero.position);
             }
         }
         // Y/N (or a click): answer the question on screen.
@@ -1901,7 +1899,7 @@ impl ViewerApp {
             let height = hero.position.z;
             story.update(dt, &renderer.npcs, (at, height), text, &mut self.subs);
         }
-        let (doors, npcs) = (&renderer.doors, &renderer.npcs);
+        let (doors, npcs) = (&**world, &renderer.npcs);
         hero.step_blocked(direction, speed, dt, walk, heights, |p| {
             blocked_for_hero(doors, npcs, p)
         });
@@ -1944,6 +1942,9 @@ impl ViewerApp {
             Some(connection) if self.exits_armed => self.pending_exit = Some(connection),
             Some(_) => {}
             None => self.exits_armed = true,
+        }
+        if let Some(d) = use_door {
+            world.toggle_door(d);
         }
     }
 
@@ -2008,7 +2009,9 @@ impl ViewerApp {
         });
         let what = match person {
             Some(i) => Some(render::Highlight::Npc(i)),
-            None => door::nearest(&renderer.doors, hero.position).map(render::Highlight::Door),
+            None => world
+                .nearest_door(hero.position)
+                .map(render::Highlight::Door),
         };
         let strength = 0.5 + 0.15 * (time * 4.0).sin();
         renderer.highlight = what.map(|w| (w, [0.3, 1.0, 0.4, strength]));

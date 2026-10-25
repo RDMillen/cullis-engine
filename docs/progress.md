@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-25 (later): migration step 3, doors as entities
+
+- `World` gains a `hecs` world (hecs 0.10, no default features so it builds without std where needed). Doors are its first entities: `engine_world::door::Door` (placement, doorway extent, open) and an `anim::Animator`, spawned held at the end of their opening or closing clip; `World::tick` advances every animator; `door_blocks`, `nearest_door` and `toggle_door` replace the viewer's door list. `anim::Animator::matrices` exposes the last pose.
+- The viewer's `door::DoorModel` keeps only the mesh (renderer, bind pose, weights) and deforms it from its entity each frame; highlights name doors by entity. Using a door from the Hero's step waits until the end of the step (the walk grids are borrowed during it).
+- Tests: a door's blocking (unit) and a door used in a headless `World` stops blocking. Checked headless: the Hero stops at a closed door in Oakvale and, after using it, walks through to the far side; the opened door renders swung open.
+- Next: creatures and the Hero as entities.
+
 ## 2026-10-25 (later): migration step 3, first slice
 
 - `engine_world::world::World`: the region's simulation state moves out of `TerrainRenderer` (navigation grids and heights, colliders, lighting themes, outdoor and indoor light, placed lights, camera focus) with `set_hour` (light by time of day, night lift) and `tick` (simulated time, placed lights near the focus, flicker on the simulation clock instead of the wall clock). `Scene::Terrain` holds the renderer and the world; `TerrainRenderer::render` takes the world, copies its light and adds shadow-map parameters (shadows stay a rendering concern). `spawn_hero`, `follow` and `pose_and_frame` take the world.
