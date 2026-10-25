@@ -753,6 +753,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-world"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "fable-data",
+ "glam",
+]
+
+[[package]]
 name = "enum-primitive-derive"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2874,6 +2883,7 @@ dependencies = [
  "engine-audio",
  "engine-core",
  "engine-script",
+ "engine-world",
  "env_logger",
  "fable-data",
  "glam",

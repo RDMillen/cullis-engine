@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-25 (later): migration step 2, first part
+
+- New crate `engine-world`. Moved in unchanged: `walk` (navigation grid, routes, floors), `collide`, `camera`, `conversation`, `lighting` (now holding `PointLight` and its construction from a placed thing). The viewer imports them at their old paths, so callers did not change.
+- Skeletal animation split: `engine_world::anim` has clips, `AnimBank` (through the asset cache), posing, blending, crossfades, mouth shapes and `Rig` (skeleton and bone-config morph, with `stride_ratio` and `set_morph`); its `Animator` returns bone matrices and it has its own `Error` enum. The viewer's `skin` keeps the mesh side (`Skin`: per-vertex weights and a `Rig`; `deform`) and a `skin::Animator` that wraps the world's animator and deforms the bind pose.
+- 21 tests now run in `engine-world`; all pass, clippy clean; Oakvale renders and people animate as before.
+
 ## 2026-10-25: architecture standard, migration step 1
 
 - `docs/architecture.md` sets the code standard and target layout (engine-core, engine-world, engine-render, engine-ui, apps/game) with a six-step migration from the viewer prototype; adopted with entities in `hecs` and feature work paused until step 3. PLAN.md and CLAUDE.md point to it.

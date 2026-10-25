@@ -7,12 +7,13 @@ use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use engine_core::assets::{Archive, AssetCache};
-use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE, Skeleton};
+use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
 
 use crate::lighting::Light;
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT, SKY, Target, create_target};
+pub use crate::skin::Skin;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -120,17 +121,6 @@ struct LocalMesh {
     helpers: Vec<(String, Vec3)>,
 }
 
-/// What a skinned mesh needs to be posed: per vertex, 4 skeleton bone indices and
-/// weights (summing to 1), and the skeleton.
-#[derive(Clone)]
-pub struct Skin {
-    pub influences: Vec<([u16; 4], [f32; 4])>,
-    pub skeleton: Skeleton,
-    /// Per bone, a scale from the creature's bone configs (`Bones/*.bncfg`):
-    /// along the bone and across it. Empty for none.
-    pub morph: Vec<[f32; 3]>,
-}
-
 /// Reads bone configs by file name from `Bones/` (unreadable ones are skipped
 /// with a message).
 pub fn bone_configs(data_dir: &Path, files: &[String]) -> Vec<fable_data::bncfg::BoneConfig> {
@@ -145,45 +135,6 @@ pub fn bone_configs(data_dir: &Path, files: &[String]) -> Vec<fable_data::bncfg:
                 .ok()
         })
         .collect()
-}
-
-impl Skin {
-    /// How much the morph lowers the hips: the pelvis's rest height with the morph
-    /// over without (1 with no morph). Animations made for full-size skeletons
-    /// cover that much less ground.
-    pub fn stride_ratio(&self) -> f32 {
-        let pelvis = |morph: &[[f32; 3]]| {
-            let i = self
-                .skeleton
-                .bones
-                .iter()
-                .position(|b| b.name == "Bip01 Pelvis")?;
-            let m = crate::skin::pose(&self.skeleton, None, 0.0, morph)[i];
-            // The bone's origin: the inverse bind maps it from model space.
-            let bind = crate::skin::bind_origin(&self.skeleton.bones[i]);
-            Some(m.transform_point3(bind).z)
-        };
-        match (pelvis(&self.morph), pelvis(&[])) {
-            (Some(a), Some(b)) if b.abs() > 1e-3 => a / b,
-            _ => 1.0,
-        }
-    }
-
-    /// Applies bone configs: each bone's scale is the product of the configs'
-    /// scales for it.
-    pub fn set_morph(&mut self, configs: &[fable_data::bncfg::BoneConfig]) {
-        self.morph = self
-            .skeleton
-            .bones
-            .iter()
-            .map(|b| {
-                configs
-                    .iter()
-                    .filter_map(|c| c.scale(&b.name))
-                    .fold([1.0; 3], |a, s| [a[0] * s[0], a[1] * s[1], a[2] * s[2]])
-            })
-            .collect();
-    }
 }
 
 /// Accumulates meshes, placed or not, into one [`ModelData`], loading each mesh
@@ -351,8 +302,7 @@ impl ModelBuilder {
                 .filter(|_| lod.chunks.iter().any(|c| c.skinned))
                 .map(|skeleton| Skin {
                     influences: Vec::new(),
-                    skeleton,
-                    morph: Vec::new(),
+                    rig: crate::skin::Rig::new(skeleton),
                 }),
         };
         for chunk in &lod.chunks {

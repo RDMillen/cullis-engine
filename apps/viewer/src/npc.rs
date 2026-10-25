@@ -560,7 +560,7 @@ pub fn load(
                     clips
                         .entry((id, anim))
                         .or_insert_with(|| {
-                            bank.clip(anim, &skin.skeleton)
+                            bank.clip(anim, &skin.rig.skeleton)
                                 .map_err(|e| log::warn!("animation {anim}: {e}"))
                                 .ok()
                         })
@@ -571,7 +571,7 @@ pub fn load(
                 continue;
             }
             let mut skin = skin.clone();
-            skin.set_morph(&configs);
+            skin.rig.set_morph(&configs);
             let mut animator = Animator::new(model.vertices.clone(), skin, part_clips);
             let renderer = ModelRenderer::new(device, queue, model);
             // Start each creature at a different point of its loop.

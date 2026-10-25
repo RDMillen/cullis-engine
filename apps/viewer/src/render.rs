@@ -138,7 +138,7 @@ pub struct TerrainRenderer {
     pub focus: Vec3,
     /// The region's lamps, fires and light markers, and when the renderer was
     /// made (for flicker).
-    pub point_lights: Vec<crate::terrain::PointLight>,
+    pub point_lights: Vec<crate::lighting::PointLight>,
     started: std::time::Instant,
     /// Sun shadows: the map, the terrain's depth pipeline and its uniforms
     /// (the sun's view), and the group binding them.

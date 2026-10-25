@@ -209,12 +209,7 @@ impl Lighting {
 /// Fills `light`'s point lights with the [`MAX_POINTS`] of `lights` nearest
 /// `focus` that can reach near it, at `time` seconds (for flicker). Lamps lit
 /// only at night fade out as the sun's light grows.
-pub fn set_points(
-    light: &mut Light,
-    lights: &[crate::terrain::PointLight],
-    focus: Vec3,
-    time: f32,
-) {
+pub fn set_points(light: &mut Light, lights: &[PointLight], focus: Vec3, time: f32) {
     let sun = light.sun.iter().sum::<f32>() / 3.0;
     let daylight = ((sun - 0.15) / 0.5).clamp(0.0, 1.0);
     let mut near: Vec<(f32, usize)> = lights
@@ -322,13 +317,78 @@ fn clouds(env: &Environment, hour: f32) -> [(u32, f32); 2] {
     ]
 }
 
+/// A point light placed in a region: a lamp, a fire or a light marker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PointLight {
+    pub position: Vec3,
+    /// RGB 0..1, as stored (gamma space).
+    pub colour: [f32; 3],
+    pub inner_radius: f32,
+    pub outer_radius: f32,
+    pub flicker: f32,
+    pub flicker_speed: f32,
+    /// Lit only at night (dimmed by daylight).
+    pub night_only: bool,
+}
+
+impl PointLight {
+    /// The light of a placed thing: its definition's `CLightDef`, switched by
+    /// its `CTCLight` component's `Active` and with the values it overrides.
+    /// Lamps whose definition is named unlit or off are skipped: they are
+    /// placed active but show no flame (a guess from the names).
+    pub fn from_thing(t: &fable_data::tng::Thing, defs: &Defs, origin: Vec3) -> Option<Self> {
+        let component = t.component("CTCLight")?;
+        let field = |k: &str| {
+            component
+                .fields
+                .iter()
+                .find(|f| f.key == k)
+                .map(|f| f.value.as_str())
+        };
+        if field("Active") == Some("FALSE") {
+            return None;
+        }
+        let definition = t.definition()?;
+        if definition.contains("_UNLIT") || definition.ends_with("_OFF") {
+            return None;
+        }
+        let def = defs.get(definition)?;
+        let record = def
+            .component("CLightDef")
+            .and_then(|i| defs.defs.get(i))
+            .filter(|c| defs.type_name(c) == "CLightDef")?;
+        let light = fable_data::light::LightDef::parse(&record.record).ok()?;
+        let overridden = field("Overridden") == Some("TRUE");
+        let number = |k: &str, default: f32| {
+            overridden
+                .then(|| field(k)?.parse::<f32>().ok())
+                .flatten()
+                .unwrap_or(default)
+        };
+        let colour = overridden
+            .then(|| fable_data::light::parse_tng_colour(field("Colour")?))
+            .flatten()
+            .unwrap_or(light.colour);
+        Some(Self {
+            position: origin + Vec3::from_array(t.position()?),
+            colour: colour.map(|c| f32::from(c) / 255.0),
+            inner_radius: number("InnerRadius", light.inner_radius),
+            outer_radius: number("OuterRadius", light.outer_radius),
+            flicker: number("Flicker", light.flicker),
+            flicker_speed: light.flicker_speed,
+            night_only: light.daylight_attenuator,
+        })
+        .filter(|l| l.outer_radius > 0.0 && l.colour.iter().any(|&c| c > 0.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_nearest_lights_are_used_and_lamps_go_out_by_day() {
-        let lamp = |x: f32, night_only| crate::terrain::PointLight {
+        let lamp = |x: f32, night_only| PointLight {
             position: Vec3::new(x, 0.0, 0.0),
             colour: [0.5, 0.25, 0.1],
             inner_radius: 4.0,

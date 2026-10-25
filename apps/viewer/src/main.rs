@@ -7,11 +7,9 @@
 //! ```
 
 mod audio;
-mod camera;
-mod collide;
-mod conversation;
+// The simulation's modules, kept at their old paths (`crate::walk`, …).
+use engine_world::{camera, collide, conversation, lighting, walk};
 mod door;
-mod lighting;
 mod model;
 mod npc;
 mod particles;
@@ -24,7 +22,6 @@ mod story;
 mod talk;
 mod terrain;
 mod themes;
-mod walk;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -859,7 +856,10 @@ fn pose_and_frame(
     if let (Some(name), Some(animator)) = (&args.anim, &mut renderer.hero_animator) {
         clip = match HERO_CLIPS.iter().position(|c| c == name) {
             Some(i) => i,
-            None => animator.add_clip(skin::Clip::load(assets, name, animator.skeleton())?),
+            None => {
+                let clip = skin::Clip::load(assets, name, animator.skeleton())?;
+                animator.add_clip(clip)
+            }
         };
     }
     if let Some(animator) = &renderer.hero_animator {
@@ -952,7 +952,7 @@ fn spawn_hero(
     let animations = renderer.hero_animations.clone();
     let configs = model::bone_configs(assets.data_dir(), &renderer.hero_morphs);
     renderer.hero_animator = skin.and_then(|mut skin| {
-        skin.set_morph(&configs);
+        skin.rig.set_morph(&configs);
         // Idle, walk and run from his table (or by name), then his fidgets.
         let ids: Vec<u32> = animations
             .main
@@ -967,7 +967,7 @@ fn spawn_hero(
             .iter()
             .chain(&animations.fidgets)
             .filter_map(|&id| {
-                bank.clip(id, &skin.skeleton)
+                bank.clip(id, &skin.rig.skeleton)
                     .map_err(|e| log::warn!("animation {id}: {e}"))
                     .ok()
             })

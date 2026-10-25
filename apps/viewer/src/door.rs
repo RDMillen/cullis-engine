@@ -82,7 +82,7 @@ pub fn load(
         let clips: Vec<_> = [open, close]
             .iter()
             .filter_map(|&id| {
-                bank.clip(id, &skin.skeleton)
+                bank.clip(id, &skin.rig.skeleton)
                     .map_err(|e| log::warn!("door animation {id}: {e}"))
                     .ok()
             })
