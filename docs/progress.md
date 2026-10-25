@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-25 (later): migration step 3, first slice
+
+- `engine_world::world::World`: the region's simulation state moves out of `TerrainRenderer` (navigation grids and heights, colliders, lighting themes, outdoor and indoor light, placed lights, camera focus) with `set_hour` (light by time of day, night lift) and `tick` (simulated time, placed lights near the focus, flicker on the simulation clock instead of the wall clock). `Scene::Terrain` holds the renderer and the world; `TerrainRenderer::render` takes the world, copies its light and adds shadow-map parameters (shadows stay a rendering concern). `spawn_hero`, `follow` and `pose_and_frame` take the world.
+- Checked: Oakvale at noon and night and the fireplace render as before; tests pass, clippy clean.
+- Next: `hecs` entities for the Hero, creatures, doors and emitters.
+
 ## 2026-10-25 (later): migration step 2, first part
 
 - New crate `engine-world`. Moved in unchanged: `walk` (navigation grid, routes, floors), `collide`, `camera`, `conversation`, `lighting` (now holding `PointLight` and its construction from a placed thing). The viewer imports them at their old paths, so callers did not change.

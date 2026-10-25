@@ -1,4 +1,4 @@
-//! The simulation: skeletal animation ([`anim`]), where things can walk and how they get there ([`walk`]),
+//! The simulation: the [`world`] of a region, skeletal animation ([`anim`]), where things can walk and how they get there ([`walk`]),
 //! what they bump into ([`collide`]), the camera ([`camera`]) and how
 //! conversations are framed ([`conversation`]), and light by time of day
 //! ([`lighting`]).
@@ -13,3 +13,4 @@ pub mod conversation;
 pub mod lighting;
 pub mod particles;
 pub mod walk;
+pub mod world;

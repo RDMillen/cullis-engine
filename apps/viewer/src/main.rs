@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use eframe::{egui, egui_wgpu, wgpu};
 use engine_core::assets::AssetCache;
 use engine_core::time::TICK;
+use engine_world::world::World;
 use fable_data::big::BigFile;
 use fable_data::defs::{Defs, Names};
 use fable_data::gtg::{Gtg, split_connected_uid};
@@ -237,7 +238,8 @@ const CLOCK_RATE: f32 = 1.0 / 60.0;
 
 /// What is on screen: a region's terrain or a single mesh.
 enum Scene {
-    Terrain(Box<TerrainRenderer>),
+    /// A region: its renderer and its world.
+    Terrain(Box<TerrainRenderer>, Box<engine_world::world::World>),
     Model(Box<ModelRenderer>),
 }
 
@@ -290,6 +292,12 @@ impl Scene {
                     None => None,
                 };
                 let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
+                let mut world = World {
+                    walk: mesh.walk.clone(),
+                    heights: mesh.heights.clone(),
+                    point_lights: mesh.lights.clone(),
+                    ..World::default()
+                };
                 if let Some(r) = wld.region(name) {
                     renderer.soundscape = soundscape::Soundscape::resolve(
                         data_dir,
@@ -321,17 +329,17 @@ impl Scene {
                                 let layers = themes::load_ids(assets, &ids)?;
                                 renderer.sky = Some(sky::Sky::new(device, queue, &ids, &layers));
                             }
-                            renderer.lighting = Some(l);
+                            world.lighting = Some(l);
                         }
                         Err(e) => log::warn!("lighting: {e}"),
                     }
-                    renderer.set_hour(
+                    world.set_hour(
                         DEFAULT_HOUR,
                         lighting::BRIGHTNESS,
                         lighting::HIGHLIGHT_LIMIT,
                     );
                 }
-                log::info!("{} placed lights", renderer.point_lights.len());
+                log::info!("{} placed lights", world.point_lights.len());
                 renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
                 renderer.hero_morphs = hero_morphs;
                 let resolve = |object: &str| {
@@ -378,27 +386,23 @@ impl Scene {
                     let p = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].position);
                     let n = |i: u32| glam::Vec3::from_array(things.vertices[i as usize].normal);
                     let triangles = things.indices.as_chunks::<3>().0;
-                    renderer.colliders = Some(collide::Colliders::new(
+                    world.colliders = Some(collide::Colliders::new(
                         triangles.iter().map(|t| t.map(p)).collect(),
                         &triangles
                             .iter()
                             .map(|t| n(t[0]) + n(t[1]) + n(t[2]))
                             .collect::<Vec<_>>(),
                     ));
-                    if let (Some(colliders), Some(heights)) =
-                        (&renderer.colliders, &renderer.heights)
-                    {
-                        let navigation = renderer.walk.clone();
+                    if let (Some(colliders), Some(heights)) = (&world.colliders, &world.heights) {
+                        let navigation = world.walk.clone();
                         let before: Vec<usize> =
-                            renderer.walk.iter().map(|l| l.walkable_cells()).collect();
-                        walk::assign_surfaces(&mut renderer.walk, heights, |p| {
-                            colliders.surfaces(p)
-                        });
+                            world.walk.iter().map(|l| l.walkable_cells()).collect();
+                        walk::assign_surfaces(&mut world.walk, heights, |p| colliders.surfaces(p));
                         let after: Vec<usize> =
-                            renderer.walk.iter().map(|l| l.walkable_cells()).collect();
+                            world.walk.iter().map(|l| l.walkable_cells()).collect();
                         // Floors the navigation leaves out, from the meshes.
                         let extra = walk::extend_floors(
-                            &mut renderer.walk,
+                            &mut world.walk,
                             heights,
                             |p| colliders.surfaces(p),
                             |a, b| {
@@ -410,16 +414,13 @@ impl Scene {
                         log::info!(
                             "walk layers: {before:?} navigation cells, {after:?} with a surface height, {extra} more from mesh floors"
                         );
-                        let (v, i) = terrain::TerrainMesh::walk_overlay(
-                            &navigation,
-                            &renderer.walk,
-                            heights,
-                        );
+                        let (v, i) =
+                            terrain::TerrainMesh::walk_overlay(&navigation, &world.walk, heights);
                         renderer.set_navigation(device, &v, &i);
                     }
                 }
                 Ok((
-                    Self::Terrain(Box::new(renderer)),
+                    Self::Terrain(Box::new(renderer), Box::new(world)),
                     OrbitCamera::framing(lo, hi),
                     status,
                 ))
@@ -450,14 +451,14 @@ impl Scene {
         view_proj: Mat4,
     ) -> bool {
         match self {
-            Self::Terrain(r) => r.render(device, queue, size, view_proj),
+            Self::Terrain(r, world) => r.render(device, queue, size, view_proj, world),
             Self::Model(r) => r.render(device, queue, size, view_proj),
         }
     }
 
     fn target(&self) -> Option<&Target> {
         match self {
-            Self::Terrain(r) => r.target.as_ref(),
+            Self::Terrain(r, _) => r.target.as_ref(),
             Self::Model(r) => r.target.as_ref(),
         }
     }
@@ -493,12 +494,12 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     };
     let (mut scene, mut camera, status) =
         Scene::load(&assets, wld, subject, &sections, &device, &queue)?;
-    if let Scene::Terrain(renderer) = &mut scene {
+    if let Scene::Terrain(renderer, world) = &mut scene {
         renderer.show_nav = args.nav;
-        if let (true, Some(heights)) = (args.ledges, &renderer.heights) {
+        if let (true, Some(heights)) = (args.ledges, &world.heights) {
             let near = args.camera.map(|c| glam::Vec2::new(c[0], c[1]));
-            for (layer, grid) in renderer.walk.iter().enumerate() {
-                if let (Some(n), Some(colliders), 0) = (near, &renderer.colliders, layer) {
+            for (layer, grid) in world.walk.iter().enumerate() {
+                if let (Some(n), Some(colliders), 0) = (near, &world.colliders, layer) {
                     for dy in -6..=6 {
                         for dx in -6..=6 {
                             let p = n + glam::Vec2::new(dx as f32, dy as f32) * walk::CELL;
@@ -524,7 +525,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         Subject::Region(region) => story::Story::for_region(region, &sections),
         Subject::Mesh(_) => None,
     };
-    if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
+    if let (Some(story), Scene::Terrain(renderer, _)) = (&mut story, &mut scene) {
         story.place(&mut renderer.npcs, &assets);
     }
     if let Some([x, y, z, distance, yaw, pitch]) = args.camera {
@@ -536,9 +537,10 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         };
     }
     let mut pending_exit = None;
-    if let (true, Scene::Terrain(renderer)) = (args.walk, &mut scene)
+    if let (true, Scene::Terrain(renderer, world)) = (args.walk, &mut scene)
         && let Some(mut hero) = spawn_hero(
             renderer,
+            world,
             &assets,
             &device,
             &queue,
@@ -549,19 +551,19 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         if let Some([x, y, z]) = args.walk_to {
             let goal = glam::Vec2::new(x, y);
             let floor = (!z.is_nan()).then_some(z);
-            if let Some(h) = &renderer.heights {
+            if let Some(h) = &world.heights {
                 log::info!(
                     "walk goal stands at {:?} (layer, spot, floor)",
-                    walk::stand_at(&renderer.walk, h, goal, floor)
+                    walk::stand_at(&world.walk, h, goal, floor)
                 );
-                for (l, grid) in renderer.walk.iter().enumerate() {
+                for (l, grid) in world.walk.iter().enumerate() {
                     log::info!(
                         "  layer {l}: walkable {}, floor {:?}",
                         grid.walkable(goal),
                         grid.height(goal, h)
                     );
                 }
-                if let Some(c) = &renderer.colliders {
+                if let Some(c) = &world.colliders {
                     log::info!("  mesh surfaces there: {:?}", c.surfaces(goal));
                     // CULLIS_PROBE=x,y: sample the line from there to the goal.
                     if let Some(from) = std::env::var("CULLIS_PROBE").ok().and_then(|v| {
@@ -571,7 +573,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                         let steps = (from.distance(goal) / 0.5) as usize;
                         for k in 0..=steps {
                             let q = from.lerp(goal, k as f32 / steps.max(1) as f32);
-                            let walkable: Vec<(usize, f32)> = renderer
+                            let walkable: Vec<(usize, f32)> = world
                                 .walk
                                 .iter()
                                 .enumerate()
@@ -602,13 +604,13 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 // Follow a route there, or head straight for it if there is none.
                 let mut follow = walk::Follow::to_floor(goal, floor);
                 for _ in 0..6000 {
-                    let Some(heights) = &renderer.heights else {
+                    let Some(heights) = &world.heights else {
                         break;
                     };
                     let (doors, npcs) = (&renderer.doors, &renderer.npcs);
                     let Some(to) = follow.direction(
                         &hero,
-                        &renderer.walk,
+                        &world.walk,
                         heights,
                         TICK,
                         |p| blocked_for_route(doors, npcs, p),
@@ -616,7 +618,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                     ) else {
                         break;
                     };
-                    hero.step_blocked(to, walk::WALK_SPEED, TICK, &renderer.walk, heights, |p| {
+                    hero.step_blocked(to, walk::WALK_SPEED, TICK, &world.walk, heights, |p| {
                         blocked_for_hero(doors, npcs, p)
                     });
                     highest = highest.max(hero.position.z);
@@ -671,7 +673,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         }
         pending_exit = exit_at(renderer, &hero);
         if pending_exit.is_none() {
-            pose_and_frame(renderer, &assets, &queue, &mut camera, &hero, args)?;
+            pose_and_frame(renderer, world, &assets, &queue, &mut camera, &hero, args)?;
         }
     }
     // Walked into a region exit: load where it leads, as the game would.
@@ -690,11 +692,12 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             &queue,
         )?
         .0;
-        let Scene::Terrain(renderer) = &mut scene else {
+        let Scene::Terrain(renderer, world) = &mut scene else {
             return Err("not a region".into());
         };
         let mut hero = spawn_hero(
             renderer,
+            world,
             &assets,
             &device,
             &queue,
@@ -707,9 +710,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(&hero);
         }
-        pose_and_frame(renderer, &assets, &queue, &mut camera, &hero, args)?;
+        pose_and_frame(renderer, world, &assets, &queue, &mut camera, &hero, args)?;
     }
-    if let (Some((role, shape)), Scene::Terrain(renderer)) = (&args.mouth, &mut scene) {
+    if let (Some((role, shape)), Scene::Terrain(renderer, _)) = (&args.mouth, &mut scene) {
         let mut bank = skin::AnimBank::open(&assets)?;
         match renderer
             .npcs
@@ -723,7 +726,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             None => log::info!("mouth: no creature with role {role}"),
         }
     }
-    if let (Some(role), Scene::Terrain(renderer)) = (&args.gesture, &mut scene) {
+    if let (Some(role), Scene::Terrain(renderer, _)) = (&args.gesture, &mut scene) {
         let mut bank = skin::AnimBank::open(&assets)?;
         match renderer
             .npcs
@@ -738,8 +741,8 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             None => log::info!("gesture: no creature with role {role}"),
         }
     }
-    if let Scene::Terrain(renderer) = &mut scene {
-        let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+    if let Scene::Terrain(renderer, world) = &mut scene {
+        let (layers, heights) = (&world.walk, world.heights.as_ref());
         let steps = (args.npc_time / TICK) as u32;
         let doors = &renderer.doors;
         let blocked = |p: glam::Vec2| doors.iter().any(|d| d.blocks(p));
@@ -752,7 +755,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             door.animate(&queue, args.npc_time);
         }
     }
-    if let (Scene::Terrain(renderer), true) = (&scene, args.npc_time > 0.0) {
+    if let (Scene::Terrain(renderer, _), true) = (&scene, args.npc_time > 0.0) {
         let wandered: Vec<String> = renderer
             .npcs
             .iter()
@@ -766,9 +769,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
         );
     }
     log::info!("{subject:?}: {status}");
-    if let Scene::Terrain(renderer) = &mut scene {
+    if let Scene::Terrain(renderer, world) = &mut scene {
         renderer.eye = camera.eye();
-        renderer.focus = camera.target;
+        world.focus = camera.target;
         // Fires already burning when the picture is taken.
         if let Some(p) = &mut renderer.particles {
             for _ in 0..240 {
@@ -776,9 +779,9 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
             }
         }
         if args.no_lights {
-            renderer.point_lights.clear();
+            world.point_lights.clear();
         }
-        renderer.set_hour(args.hour, args.brightness, args.highlights);
+        world.set_hour(args.hour, args.brightness, args.highlights);
     }
     scene.render(
         &device,
@@ -846,6 +849,7 @@ fn hero_idle_clip(
 /// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
 fn pose_and_frame(
     renderer: &mut TerrainRenderer,
+    world: &World,
     assets: &AssetCache,
     queue: &wgpu::Queue,
     camera: &mut OrbitCamera,
@@ -882,7 +886,7 @@ fn pose_and_frame(
         log::info!("inside building {i} (roof hidden)");
     }
     let distance = camera.distance.clamp(3.0, 12.0);
-    follow(camera, hero, renderer, distance);
+    follow(camera, hero, renderer, world, distance);
     log::info!("hero at {}", hero.position);
     Ok(())
 }
@@ -928,16 +932,17 @@ fn exit_at(renderer: &TerrainRenderer, hero: &walk::Hero) -> Option<u64> {
 /// Places the young Hero on the walkable cell nearest `near`.
 fn spawn_hero(
     renderer: &mut TerrainRenderer,
+    world: &World,
     assets: &AssetCache,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     near: glam::Vec2,
     height: Option<f32>,
 ) -> Result<Option<walk::Hero>, Error> {
-    let Some(heights) = &renderer.heights else {
+    let Some(heights) = &world.heights else {
         return Ok(None);
     };
-    let Some((layer, at, z)) = walk::stand_at(&renderer.walk, heights, near, height) else {
+    let Some((layer, at, z)) = walk::stand_at(&world.walk, heights, near, height) else {
         return Ok(None);
     };
     let mut hero = walk::Hero::new(at, heights);
@@ -1040,7 +1045,13 @@ fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
 /// mesh or the ground is in the way. The camera is treated as having some width:
 /// besides the ray to it, rays to points around it are cast, so it does not end up
 /// pressed against (or poking into) a wall or a cart.
-fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRenderer, distance: f32) {
+fn follow(
+    camera: &mut OrbitCamera,
+    hero: &walk::Hero,
+    renderer: &TerrainRenderer,
+    world: &World,
+    distance: f32,
+) {
     /// Gap kept between the camera and what it would hit.
     const MARGIN: f32 = 0.3;
     /// Half the width of the camera's probe.
@@ -1072,11 +1083,11 @@ fn follow(camera: &mut OrbitCamera, hero: &walk::Hero, renderer: &TerrainRendere
             (to - camera.target).length(),
         );
         let hits = [
-            renderer
+            world
                 .colliders
                 .as_ref()
                 .and_then(|c| c.ray(camera.target, dir, len, skip)),
-            renderer
+            world
                 .heights
                 .as_ref()
                 .and_then(|h| collide::ground_ray(h, camera.target, dir, len, MARGIN)),
@@ -1304,7 +1315,7 @@ impl ViewerApp {
             Subject::Mesh(_) => None,
         };
         let mut story = story;
-        if let (Some(story), Scene::Terrain(renderer)) = (&mut story, &mut scene) {
+        if let (Some(story), Scene::Terrain(renderer, _)) = (&mut story, &mut scene) {
             story.place(&mut renderer.npcs, &assets);
         }
         let list = match subject {
@@ -1415,9 +1426,12 @@ impl ViewerApp {
                 let (mut scene, mut camera, status) =
                     Scene::load(&assets, &wld, &job, &sections, &device, &queue)?;
                 let mut hero = None;
-                if let (Some((at, forward)), Scene::Terrain(renderer)) = (arrival, &mut scene) {
+                if let (Some((at, forward)), Scene::Terrain(renderer, world)) =
+                    (arrival, &mut scene)
+                {
                     let mut h = spawn_hero(
                         renderer,
+                        world,
                         &assets,
                         &device,
                         &queue,
@@ -1487,12 +1501,21 @@ impl ViewerApp {
                 {
                     self.story = story::Story::for_region(region, &self.sections);
                 }
-                if let (Some(story), Scene::Terrain(renderer)) = (&mut self.story, &mut self.scene)
+                if let (Some(story), Scene::Terrain(renderer, _)) =
+                    (&mut self.story, &mut self.scene)
                 {
                     story.place(&mut renderer.npcs, &self.assets);
                 }
-                if let (Some(hero), Scene::Terrain(renderer)) = (loaded.hero, &mut self.scene) {
-                    follow(&mut self.camera, &hero, renderer, self.follow_distance);
+                if let (Some(hero), Scene::Terrain(renderer, world)) =
+                    (loaded.hero, &mut self.scene)
+                {
+                    follow(
+                        &mut self.camera,
+                        &hero,
+                        renderer,
+                        world,
+                        self.follow_distance,
+                    );
                     self.walker = Some(hero);
                     self.want_walk = true;
                     self.exits_armed = false;
@@ -1526,7 +1549,7 @@ impl ViewerApp {
         ui.heading(title);
         ui.label(&self.status);
         ui.label("Drag: orbit · Right-drag: pan · Scroll: zoom");
-        if let Scene::Terrain(renderer) = &mut self.scene {
+        if let Scene::Terrain(renderer, world) = &mut self.scene {
             ui.checkbox(&mut renderer.show_nav, "Show navigation");
             ui.checkbox(&mut self.want_walk, "Walk (WASD, Shift runs)");
             egui::CollapsingHeader::new("Time of day").show(ui, |ui| {
@@ -1540,7 +1563,7 @@ impl ViewerApp {
                 ui.checkbox(&mut self.clock, "Clock runs (a day in 24 minutes)");
                 ui.add(egui::Slider::new(&mut self.brightness, 0.5..=2.5).text("Brightness"));
                 ui.add(egui::Slider::new(&mut self.highlights, 0.8..=3.0).text("Highlight limit"));
-                if let Some(l) = &renderer.lighting {
+                if let Some(l) = &world.lighting {
                     ui.label(format!("Environment: {}", l.outside.0));
                 }
             });
@@ -1666,13 +1689,14 @@ impl ViewerApp {
 
     /// Spawns or removes the Hero when the walk checkbox changes.
     fn update_walk_mode(&mut self, rs: &egui_wgpu::RenderState) {
-        let Scene::Terrain(renderer) = &mut self.scene else {
+        let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
         match (self.want_walk, self.walker.is_some()) {
             (true, false) => {
                 match spawn_hero(
                     renderer,
+                    world,
                     &self.assets,
                     &rs.device,
                     &rs.queue,
@@ -1680,7 +1704,13 @@ impl ViewerApp {
                     None,
                 ) {
                     Ok(Some(hero)) => {
-                        follow(&mut self.camera, &hero, renderer, self.follow_distance);
+                        follow(
+                            &mut self.camera,
+                            &hero,
+                            renderer,
+                            world,
+                            self.follow_distance,
+                        );
                         self.walker = Some(hero);
                     }
                     Ok(None) => {
@@ -1718,10 +1748,10 @@ impl ViewerApp {
         if self.clock {
             self.hour = (self.hour + dt * CLOCK_RATE).rem_euclid(24.0);
         }
-        let Scene::Terrain(renderer) = &mut self.scene else {
+        let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
-        let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+        let (layers, heights) = (&world.walk, world.heights.as_ref());
         let hero = self.walker.as_ref().map(|h| h.position.truncate());
         let doors = &renderer.doors;
         let blocked = |p: glam::Vec2| {
@@ -1734,7 +1764,8 @@ impl ViewerApp {
         for door in &mut renderer.doors {
             door.animate(&rs.queue, dt);
         }
-        let focus = renderer.focus;
+        world.tick(dt);
+        let focus = world.focus;
         if let Some(p) = &mut renderer.particles {
             p.system.update(dt, focus);
         }
@@ -1747,10 +1778,11 @@ impl ViewerApp {
         if self.loading.is_some() {
             return;
         }
-        let (Some(hero), Scene::Terrain(renderer)) = (&mut self.walker, &mut self.scene) else {
+        let (Some(hero), Scene::Terrain(renderer, world)) = (&mut self.walker, &mut self.scene)
+        else {
             return;
         };
-        let (walk, Some(heights)) = (&renderer.walk, &renderer.heights) else {
+        let (walk, Some(heights)) = (&world.walk, &world.heights) else {
             return;
         };
         let (forward, right, run) = (input.forward, input.right, input.run);
@@ -1901,7 +1933,13 @@ impl ViewerApp {
         }
         animate_hero(renderer, queue, clip, dt);
         renderer.update_interior(hero.position);
-        follow(&mut self.camera, hero, renderer, self.follow_distance);
+        follow(
+            &mut self.camera,
+            hero,
+            renderer,
+            world,
+            self.follow_distance,
+        );
         match exit_at(renderer, hero) {
             Some(connection) if self.exits_armed => self.pending_exit = Some(connection),
             Some(_) => {}
@@ -1920,17 +1958,17 @@ impl ViewerApp {
             return;
         }
         let (music, bank, night, indoors) = match &self.scene {
-            Scene::Terrain(r) => {
+            Scene::Terrain(r, world) => {
                 let at = self
                     .walker
                     .as_ref()
                     .map_or(self.camera.target.truncate(), |h| h.position.truncate());
                 // Night when the sun's light is low (as the lighting reckons it).
-                let sun = r.light.sun.iter().sum::<f32>() / 3.0;
+                let sun = world.light.sun.iter().sum::<f32>() / 3.0;
                 (
                     r.soundscape.music.clone(),
                     r.soundscape.bank_at(at).cloned(),
-                    r.lighting.is_some() && sun < 0.3,
+                    world.lighting.is_some() && sun < 0.3,
                     r.inside.is_some(),
                 )
             }
@@ -1947,11 +1985,11 @@ impl ViewerApp {
     /// renderer where the camera is.
     fn choose_highlight(&mut self, time: f32) {
         let shown = self.shown_camera();
-        let Scene::Terrain(renderer) = &mut self.scene else {
+        let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
         renderer.eye = shown.eye();
-        renderer.focus = shown.target;
+        world.focus = shown.target;
         renderer.highlight = None;
         let Some(hero) = &self.walker else {
             return;
@@ -1994,7 +2032,7 @@ impl ViewerApp {
     fn frame_conversation(&mut self, dt: f32) {
         const EASE: f32 = 0.5;
         let active = match (self.subs.waiting_on(), &mut self.walker, &mut self.scene) {
-            (Some(talked), Some(hero), Scene::Terrain(renderer)) => {
+            (Some(talked), Some(hero), Scene::Terrain(renderer, _)) => {
                 let speaker = self.subs.speaker().unwrap_or(talked);
                 let tags = self
                     .subs
@@ -2048,7 +2086,7 @@ impl ViewerApp {
     /// the line asks for, or one for its mood, then another as each ends, until
     /// the line is done.
     fn gesture(&mut self, dt: f32) {
-        let Scene::Terrain(renderer) = &mut self.scene else {
+        let Scene::Terrain(renderer, _) = &mut self.scene else {
             return;
         };
         let line = self.subs.line().map(|(l, _)| (l.id, l.tags.clone()));
@@ -2128,7 +2166,7 @@ impl ViewerApp {
 
     /// Releases the mouth of whoever was speaking.
     fn stop_mouth(&mut self) {
-        if let (Some((who, ..)), Scene::Terrain(renderer), Some(bank)) =
+        if let (Some((who, ..)), Scene::Terrain(renderer, _), Some(bank)) =
             (self.lip.take(), &mut self.scene, &mut self.anim_bank)
             && let Some(npc) = renderer.npcs.get_mut(who)
         {
@@ -2159,7 +2197,7 @@ impl ViewerApp {
                 .map_err(|e| log::warn!("animations: {e}"))
                 .ok();
         }
-        if let (Some(who), Scene::Terrain(renderer), Some(bank)) =
+        if let (Some(who), Scene::Terrain(renderer, _), Some(bank)) =
             (who, &mut self.scene, &mut self.anim_bank)
             && let Some(npc) = renderer.npcs.get_mut(who)
         {
@@ -2175,7 +2213,7 @@ impl ViewerApp {
         use engine_script::Beat;
         match beat {
             Beat::Leave(role) | Beat::Return(role) => {
-                if let Scene::Terrain(renderer) = &mut self.scene {
+                if let Scene::Terrain(renderer, _) = &mut self.scene {
                     for npc in &mut renderer.npcs {
                         if npc.script_name.as_deref() == Some(role) {
                             npc.hidden = matches!(beat, Beat::Leave(_));
@@ -2185,7 +2223,7 @@ impl ViewerApp {
             }
             Beat::Walk { who, to } => {
                 log::info!("quest: {who} walks to {to:?}");
-                if let Scene::Terrain(renderer) = &mut self.scene {
+                if let Scene::Terrain(renderer, _) = &mut self.scene {
                     for npc in renderer
                         .npcs
                         .iter_mut()
@@ -2202,8 +2240,8 @@ impl ViewerApp {
                 at,
                 facing: [fx, fy],
             } => {
-                if let Scene::Terrain(renderer) = &mut self.scene {
-                    let (layers, heights) = (&renderer.walk, renderer.heights.as_ref());
+                if let Scene::Terrain(renderer, world) = &mut self.scene {
+                    let (layers, heights) = (&world.walk, world.heights.as_ref());
                     for npc in renderer
                         .npcs
                         .iter_mut()
@@ -2224,12 +2262,13 @@ impl ViewerApp {
                 // Black at once, fading back in on the new day.
                 self.hour = hour;
                 self.fade = 1.0 + NIGHT_HOLD;
-                if let (Scene::Terrain(renderer), Some(hero)) = (&mut self.scene, &mut self.walker)
-                    && let Some(heights) = &renderer.heights
+                if let (Scene::Terrain(renderer, world), Some(hero)) =
+                    (&mut self.scene, &mut self.walker)
+                    && let Some(heights) = &world.heights
                 {
                     let at = glam::Vec3::from_array(at);
                     if let Some((layer, spot, z)) =
-                        walk::stand_at(&renderer.walk, heights, at.truncate(), Some(at.z))
+                        walk::stand_at(&world.walk, heights, at.truncate(), Some(at.z))
                     {
                         hero.position = spot.extend(z);
                         hero.layer = layer;
@@ -2442,7 +2481,7 @@ impl eframe::App for ViewerApp {
                 if self.walker.is_some() || ticks > 0 {
                     ui.ctx().request_repaint();
                 }
-                if let Scene::Terrain(renderer) = &mut self.scene
+                if let Scene::Terrain(renderer, _) = &mut self.scene
                     && !renderer.npcs.is_empty()
                 {
                     ui.ctx().request_repaint();
@@ -2456,8 +2495,8 @@ impl eframe::App for ViewerApp {
                 if self.clock {
                     ui.ctx().request_repaint();
                 }
-                if let Scene::Terrain(renderer) = &mut self.scene {
-                    renderer.set_hour(self.hour, self.brightness, self.highlights);
+                if let Scene::Terrain(renderer, world) = &mut self.scene {
+                    world.set_hour(self.hour, self.brightness, self.highlights);
                     if renderer.particles.is_some() {
                         ui.ctx().request_repaint();
                     }

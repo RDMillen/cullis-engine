@@ -6,11 +6,9 @@ use eframe::wgpu;
 use eframe::wgpu::util::DeviceExt;
 use glam::{Mat4, Vec3};
 
-use crate::collide::Colliders;
 use crate::model::ModelRenderer;
 use crate::terrain::{TerrainMesh, Vertex};
 use crate::themes::{LAYER_SIZE, Mips, ThemeTextures};
-use crate::walk::{HeightGrid, WalkGrid};
 
 /// World units covered by one repeat of a theme texture. Set by eye; to be
 /// compared with the game.
@@ -18,10 +16,6 @@ pub const THEME_TILE: f32 = 12.0;
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// How much brighter nights are made than the table's colours (by eye: they
-/// read about 30% too dark against the original).
-const NIGHT_LIFT: f32 = 0.3;
-
 /// How dark sun shadows are: the share of the sun's light they take away.
 const SHADOW_STRENGTH: f32 = 1.0;
 
@@ -123,23 +117,14 @@ pub struct TerrainRenderer {
     pub hero_kick: Option<usize>,
     /// The region's music and ambience.
     pub soundscape: crate::soundscape::Soundscape,
-    /// The light now, the region's themes it comes from, and the sky; the
-    /// clear colour shows where there is no sky.
-    pub light: crate::lighting::Light,
-    /// The light inside buildings: their interior meshes, what stands in them,
-    /// and creatures there.
-    pub indoor_light: crate::lighting::Light,
-    pub lighting: Option<crate::lighting::Lighting>,
+    /// This frame's light outdoors and indoors (the world's, with shadows
+    /// added), the sky, and the clear colour shown where there is no sky.
+    light: crate::lighting::Light,
+    indoor_light: crate::lighting::Light,
     pub sky: Option<crate::sky::Sky>,
     /// Particle effects (fires) and what draws them.
     pub particles: Option<crate::particles::Particles>,
     pub clear: wgpu::Color,
-    /// Where the camera looks: the middle of the shadowed area.
-    pub focus: Vec3,
-    /// The region's lamps, fires and light markers, and when the renderer was
-    /// made (for flicker).
-    pub point_lights: Vec<crate::lighting::PointLight>,
-    started: std::time::Instant,
     /// Sun shadows: the map, the terrain's depth pipeline and its uniforms
     /// (the sun's view), and the group binding them.
     shadow_map: crate::shadow::ShadowMap,
@@ -154,11 +139,6 @@ pub struct TerrainRenderer {
     pub sections: Vec<String>,
     /// Region exits in the region's own maps.
     pub exits: Vec<crate::terrain::RegionExit>,
-    /// Placed meshes as triangles, for camera collision.
-    pub colliders: Option<Colliders>,
-    /// Where the Hero can walk and the ground height, if the region has them.
-    pub walk: Vec<WalkGrid>,
-    pub heights: Option<HeightGrid>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     grid: [f32; 4],
@@ -522,13 +502,9 @@ impl TerrainRenderer {
             soundscape: Default::default(),
             light: Default::default(),
             indoor_light: Default::default(),
-            lighting: None,
             sky: None,
             particles: None,
             clear: SKY,
-            focus: Vec3::ZERO,
-            point_lights: mesh.lights.clone(),
-            started: std::time::Instant::now(),
             shadow_map: crate::shadow::ShadowMap::new(device, crate::shadow::SIZE),
             terrain_shadow_pipeline,
             shadow_uniforms,
@@ -541,11 +517,8 @@ impl TerrainRenderer {
             doors: Vec::new(),
             buildings: Vec::new(),
             inside: None,
-            colliders: None,
             exits: mesh.exits.clone(),
             sections: mesh.sections.iter().cloned().collect(),
-            walk: mesh.walk.clone(),
-            heights: mesh.heights.clone(),
             uniforms,
             bind_group,
             grid,
@@ -553,22 +526,20 @@ impl TerrainRenderer {
         }
     }
 
-    /// Sets the light to the time of day `hour`, indoors while the Hero is in a
-    /// building.
-    pub fn set_hour(&mut self, hour: f32, brightness: f32, highlight_limit: f32) {
-        let Some(lighting) = &self.lighting else {
-            return;
-        };
-        self.light = lighting.at(hour, false);
-        self.indoor_light = lighting.at(hour, true);
-        // Nights lifted by up to NIGHT_LIFT as the sun's light fades (by eye).
-        let sun = self.light.sun.iter().sum::<f32>() / 3.0;
-        let night = 1.0 - ((sun - 0.15) / 0.5).clamp(0.0, 1.0);
-        for light in [&mut self.light, &mut self.indoor_light] {
-            light.brightness = brightness * (1.0 + NIGHT_LIFT * night);
-            light.sky_brightness = brightness * (1.0 - (1.0 - crate::lighting::NIGHT_SKY) * night);
-            light.highlight_limit = highlight_limit;
-        }
+    /// Renders into the target texture, recreating it if the size changed.
+    /// Returns true if the target was recreated.
+    pub fn render(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: [u32; 2],
+        view_proj: Mat4,
+        world: &engine_world::world::World,
+    ) -> bool {
+        let size = [size[0].max(1), size[1].max(1)];
+        // This frame's light, from the world; shadows are added below.
+        self.light = world.light.clone();
+        self.indoor_light = world.indoor_light.clone();
         // Without a sky (indoor themes), a dark background.
         let shown = self.sky.as_ref().is_some_and(|s| s.shows(&self.light));
         self.clear = if shown {
@@ -581,18 +552,6 @@ impl TerrainRenderer {
                 a: 1.0,
             }
         };
-    }
-
-    /// Renders into the target texture, recreating it if the size changed.
-    /// Returns true if the target was recreated.
-    pub fn render(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        size: [u32; 2],
-        view_proj: Mat4,
-    ) -> bool {
-        let size = [size[0].max(1), size[1].max(1)];
         let recreated = self.target.as_ref().is_none_or(|t| t.size != size);
         if recreated {
             self.target = Some(create_target(device, size));
@@ -603,16 +562,12 @@ impl TerrainRenderer {
         // wherever the Hero is. Indoor light keeps the sun's view (so models
         // lit indoors still cast shadows) at no strength.
         let sun_up = self.light.sun.iter().any(|&c| c > 0.15);
-        self.light.shadow_proj = crate::shadow::view_proj(self.light.sun_dir, self.focus);
+        self.light.shadow_proj = crate::shadow::view_proj(self.light.sun_dir, world.focus);
         let texel = 1.0 / crate::shadow::SIZE as f32;
         let strength = if sun_up { SHADOW_STRENGTH } else { 0.0 };
         self.light.shadow = [strength, texel, 0.0004, 0.0];
         self.indoor_light.shadow_proj = self.light.shadow_proj;
         self.indoor_light.shadow = [0.0, texel, 0.0004, 0.0];
-        let time = self.started.elapsed().as_secs_f32();
-        for light in [&mut self.light, &mut self.indoor_light] {
-            crate::lighting::set_points(light, &self.point_lights, self.focus, time);
-        }
         let light = &self.light;
         let [sr, sg, sb] = light.sun;
         let [ar, ag, ab] = light.ambient;
