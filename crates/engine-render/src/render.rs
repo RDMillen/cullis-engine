@@ -2,12 +2,11 @@
 //! window and read back for screenshots.
 
 use bytemuck::{Pod, Zeroable};
-use eframe::wgpu;
-use eframe::wgpu::util::DeviceExt;
 use glam::{Mat4, Vec3};
+use wgpu::util::DeviceExt;
 
 use crate::model::ModelRenderer;
-use crate::terrain::{TerrainMesh, Vertex};
+use crate::terrain::{TerrainGeometry, Vertex};
 use crate::themes::{LAYER_SIZE, Mips, ThemeTextures};
 
 /// World units covered by one repeat of a theme texture. Set by eye; to be
@@ -39,7 +38,7 @@ struct Uniforms {
     ambient: [f32; 4],
     shadow_proj: [[f32; 4]; 4],
     shadow: [f32; 4],
-    points: [[f32; 4]; 2 * crate::lighting::MAX_POINTS],
+    points: [[f32; 4]; 2 * engine_world::lighting::MAX_POINTS],
     point_count: [f32; 4],
 }
 
@@ -108,13 +107,13 @@ pub struct TerrainRenderer {
     pub doors: Vec<crate::door::DoorModel>,
     /// Creatures standing in the region.
     /// Creatures' meshes, at the indices of the world's creatures.
-    pub creatures: Vec<crate::npc::CreatureModel>,
+    pub creatures: Vec<crate::creature::CreatureModel>,
     /// The Hero's skinned mesh, posed from the world's animator when drawn.
     pub hero_mesh: Option<crate::skin::SkinnedMesh>,
     /// This frame's light outdoors and indoors (the world's, with shadows
     /// added), the sky, and the clear colour shown where there is no sky.
-    light: crate::lighting::Light,
-    indoor_light: crate::lighting::Light,
+    light: engine_world::lighting::Light,
+    indoor_light: engine_world::lighting::Light,
     pub sky: Option<crate::sky::Sky>,
     /// Particle effects (fires) and what draws them.
     pub particles: Option<crate::particles::Particles>,
@@ -221,7 +220,7 @@ impl TerrainRenderer {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        mesh: &TerrainMesh,
+        mesh: &TerrainGeometry<'_>,
         themes: Option<&ThemeTextures>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("terrain.wgsl"));
@@ -272,7 +271,7 @@ impl TerrainRenderer {
         });
 
         // Theme grid: one texel per grid point, [layer, layer, weight, weight].
-        let (grid_size, grid_origin, cells) = match &mesh.themes {
+        let (grid_size, grid_origin, cells) = match mesh.themes {
             Some(g) => (g.size, g.origin, g.cells.clone()),
             None => ([1, 1], [0.0, 0.0], vec![[0; 4]]),
         };
@@ -472,10 +471,10 @@ impl TerrainRenderer {
             false,
         );
         let nav = (!mesh.nav_indices.is_empty())
-            .then(|| Geometry::new(device, "navigation", &mesh.nav_vertices, &mesh.nav_indices));
-        let terrain = Geometry::new(device, "terrain", &mesh.vertices, &mesh.indices);
+            .then(|| Geometry::new(device, "navigation", mesh.nav_vertices, mesh.nav_indices));
+        let terrain = Geometry::new(device, "terrain", mesh.vertices, mesh.indices);
         let sea = mesh
-            .sea_quad()
+            .sea
             .map(|(vertices, indices)| Geometry::new(device, "sea", &vertices, &indices));
         Self {
             terrain_pipeline,

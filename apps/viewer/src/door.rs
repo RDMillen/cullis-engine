@@ -6,35 +6,12 @@ use eframe::wgpu;
 use engine_world::anim::Animator;
 use engine_world::door::Door;
 use engine_world::world::World;
-use hecs::Entity;
 
-use crate::model::{self, ModelRenderer, ModelVertex};
-use crate::skin::{AnimBank, Skin, deform};
+pub use engine_render::door::DoorModel;
+
+use crate::model::{self, ModelRenderer};
+use crate::skin::AnimBank;
 use crate::terrain::DoorPlacement;
-
-/// A door's mesh, for the door entity it draws.
-pub struct DoorModel {
-    pub entity: Entity,
-    pub renderer: ModelRenderer,
-    bind: Vec<ModelVertex>,
-    skin: Skin,
-    posed: Vec<ModelVertex>,
-}
-
-impl DoorModel {
-    /// Poses the mesh as its entity's animator stands and uploads it; the
-    /// door's placement, if the entity is still there.
-    pub fn update(&mut self, queue: &wgpu::Queue, world: &World) -> Option<glam::Mat4> {
-        let mut q = world
-            .ecs
-            .query_one::<(&Door, &Animator)>(self.entity)
-            .ok()?;
-        let (door, animator) = q.get()?;
-        deform(&self.skin, &self.bind, animator.matrices(), &mut self.posed);
-        self.renderer.set_vertices(queue, &self.posed);
-        Some(door.transform)
-    }
-}
 
 /// Adds every door to the world, posed open or closed as its level file says,
 /// and returns their meshes.
@@ -84,13 +61,12 @@ pub fn load(
             d.open,
         );
         let entity = world.spawn_door(door, Animator::new(skin.rig.clone(), clips));
-        let mut drawn = DoorModel {
+        let mut drawn = DoorModel::new(
             entity,
-            renderer: ModelRenderer::new(device, queue, &model),
-            bind: model.vertices.clone(),
+            ModelRenderer::new(device, queue, &model),
+            model.vertices.clone(),
             skin,
-            posed: Vec::new(),
-        };
+        );
         drawn.update(queue, world);
         out.push(drawn);
     }

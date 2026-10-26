@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use bytemuck::{Pod, Zeroable};
+pub use engine_render::terrain::{ThemeGrid, ThemeLayer, Vertex};
 pub use engine_world::region::{IdleAnimations, RegionExit, SoundArea};
 use fable_data::bbbb::BbbbFile;
 use fable_data::defs::Defs;
@@ -17,13 +17,6 @@ use glam::{Vec2, Vec3};
 
 use crate::model::{MeshRole, Placement};
 use crate::walk::{HeightGrid, WalkGrid};
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-}
 
 /// Sea surface height in world units. Across all maps, 731 stb tiles that rise above
 /// their terrain top out at exactly this height (`docs/formats/stb.md`).
@@ -69,26 +62,15 @@ pub struct TerrainMesh {
     pub heights: Option<HeightGrid>,
 }
 
-/// Terrain themes across a region: per grid point, two palette layers and weights.
-#[derive(Debug, Default)]
-pub struct ThemeGrid {
-    /// World position of grid point (0, 0).
-    pub origin: [f32; 2],
-    pub size: [u32; 2],
-    /// Row-major: [first layer, second layer, first weight, second weight].
-    pub cells: Vec<[u8; 4]>,
-    /// Layer 0 is "no theme"; the rest are named themes with their texture ids.
-    pub layers: Vec<ThemeLayer>,
+/// Building a theme grid from the maps' Lev files (the grid itself is the
+/// renderer's type).
+trait ThemeGridLoad {
+    fn new(origin: [f32; 2], size: [u32; 2]) -> Self;
+    fn layer(&mut self, name: &str, defs: &Defs) -> u8;
+    fn add_map(&mut self, lev: &Lev, x: f32, y: f32, defs: &Defs);
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ThemeLayer {
-    pub name: String,
-    pub base: u32,
-    pub cliff: u32,
-}
-
-impl ThemeGrid {
+impl ThemeGridLoad for ThemeGrid {
     fn new(origin: [f32; 2], size: [u32; 2]) -> Self {
         Self {
             origin,

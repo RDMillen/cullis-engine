@@ -746,6 +746,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "engine-core",
+ "engine-world",
+ "fable-data",
+ "glam",
+ "hecs",
+ "log",
+ "wgpu",
+]
+
+[[package]]
 name = "engine-script"
 version = "0.1.0"
 dependencies = [
@@ -2909,6 +2923,7 @@ dependencies = [
  "eframe",
  "engine-audio",
  "engine-core",
+ "engine-render",
  "engine-script",
  "engine-world",
  "env_logger",

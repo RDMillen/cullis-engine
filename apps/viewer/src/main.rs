@@ -8,20 +8,14 @@
 
 mod audio;
 // The simulation's modules, kept at their old paths (`crate::walk`, …).
+use engine_render::{model, particles, render, skin, sky, themes};
 use engine_world::{camera, collide, conversation, lighting, walk};
 mod door;
-mod model;
 mod npc;
-mod particles;
-mod render;
-mod shadow;
-mod skin;
-mod sky;
 mod soundscape;
 mod story;
 mod talk;
 mod terrain;
-mod themes;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -292,7 +286,15 @@ impl Scene {
                     Some(grid) => Some(themes::load(assets, &grid.layers)?),
                     None => None,
                 };
-                let mut renderer = TerrainRenderer::new(device, queue, &mesh, themes.as_ref());
+                let geometry = engine_render::terrain::TerrainGeometry {
+                    vertices: &mesh.vertices,
+                    indices: &mesh.indices,
+                    themes: mesh.themes.as_ref(),
+                    sea: mesh.sea_quad(),
+                    nav_vertices: &mesh.nav_vertices,
+                    nav_indices: &mesh.nav_indices,
+                };
+                let mut renderer = TerrainRenderer::new(device, queue, &geometry, themes.as_ref());
                 let mut world = World {
                     walk: mesh.walk.clone(),
                     heights: mesh.heights.clone(),

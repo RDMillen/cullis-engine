@@ -2,7 +2,6 @@
 //! camera-facing sprites: additive for flames, alpha-blended for smoke.
 
 use bytemuck::{Pod, Zeroable};
-use eframe::wgpu;
 use engine_core::assets::AssetCache;
 use engine_world::particles::{ParticleSystem, colour_at};
 use glam::{Mat4, Vec3};
@@ -208,6 +207,11 @@ impl Particles {
     /// How many emitters were placed.
     pub fn len(&self) -> usize {
         self.system.emitters.len()
+    }
+
+    /// Whether there are no emitters.
+    pub fn is_empty(&self) -> bool {
+        self.system.emitters.is_empty()
     }
 
     /// Writes this frame's sprites, facing the camera at `eye`. Smoke (alpha-

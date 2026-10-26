@@ -8,32 +8,11 @@ use eframe::wgpu;
 use engine_world::anim::Animator;
 use engine_world::creature::{Npc, Spec};
 
-use crate::model::{self, ModelData, ModelRenderer, ModelVertex, Skin};
-use crate::skin::{AnimBank, Clip, deform};
+pub use engine_render::creature::{CreatureModel, PartModel};
+
+use crate::model::{self, ModelData, ModelRenderer, Skin};
+use crate::skin::{AnimBank, Clip};
 use crate::terrain::CreaturePlacement;
-
-/// A creature's parts' meshes, drawn for the world creature at the same index.
-pub struct CreatureModel {
-    pub parts: Vec<PartModel>,
-}
-
-/// One part's mesh: its renderer, bind pose and weights, and the posed copy.
-pub struct PartModel {
-    pub renderer: ModelRenderer,
-    bind: Vec<ModelVertex>,
-    skin: Skin,
-    posed: Vec<ModelVertex>,
-}
-
-impl CreatureModel {
-    /// Poses each part as `npc`'s matching animator stands and uploads it.
-    pub fn update(&mut self, queue: &wgpu::Queue, npc: &Npc) {
-        for (part, animator) in self.parts.iter_mut().zip(&npc.parts) {
-            deform(&part.skin, &part.bind, animator.matrices(), &mut part.posed);
-            part.renderer.set_vertices(queue, &part.posed);
-        }
-    }
-}
 
 /// The meshes (with texture swaps) a creature is drawn with. Built-up creatures
 /// take one option from each part list; the game picks at random, here the
@@ -152,12 +131,7 @@ pub fn load(
             animator.advance(i as f32 * 0.37);
             let renderer = ModelRenderer::new(device, queue, model);
             parts.push((
-                PartModel {
-                    renderer,
-                    bind: model.vertices.clone(),
-                    skin,
-                    posed: Vec::new(),
-                },
+                PartModel::new(renderer, model.vertices.clone(), skin),
                 animator,
             ));
         }

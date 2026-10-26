@@ -4,16 +4,15 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
-use eframe::wgpu;
-use eframe::wgpu::util::DeviceExt;
 use engine_core::assets::{Archive, AssetCache};
 use fable_data::mesh::{Mesh, SKINNED_MESH_TYPE, STATIC_MESH_TYPE};
 use fable_data::texture::{Texture, TextureInfo};
 use glam::{Mat4, Vec3};
+use wgpu::util::DeviceExt;
 
-use crate::lighting::Light;
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT, SKY, Target, create_target};
 pub use crate::skin::Skin;
+use engine_world::lighting::Light;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -642,19 +641,19 @@ fn uniforms(
 }
 
 /// Textures from the asset cache, decoded to RGBA.
-pub(crate) struct TextureBank {
+pub struct TextureBank {
     assets: AssetCache,
 }
 
 impl TextureBank {
-    pub(crate) fn open(assets: &AssetCache) -> Self {
+    pub fn open(assets: &AssetCache) -> Self {
         Self {
             assets: assets.clone(),
         }
     }
 
     /// Every texture's id and short name (the source file name, without its path).
-    pub(crate) fn names(&mut self) -> Vec<(u32, String)> {
+    pub fn names(&mut self) -> Vec<(u32, String)> {
         let Ok(index) = self.assets.index(Archive::Textures) else {
             return Vec::new();
         };
@@ -670,7 +669,7 @@ impl TextureBank {
         names
     }
 
-    pub(crate) fn load(&mut self, id: u32) -> Result<Image, Error> {
+    pub fn load(&mut self, id: u32) -> Result<Image, Error> {
         let (entry, data) = self.assets.read(Archive::Textures, id)?;
         let info = TextureInfo::parse(&entry.info)?;
         let texture = Texture::unpack(&info, entry.entry_type, &data)?;
@@ -694,7 +693,7 @@ struct Uniforms {
     shadow_proj: [[f32; 4]; 4],
     shadow: [f32; 4],
     model: [[f32; 4]; 4],
-    points: [[f32; 4]; 2 * crate::lighting::MAX_POINTS],
+    points: [[f32; 4]; 2 * engine_world::lighting::MAX_POINTS],
     point_count: [f32; 4],
 }
 

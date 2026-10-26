@@ -2,7 +2,6 @@
 //! camera, which the terrain and model shaders compare against. The game's
 //! own shadowing is not decoded; this is a stand-in drawn the usual way.
 
-use eframe::wgpu;
 use glam::camera::rh::{proj, view};
 use glam::{Mat4, Vec3};
 

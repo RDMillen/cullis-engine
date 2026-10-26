@@ -3,12 +3,11 @@
 //! (see `sky.wgsl`).
 
 use bytemuck::{Pod, Zeroable};
-use eframe::wgpu;
 use glam::{Mat4, Vec3};
 
-use crate::lighting::Light;
 use crate::render::{COLOR_FORMAT, DEPTH_FORMAT};
 use crate::themes::{LAYER_SIZE, Mips};
+use engine_world::lighting::Light;
 
 /// Sky and cloud textures one sky can hold.
 pub const LAYERS: usize = 8;
