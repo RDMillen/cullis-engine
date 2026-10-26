@@ -19,6 +19,8 @@ pub const NAMES: &[&str] = &[
     "HUD_ICON_MONEY_BAG",
     "HUD_PC_MOUSE_RING",
     "HUD_ICON_BATTLE_UNARMED",
+    "MINIMAP_BORDER",
+    "MINIMAP_ICON_HERO",
     "HUD_ICON_SPEAK",
     "HUD_ICON_INTERACT",
     "HUD_TEXTBOX_TL",
@@ -41,6 +43,10 @@ pub const NAMES: &[&str] = &[
     "GUI_DIGIT_8",
     "GUI_DIGIT_9",
 ];
+
+/// Where the current region's map (`MINIMAP_<REGION>`) is kept, see
+/// [`Sprites::set`].
+pub const MINIMAP: &str = "MINIMAP";
 
 /// The sprites loaded; a missing one draws nothing.
 #[derive(Default)]
@@ -69,6 +75,21 @@ impl Sprites {
         Self { textures }
     }
 
+    /// Puts `image` (width, height, RGBA pixels) under `key`, or removes what
+    /// is there for `None`: the region's map changes with the region.
+    pub fn set(&mut self, ctx: &Context, key: &'static str, image: Option<([usize; 2], Vec<u8>)>) {
+        match image {
+            Some((size, rgba)) => {
+                let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+                let texture = ctx.load_texture(key, image, egui::TextureOptions::LINEAR);
+                self.textures.insert(key, texture);
+            }
+            None => {
+                self.textures.remove(key);
+            }
+        }
+    }
+
     /// How many sprites loaded.
     pub fn len(&self) -> usize {
         self.textures.len()
@@ -91,6 +112,36 @@ impl Sprites {
         if let Some(shape) = self.shape(name, rect, tint) {
             painter.add(shape);
         }
+    }
+
+    /// Draws the part `uv` (0 to 1 across the texture) of sprite `name` over
+    /// `rect`.
+    pub fn draw_part(&self, painter: &Painter, name: &str, rect: Rect, uv: Rect, tint: Color32) {
+        if let Some(t) = self.textures.get(name) {
+            painter.image(t.id(), rect, uv, tint);
+        }
+    }
+
+    /// Draws sprite `name` `size` big with its point `pivot` (0 to 1 across the
+    /// texture) at `at`, turned `angle` radians clockwise on screen about it.
+    pub fn draw_turned(
+        &self,
+        painter: &Painter,
+        name: &str,
+        at: Pos2,
+        size: Vec2,
+        pivot: Vec2,
+        angle: f32,
+    ) {
+        let Some(t) = self.textures.get(name) else {
+            return;
+        };
+        let mut mesh = egui::Mesh::with_texture(t.id());
+        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        let rect = Rect::from_min_size(at - pivot * size, size);
+        mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+        mesh.rotate(egui::emath::Rot2::from_angle(angle), at);
+        painter.add(mesh);
     }
 
     /// The sprite's size in texels.

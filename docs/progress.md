@@ -49,6 +49,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - The permanent egui gold, items and deeds panel is gone; deeds and items still come up as notices.
 - Not yet: the minimap (top right), the game's fonts (`lang/English/fonts.big`, not decoded), health itself.
 
+## 2026-10-26: the minimap
+
+- Each region's map is `MINIMAP_<REGION>`, a fixed circular parchment covering the square of the larger side of the region's own maps, centred on them (checked against top-down renders of Oakvale, the Guild and Barrow Fields; `docs/formats/texture.md`). `engine_world::region::MapArea` (with a test), `World::map_area` from the region loader (`TerrainMesh::own_bounds`).
+- The HUD draws it in the top right inside `MINIMAP_BORDER` (only its ring's part of the texture), with `MINIMAP_ICON_HERO` turned to the Hero's heading; the session loads the region's map when the region changes (`Sprites::set`, `Sprites::draw_part`, `Sprites::draw_turned`).
+- Checked: in Oakvale the arrow sits by the father's house at the start and in the village loop after walking east.
+- Not yet: markers (houses, entrances, people), the combat multiplier and time of day in the ring's small circles.
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.

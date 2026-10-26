@@ -88,6 +88,8 @@ pub struct Session {
     /// The HUD's sprites, loaded on the first frame drawn; the gold box; what
     /// using would do now.
     pub sprites: Option<engine_ui::Sprites>,
+    /// The region whose map the sprites hold.
+    pub minimap_region: Option<String>,
     pub gold_popup: engine_ui::GoldPopup,
     pub action: Option<engine_ui::Action>,
 }
@@ -177,6 +179,7 @@ impl Session {
             camera,
             texture: None,
             sprites: None,
+            minimap_region: None,
             gold_popup: Default::default(),
             action: None,
         })
@@ -456,6 +459,36 @@ impl Session {
             );
             sprites
         });
+        // The region's map, when the region changes.
+        let region = match &self.subject {
+            Subject::Region(name) => Some(name.clone()),
+            Subject::Mesh(_) => None,
+        };
+        if self.minimap_region != region {
+            let mut assets = self.assets.clone();
+            let mut bank = model::TextureBank::open(&assets);
+            let image = region.as_ref().and_then(|name| {
+                let texture = format!("MINIMAP_{}", name.to_ascii_uppercase());
+                let id = assets.id_of(engine_core::assets::Archive::Textures, &texture)?;
+                let image = bank.load(id).ok()?;
+                Some(([image.width as usize, image.height as usize], image.rgba))
+            });
+            log::info!(
+                "minimap for {region:?}: {}",
+                if image.is_some() { "found" } else { "none" }
+            );
+            sprites.set(ui.ctx(), engine_ui::sprites::MINIMAP, image);
+            self.minimap_region = region;
+        }
+        let on_map = match &self.scene {
+            Scene::Terrain(_, world) => {
+                world.map_area.zip(world.hero.as_ref()).map(|(area, hero)| {
+                    let uv = area.uv(hero.position.truncate());
+                    (egui::vec2(uv.x, uv.y), hero.heading)
+                })
+            }
+            Scene::Model(_) => None,
+        };
         if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs, sprites) {
             self.clicked_answer = Some(answer);
         }
@@ -466,6 +499,7 @@ impl Session {
             let hud = engine_ui::Hud {
                 health: 1.0,
                 action: self.action,
+                on_map,
             };
             engine_ui::hud::draw(ui.painter(), rect, sprites, &hud, &self.gold_popup);
             if self.gold_popup.visible().is_some() {

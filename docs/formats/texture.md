@@ -69,4 +69,10 @@ The HUD and menus are textures too. `graphics/pc/textures.big` holds `GBANK_MAIN
 | `HUD_ORB_*`, `HUD_EXPR_*`, `HUD_DPAD_*`, `HUD_ABXY_*`, `HUD_COMBAT_*`, `HUD_MODES_*`, `HUD_CROSSHAIR_*` | quest orbs, expressions, the Xbox controller's rings and buttons, combat multiplier, modes |
 | `PC_UI_*_FRAME_n_SPRITE`, `UI_*` | the PC menus' nine-piece frames (quest start, finished, failed, death, experience, options, map) and backdrops |
 
+### Minimaps
+
+Each region has a map, `MINIMAP_<REGION>` in capitals (`MINIMAP_STARTOAKVALE`, `MINIMAP_HEROGUILDCOMPLEXINSIDE`; 256×256, Dxt3): a circular parchment with a soft edge, north (+y) up. It covers the square of the larger side of the maps the region contains (not those it only sees), centred on them: 256 units for StartOakVale (maps 224×256) and HeroGuildComplexInside, 128 for BarrowFields, so the scale differs between regions. Checked by laying each map over a top-down render (`engine_world::region::MapArea`). `frontend.big` has the same maps as `MINIMAP_<REGION>_FRONT_END`.
+
+`MINIMAP_BORDER` (256×128) holds the ring in its top-left 135×113 texels: two small circles at the top (in the HUD, the combat multiplier and the time of day) and sides curving down, open at the bottom. `MINIMAP_ICON_HERO` (64×64) is the Hero's arrow, drawn in texels 24–38 by 14–35. `MINIMAP_ICON_*` (16×16) mark houses, teleports, entrances, enemies and people; `GUI_MAP_*` are the world map's.
+
 `engine_ui::Sprites` loads the HUD's by name; `engine_ui::hud` draws the childhood HUD from them (health bar top left, gold box when gold changes, action rings bottom right) and `engine_ui::draw` puts subtitles and notices in the text box.

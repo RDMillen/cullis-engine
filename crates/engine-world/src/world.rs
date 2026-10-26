@@ -74,6 +74,8 @@ pub struct World {
     pub sections: Vec<String>,
     pub exits: Vec<crate::region::RegionExit>,
     pub soundscape: crate::region::Soundscape,
+    /// What the region's minimap covers.
+    pub map_area: Option<crate::region::MapArea>,
     /// The Hero's animations from his table, and his bone configs.
     pub hero_animations: crate::hero::HeroAnimations,
     pub hero_morphs: Vec<String>,

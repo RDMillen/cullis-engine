@@ -17,6 +17,9 @@ pub struct Hud {
     /// The action at hand for the right ring: someone to talk to, or something
     /// to use.
     pub action: Option<Action>,
+    /// The Hero on the region's map: where (0 to 1 across from the west and
+    /// down from the north) and his heading (radians anticlockwise from north).
+    pub on_map: Option<(Vec2, f32)>,
 }
 
 /// What using (E) would do.
@@ -89,6 +92,49 @@ pub fn draw(painter: &Painter, rect: Rect, sprites: &Sprites, hud: &Hud, gold: &
         sprites,
         hud.action,
     );
+    minimap(
+        painter,
+        Pos2::new(rect.right(), rect.top()),
+        u,
+        sprites,
+        hud.on_map,
+    );
+}
+
+/// The region's map in its ring at the top right corner `corner`, with the
+/// Hero's arrow where he is, turned the way he faces.
+fn minimap(painter: &Painter, corner: Pos2, u: f32, sprites: &Sprites, hero: Option<(Vec2, f32)>) {
+    if sprites.size(crate::sprites::MINIMAP) == Vec2::ZERO {
+        return;
+    }
+    let white = Color32::WHITE;
+    let centre = corner + Vec2::new(-43.0 * u, 43.0 * u);
+    let map = Rect::from_center_size(centre, Vec2::splat(80.0 * u));
+    sprites.draw(painter, crate::sprites::MINIMAP, map, white);
+    if let Some((uv, heading)) = hero {
+        let at = map.min + uv.clamp(Vec2::ZERO, Vec2::ONE) * map.size();
+        // The arrow is drawn in texels 24..38 by 14..35 of its 64, about
+        // (31, 25). North is up on screen; anticlockwise in the world is
+        // anticlockwise on screen, which egui (y down) counts negative.
+        let pivot = Vec2::new(31.0, 25.0) / 64.0;
+        sprites.draw_turned(
+            painter,
+            "MINIMAP_ICON_HERO",
+            at,
+            Vec2::splat(30.0 * u),
+            pivot,
+            -heading,
+        );
+    }
+    // The ring is drawn in texels 0..135 by 0..113 of its 256 by 128, around
+    // (67, 62), its inside about 116 across: fitted around the map.
+    let scale = 82.0 * u / 116.0;
+    let ring = Rect::from_min_size(
+        centre - Vec2::new(67.0, 62.0) * scale,
+        Vec2::new(135.0, 113.0) * scale,
+    );
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(135.0 / 256.0, 113.0 / 128.0));
+    sprites.draw_part(painter, "MINIMAP_BORDER", ring, uv, white);
 }
 
 /// The heart in its ring in the top left corner `corner` and the red bar

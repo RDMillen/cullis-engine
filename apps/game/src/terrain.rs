@@ -34,6 +34,8 @@ pub struct TerrainMesh {
     pub sections: BTreeSet<String>,
     /// Region exits in the maps the region contains.
     pub exits: Vec<RegionExit>,
+    /// The box the maps the region contains cover (not those it only sees).
+    pub own_bounds: Option<(glam::Vec2, glam::Vec2)>,
     /// Creatures placed in the maps the region contains.
     pub creatures: Vec<CreaturePlacement>,
     /// Doors in the maps the region contains.
@@ -380,6 +382,14 @@ pub fn load_region(
         let data = entry.read_data(&mut file)?;
         let lev = Lev::parse(&data)?;
         mesh.add_map(&lev, map.x as f32, map.y as f32);
+        if region.contains_maps.contains(level) {
+            let lo = glam::Vec2::new(map.x as f32, map.y as f32);
+            let hi = lo + glam::Vec2::new(lev.width as f32, lev.height as f32);
+            mesh.own_bounds = Some(match mesh.own_bounds {
+                Some((a, b)) => (a.min(lo), b.max(hi)),
+                None => (lo, hi),
+            });
+        }
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);

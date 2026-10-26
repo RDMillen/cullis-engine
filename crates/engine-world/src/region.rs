@@ -99,6 +99,35 @@ impl Soundscape {
     }
 }
 
+/// What a region's minimap (`MINIMAP_<REGION>`, 256 texels square) covers: the
+/// square of the larger side of the maps the region contains, centred on them,
+/// north (+y) up. Checked against top-down renders of StartOakVale and
+/// HeroGuildComplexInside (256 units) and BarrowFields (128).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MapArea {
+    /// The square's south-west corner and side, in world units.
+    pub lo: Vec2,
+    pub side: f32,
+}
+
+impl MapArea {
+    /// The square around the box `lo`..`hi` of the region's own maps.
+    pub fn around(lo: Vec2, hi: Vec2) -> Self {
+        let side = (hi - lo).max_element();
+        Self {
+            lo: (lo + hi) / 2.0 - Vec2::splat(side / 2.0),
+            side,
+        }
+    }
+
+    /// Where `p` is on the map: 0 to 1 across from the west, and down from the
+    /// north.
+    pub fn uv(&self, p: Vec2) -> Vec2 {
+        let q = (p - self.lo) / self.side;
+        Vec2::new(q.x, 1.0 - q.y)
+    }
+}
+
 /// A region exit (`CTCDRegionExit`): walking within `radius` of `position` leads to
 /// the entrance named by `connection` (see `fable_data::gtg::split_connected_uid`).
 #[derive(Debug, Clone, Copy)]
@@ -156,5 +185,20 @@ impl IdleAnimations {
             hit,
             moods,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_map_covers_the_square_around_the_regions_maps() {
+        // StartOakVale's maps: 224 by 256 units.
+        let area = MapArea::around(Vec2::new(3456.0, 736.0), Vec2::new(3680.0, 992.0));
+        assert_eq!(area.side, 256.0);
+        assert_eq!(area.lo, Vec2::new(3440.0, 736.0));
+        assert_eq!(area.uv(Vec2::new(3568.0, 864.0)), Vec2::splat(0.5));
+        assert_eq!(area.uv(Vec2::new(3440.0, 992.0)), Vec2::ZERO, "north-west");
     }
 }

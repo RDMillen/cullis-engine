@@ -80,6 +80,9 @@ impl Scene {
                     point_lights: mesh.lights.clone(),
                     exits: mesh.exits.clone(),
                     sections: mesh.sections.iter().cloned().collect(),
+                    map_area: mesh
+                        .own_bounds
+                        .map(|(lo, hi)| engine_world::region::MapArea::around(lo, hi)),
                     ..World::default()
                 };
                 if let Some(r) = wld.region(name) {
