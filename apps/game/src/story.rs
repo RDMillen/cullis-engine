@@ -1,7 +1,6 @@
 //! The quest being played: the Hero's talking and hitting go to the quest, and
 //! what it answers is queued as subtitles, notices and effects.
 
-use eframe::egui;
 use engine_script::guild::{self, GuildTraining};
 use engine_script::prologue::{self, Aftermath, Birthday};
 use engine_script::{Beat, Person, Quest, World};
@@ -9,7 +8,8 @@ use fable_data::strings::TextBank;
 use glam::Vec2;
 
 use crate::skin::AnimBank;
-use crate::talk::{self, Item, Subtitles};
+use engine_ui::Hud;
+use engine_ui::subtitles::{self, Item, Subtitles};
 use engine_world::creature::Npc;
 
 /// How near the Hero must be to talk to someone, and to kick them.
@@ -231,9 +231,9 @@ impl Story {
                     // Voice-set lines name no one: say who by role.
                     let fallback = by
                         .and_then(|i| npcs[i].script_name.as_deref())
-                        .map(talk::role_name)
+                        .map(subtitles::role_name)
                         .unwrap_or_default();
-                    for mut line in talk::lines(text, entry, mode, roll) {
+                    for mut line in subtitles::lines(text, entry, mode, roll) {
                         if line.speaker.is_empty() {
                             line.speaker.clone_from(&fallback);
                         }
@@ -252,37 +252,19 @@ impl Story {
         }
     }
 
-    /// The Hero's gold, items and deeds, in the top right of `rect`.
-    pub fn hud(&self, ctx: &egui::Context, rect: egui::Rect, text: &TextBank) {
+    /// What the HUD shows, while the quest keeps the Hero's gold and items.
+    pub fn hud(&self, text: &TextBank) -> Option<Hud> {
         let Act::Birthday(q) = &self.act else {
-            return;
+            return None;
         };
-        egui::Area::new(egui::Id::new("hud"))
-            .fixed_pos(egui::pos2(rect.right() - 200.0, rect.top() + 16.0))
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_width(170.0);
-                    ui.label(
-                        egui::RichText::new(format!("Gold: {}", q.gold))
-                            .strong()
-                            .size(16.0),
-                    );
-                    for item in q.items() {
-                        ui.label(text.get(item).unwrap_or(item));
-                    }
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Good deeds {} · Bad deeds {}",
-                            q.good_deeds, q.bad_deeds
-                        ))
-                        .small(),
-                    );
-                    ui.label(
-                        egui::RichText::new("E talk · F kick · Y/N answer")
-                            .weak()
-                            .small(),
-                    );
-                });
-            });
+        Some(Hud {
+            gold: q.gold,
+            items: q
+                .items()
+                .map(|item| text.get(item).unwrap_or(item).to_owned())
+                .collect(),
+            good_deeds: q.good_deeds,
+            bad_deeds: q.bad_deeds,
+        })
     }
 }

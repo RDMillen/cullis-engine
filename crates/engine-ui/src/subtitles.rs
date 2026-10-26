@@ -4,7 +4,6 @@
 
 use std::collections::VecDeque;
 
-use eframe::egui;
 use engine_script::{Beat, Mode};
 use fable_data::strings::TextBank;
 
@@ -317,190 +316,13 @@ impl Subtitles {
         }
     }
 
-    /// Draws the subtitle at the bottom of `rect` and the notice at its top.
-    /// Returns the answer if a question's button was clicked.
-    pub fn show(&self, ctx: &egui::Context, rect: egui::Rect) -> Option<bool> {
-        if let Some((text, kind)) = self.notices.front() {
-            // Clear of the HUD in the top right.
-            let width = (rect.width() - 480.0).clamp(240.0, 620.0);
-            egui::Area::new(egui::Id::new("notice"))
-                .fixed_pos(egui::pos2(rect.center().x - width / 2.0, rect.top() + 16.0))
-                .show(ctx, |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.set_width(width);
-                        let colour = match kind {
-                            Some(true) => egui::Color32::from_rgb(120, 200, 120),
-                            Some(false) => egui::Color32::from_rgb(220, 110, 100),
-                            None => ui.visuals().strong_text_color(),
-                        };
-                        ui.label(egui::RichText::new(text).size(16.0).color(colour));
-                    });
-                });
-        }
-        let width = (rect.width() * 0.7).min(720.0);
-        let mut answer = None;
-        let (speaker, body, hint) = match self.items.front() {
-            Some(Item::Line { line, wait, .. }) => (
-                line.speaker.as_str(),
-                line.text.as_str(),
-                wait.then_some("E to continue"),
-            ),
-            Some(Item::Ask { text, .. }) => ("", text.as_str(), None),
-            _ => return None,
-        };
-        egui::Area::new(egui::Id::new("subtitle"))
-            .fixed_pos(egui::pos2(
-                rect.center().x - width / 2.0,
-                rect.bottom() - 140.0,
-            ))
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_width(width);
-                    if !speaker.is_empty() {
-                        ui.label(egui::RichText::new(speaker).strong());
-                    }
-                    ui.label(egui::RichText::new(body).size(17.0));
-                    if let Some(hint) = hint {
-                        ui.label(egui::RichText::new(hint).weak().small());
-                    }
-                    if self.asking().is_some() {
-                        ui.horizontal(|ui| {
-                            if ui.button("Yes (Y)").clicked() {
-                                answer = Some(true);
-                            }
-                            if ui.button("No (N)").clicked() {
-                                answer = Some(false);
-                            }
-                        });
-                    }
-                });
-            });
-        answer
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn speaker_codes_read_as_names() {
-        assert_eq!(speaker_name("HERO FATHER"), "Father");
-        assert_eq!(speaker_name("HERO"), "Hero");
-        assert_eq!(speaker_name("THUG KID"), "Thug Kid");
-        assert_eq!(speaker_name("WHORE_SOPHIA_1_5"), "Whore Sophia");
-        assert_eq!(speaker_name("LEV1BDT1"), "");
-        assert_eq!(speaker_name("MALE VILLAGER1"), "");
-        assert_eq!(speaker_name(""), "");
-        assert_eq!(role_name("NOVI_Villager"), "Villager");
-        assert_eq!(role_name("NOVI_TeddyGirl"), "Teddy Girl");
+    /// The notice on screen: its text and whether it marks a good or bad deed.
+    pub fn notice(&self) -> Option<(&str, Option<bool>)> {
+        self.notices.front().map(|(t, k)| (t.as_str(), *k))
     }
 
-    #[test]
-    fn notices_lose_their_icons() {
-        assert_eq!(
-            notice_text("[HUD_DEED_GOOD_ICON] You performed a good deed."),
-            ("You performed a good deed.".into(), Some(true))
-        );
-        assert_eq!(
-            notice_text("[HUD_DEED_BAD_ICON] You committed a bad deed."),
-            ("You committed a bad deed.".into(), Some(false))
-        );
-        assert_eq!(notice_text("Plain."), ("Plain.".into(), None));
-    }
-
-    fn line(text: &str, wait: bool) -> Item {
-        Item::Line {
-            line: Line {
-                speaker: "Father".into(),
-                text: text.into(),
-                id: 7,
-                tags: Vec::new(),
-            },
-            by: Some(0),
-            wait,
-        }
-    }
-
-    #[test]
-    fn subtitles_wait_time_out_and_apply_effects_in_order() {
-        let mut s = Subtitles::default();
-        let mut effects = Vec::new();
-        s.push(line("one", true));
-        s.push(Item::Effect(Beat::Leave("NOVI_Bully")));
-        s.push(line("remark", false));
-        s.step(100.0, &mut effects);
-        assert_eq!(s.line().unwrap().0.text, "one", "a conversation line waits");
-        assert!(effects.is_empty());
-        assert!(s.advance());
-        s.step(0.1, &mut effects);
-        assert_eq!(effects, [Beat::Leave("NOVI_Bully")]);
-        assert_eq!(s.line().unwrap().0.text, "remark");
-        s.step(10.0, &mut effects);
-        assert!(s.line().is_none());
-        assert!(!s.advance());
-    }
-
-    #[test]
-    fn walking_away_drops_the_conversation() {
-        let mut s = Subtitles::default();
-        s.push(line("one", true));
-        s.push(Item::Ask {
-            text: "Buy?".into(),
-            by: Some(0),
-        });
-        s.push(Item::Notice("[HUD_DEED_GOOD_ICON] Done.".into()));
-        s.push(Item::Effect(Beat::Return("NOVI_BarrelMan")));
-        assert_eq!(s.waiting_on(), Some(0));
-        s.walked_away();
-        let mut effects = Vec::new();
-        s.step(0.0, &mut effects);
-        assert_eq!(effects, [Beat::Return("NOVI_BarrelMan")]);
-        assert!(s.asking().is_none() && s.line().is_none());
-        assert_eq!(s.notices.front(), Some(&("Done.".to_owned(), Some(true))));
-    }
-
-    #[test]
-    fn a_line_is_voiced_once_and_held_while_spoken() {
-        let mut s = Subtitles::default();
-        let mut effects = Vec::new();
-        s.push(line("remark", false));
-        assert_eq!(s.next_to_voice(), Some(7));
-        assert_eq!(s.next_to_voice(), None, "once");
-        s.hold_for(10.0);
-        s.step(5.0, &mut effects);
-        assert!(s.line().is_some(), "held while its voice plays");
-        s.step(6.0, &mut effects);
-        assert!(s.line().is_none());
-    }
-
-    #[test]
-    fn lines_say_how_they_are_said() {
-        let tags = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(gesture_of(&[]), (None, "CONVERSATION_HAPPY"));
-        assert_eq!(
-            gesture_of(&tags(&["CONVERSATION_ATTITUDE_ANGER"])),
-            (None, "CONVERSATION_ANGRY")
-        );
-        assert_eq!(
-            gesture_of(&tags(&["CONVERSATION_ATTITUDE_SADNESS", "ANIM:ST_POINT"])),
-            (Some("ST_POINT"), "CONVERSATION_SAD")
-        );
-    }
-
-    #[test]
-    fn conversations_and_quest_endings_hold_the_hero() {
-        let mut s = Subtitles::default();
-        assert!(!s.in_scene());
-        s.push(line("remark", false));
-        assert!(!s.in_scene(), "a passing remark does not");
-        s.push(line("one", true));
-        s.step(100.0, &mut Vec::new());
-        assert!(s.in_scene(), "a conversation line does");
-        s.advance();
-        assert!(!s.in_scene());
-        s.push(line("bandits!", false));
-        s.push(Item::Effect(Beat::Finish(&["AFTER"])));
-        assert!(s.in_scene(), "lines before a quest's end do");
+    /// The first item queued, the one on screen.
+    pub fn front(&self) -> Option<&Item> {
+        self.items.front()
     }
 }

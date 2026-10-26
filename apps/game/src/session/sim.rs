@@ -405,7 +405,7 @@ impl Session {
             && self.talking.as_ref().is_none_or(|t| t.1 != *id)
             && let Some(npc) = world.npcs.get(i)
         {
-            let (slot, mood) = talk::gesture_of(tags);
+            let (slot, mood) = subtitles::gesture_of(tags);
             self.talking = Some((i, *id, npc.gesture_ids(slot, mood), 0.0));
             // A fresh line starts a fresh gesture.
             self.gesture_picks += 1;

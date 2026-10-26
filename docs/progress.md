@@ -19,6 +19,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Checked: the game window opens beside the father with the HUD; the viewer's headless door walk and window walk reach their goals; tests pass, clippy clean.
 - Next: step 6 (`engine-ui`).
 
+## 2026-10-26: migration step 6, engine-ui
+
+- New crate `engine-ui`: `subtitles` (the former `talk` module without its drawing: lines, questions, notices, timing, `notice` and `front` for drawing) and `draw` (egui: `subtitles`, `hud`, `letterbox`, `fade`). The quest gives the HUD plain data (`Story::hud` returns an `engine_ui::Hud`).
+- The architecture migration's six steps are done; what is left of it is listed at the end of `docs/architecture.md`.
+- Checked: talking to the father in the window shows his line with the letterbox; tests pass, clippy clean.
+- Next: the Guild training (the dorm floor, walkers opening doors, the dummy lesson).
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.

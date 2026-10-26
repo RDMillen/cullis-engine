@@ -174,7 +174,7 @@ pub(crate) fn screenshot(
         }
         if args.talk > 0 {
             let text = fable_data::strings::TextBank::open(data_dir, "English")?;
-            let mut subs = talk::Subtitles::default();
+            let mut subs = subtitles::Subtitles::default();
             let at = hero.position.truncate();
             for _ in 0..args.talk {
                 let near = story::nearest_person(&world.npcs, at, story::TALK_REACH, None);

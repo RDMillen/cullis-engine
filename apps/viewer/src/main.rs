@@ -13,8 +13,9 @@ mod screenshot;
 
 use engine_render::render::TerrainRenderer;
 use engine_render::{model, render, skin};
+use engine_ui::subtitles;
 use engine_world::{camera, lighting, walk};
-use game::{DEFAULT_HOUR, Error, story, talk, terrain};
+use game::{DEFAULT_HOUR, Error, story, terrain};
 
 use std::fs::File;
 use std::io::BufReader;

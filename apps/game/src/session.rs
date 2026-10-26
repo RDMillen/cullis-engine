@@ -28,7 +28,7 @@ pub struct Session {
     pub loading: Option<Loading>,
     /// The quest being played, if this region has one, and what is on screen.
     pub story: Option<story::Story>,
-    pub subs: talk::Subtitles,
+    pub subs: subtitles::Subtitles,
     /// Sound output and the voices of lines, if they could be opened.
     pub audio: Option<audio::Audio>,
     pub voices: Option<audio::Voices>,
@@ -139,7 +139,7 @@ impl Session {
             pending_exit: None,
             loading: None,
             story,
-            subs: talk::Subtitles::default(),
+            subs: subtitles::Subtitles::default(),
             audio,
             voices,
             music: Default::default(),
@@ -424,41 +424,24 @@ impl Session {
             egui::Color32::WHITE,
         );
         // Letterbox bars while the conversation camera is on.
-        let bar = rect.height() * 0.11 * conversation::ease(self.conversation);
-        if bar > 0.5 {
-            let black = egui::Color32::BLACK;
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), bar)),
-                0.0,
-                black,
-            );
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(rect.min.x, rect.max.y - bar),
-                    egui::vec2(rect.width(), bar),
-                ),
-                0.0,
-                black,
-            );
-        }
+        draw::letterbox(ui.painter(), rect, conversation::ease(self.conversation));
         // A night passing: black, fading back in.
         if self.fade > 0.0 {
-            let alpha = (conversation::ease(self.fade.min(1.0)) * 255.0) as u8;
-            ui.painter()
-                .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(alpha));
+            draw::fade(ui.painter(), rect, conversation::ease(self.fade.min(1.0)));
             self.fade -= ui.input(|i| i.stable_dt.min(0.1)) / NIGHT_FADE;
             ui.ctx().request_repaint();
         }
         // What is being said, notices, and the Hero's gold and items.
-        if let Some(answer) = self.subs.show(ui.ctx(), rect) {
+        if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs) {
             self.clicked_answer = Some(answer);
         }
         if let (Some(story), Some(text), true) = (
             &self.story,
             &self.text,
             self.hero().is_some() && self.conversation == 0.0,
-        ) {
-            story.hud(ui.ctx(), rect, text);
+        ) && let Some(hud) = story.hud(text)
+        {
+            draw::hud(ui.ctx(), rect, &hud);
         }
     }
 }

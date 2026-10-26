@@ -767,6 +767,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-ui"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "engine-script",
+ "fable-data",
+]
+
+[[package]]
 name = "engine-world"
 version = "0.1.0"
 dependencies = [
@@ -1057,6 +1066,7 @@ dependencies = [
  "engine-core",
  "engine-render",
  "engine-script",
+ "engine-ui",
  "engine-world",
  "env_logger",
  "fable-data",
@@ -2942,6 +2952,7 @@ dependencies = [
  "engine-core",
  "engine-render",
  "engine-script",
+ "engine-ui",
  "engine-world",
  "env_logger",
  "fable-data",

@@ -1,0 +1,13 @@
+[package]
+name = "engine-ui"
+version = "0.1.0"
+description = "CullisEngine UI: subtitles, questions, notices and the HUD"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+engine-script = { path = "../engine-script" }
+fable-data = { path = "../fable-data" }
+# The same egui as the windowing in the apps.
+egui = { version = "=0.36.2", default-features = false }
