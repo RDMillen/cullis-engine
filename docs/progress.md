@@ -8,7 +8,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - The viewer is down to the app, the region loader, quests glue, subtitles, audio output and the door and creature loaders.
 - Checked: noon, night, the fireplace and the window render as before; tests pass, clippy clean.
 - The viewer's `main.rs` (2,481 lines) split by responsibility: `args` (command line), `input` (actions), `scene` (loading and drawing a region or mesh, region exits), `screenshot` (the headless path), `hero` (placing, following, blocking), `app` (the window) with `app/sim` (simulation steps and quest effects); `main.rs` keeps start-up. Every viewer file is under 800 lines now.
-- Next: step 4's remainder (a `RenderScene`, buildings' interiors into the world), then step 5 (`apps/game`).
+- Buildings' interiors moved to the world: `World::interiors` (`Interior` boxes), `World::inside`, `update_interior` and `indoors`; the renderer only hides the roof it is told to (`set_inside`) and asks the world what is lit indoors. Unit test for walking in and out.
+- Next: step 5 (`apps/game`) and step 6 (`engine-ui`).
 
 ## 2026-10-25 (later): migration step 3, creatures in the world
 

@@ -122,6 +122,13 @@ impl Scene {
                 };
                 let (things, buildings) =
                     model::load_placements(assets, name, &placements, &resolve)?;
+                world.interiors = buildings
+                    .iter()
+                    .map(|b| engine_world::world::Interior {
+                        lo: b.interior_lo,
+                        hi: b.interior_hi,
+                    })
+                    .collect();
                 renderer.buildings = buildings;
                 let status = format!(
                     "{} maps, {} terrain vertices, {} placed meshes ({} triangles)",

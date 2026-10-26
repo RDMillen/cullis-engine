@@ -230,7 +230,9 @@ impl ViewerApp {
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
-        renderer.update_interior(hero.position);
+        if world.update_interior(hero.position) {
+            renderer.set_inside(world.inside);
+        }
         follow(
             &mut self.camera,
             hero,
@@ -259,7 +261,7 @@ impl ViewerApp {
             return;
         }
         let (music, bank, night, indoors) = match &self.scene {
-            Scene::Terrain(r, world) => {
+            Scene::Terrain(_, world) => {
                 let at = world
                     .hero
                     .as_ref()
@@ -270,7 +272,7 @@ impl ViewerApp {
                     world.soundscape.music.clone(),
                     world.soundscape.bank_at(at).cloned(),
                     world.lighting.is_some() && sun < 0.3,
-                    r.inside.is_some(),
+                    world.inside.is_some(),
                 )
             }
             Scene::Model(_) => (None, None, false, false),
@@ -580,7 +582,10 @@ impl ViewerApp {
                     }
                     let to = glam::Vec2::new(fx, fy) - hero.position.truncate();
                     hero.heading = (-to.x).atan2(to.y);
-                    renderer.update_interior(hero.position);
+                    let at = hero.position;
+                    if world.update_interior(at) {
+                        renderer.set_inside(world.inside);
+                    }
                 }
             }
             Beat::Finish(sections) => {

@@ -197,10 +197,9 @@ impl TerrainRenderer {
             .map_or(&[], |i| self.buildings[i].roof_triangles.as_slice())
     }
 
-    /// Hides the roof of the building whose interior contains `p`, and shows it
-    /// again once `p` leaves.
-    pub fn update_interior(&mut self, p: glam::Vec3) {
-        let inside = self.buildings.iter().position(|b| b.contains(p));
+    /// Hides the roof of building `inside` (the world's interior the Hero is
+    /// in, by the same index), showing every other.
+    pub fn set_inside(&mut self, inside: Option<usize>) {
         if inside == self.inside {
             return;
         }
@@ -584,7 +583,7 @@ impl TerrainRenderer {
         // Creatures and doors take the indoor light while inside a building.
         let light_at = |transform: &Mat4| {
             let p = transform.w_axis.truncate();
-            if self.buildings.iter().any(|b| b.contains(p)) {
+            if world.indoors(p) {
                 &self.indoor_light
             } else {
                 light

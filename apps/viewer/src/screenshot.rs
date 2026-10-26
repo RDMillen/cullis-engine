@@ -360,8 +360,10 @@ pub(crate) fn pose_and_frame(
             args.anim_time
         );
     }
-    renderer.update_interior(hero.position);
-    if let Some(i) = renderer.inside {
+    if world.update_interior(hero.position) {
+        renderer.set_inside(world.inside);
+    }
+    if let Some(i) = world.inside {
         log::info!("inside building {i} (roof hidden)");
     }
     let distance = camera.distance.clamp(3.0, 12.0);

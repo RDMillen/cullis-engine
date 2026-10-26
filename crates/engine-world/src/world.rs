@@ -18,6 +18,22 @@ use crate::walk::{HeightGrid, WalkGrid};
 /// read about 30% too dark against the original).
 const NIGHT_LIFT: f32 = 0.3;
 
+/// A building's interior: the box its interior meshes span.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Interior {
+    pub lo: Vec3,
+    pub hi: Vec3,
+}
+
+impl Interior {
+    /// Whether `p` is inside the box, a little in from its walls.
+    pub fn contains(&self, p: Vec3) -> bool {
+        let margin = Vec3::new(0.3, 0.3, 0.0);
+        let (lo, hi) = (self.lo + margin, self.hi - margin);
+        p.x > lo.x && p.y > lo.y && p.x < hi.x && p.y < hi.y && p.z > lo.z - 1.0 && p.z < hi.z
+    }
+}
+
 /// A region's simulation state.
 #[derive(Default)]
 pub struct World {
@@ -51,6 +67,9 @@ pub struct World {
     pub focus: Vec3,
     /// Simulated seconds since the region loaded.
     pub time: f32,
+    /// Buildings' interiors, and the one the Hero is in.
+    pub interiors: Vec<Interior>,
+    pub inside: Option<usize>,
     /// The region's quest-state sections, its exits, and what it sounds like.
     pub sections: Vec<String>,
     pub exits: Vec<crate::region::RegionExit>,
@@ -78,6 +97,17 @@ impl World {
             light.highlight_limit = highlight_limit;
         }
         self.place_point_lights();
+    }
+
+    /// Notes which interior `p` (the Hero) is in; whether that changed.
+    pub fn update_interior(&mut self, p: Vec3) -> bool {
+        let inside = self.interiors.iter().position(|b| b.contains(p));
+        std::mem::replace(&mut self.inside, inside) != inside
+    }
+
+    /// Whether `p` is inside any building.
+    pub fn indoors(&self, p: Vec3) -> bool {
+        self.interiors.iter().any(|b| b.contains(p))
     }
 
     /// Advances the world `dt` seconds: animations play, placed lights
@@ -186,5 +216,26 @@ mod tests {
         assert_eq!(world.toggle_door(e), Some(true));
         assert!(!world.door_blocks(doorway));
         world.tick(0.1);
+    }
+}
+
+#[cfg(test)]
+mod interior_tests {
+    use super::*;
+
+    #[test]
+    fn walking_in_and_out_of_a_building() {
+        let mut world = World {
+            interiors: vec![Interior {
+                lo: Vec3::ZERO,
+                hi: Vec3::new(5.0, 5.0, 3.0),
+            }],
+            ..World::default()
+        };
+        assert!(world.update_interior(Vec3::new(2.0, 2.0, 0.5)));
+        assert_eq!(world.inside, Some(0));
+        assert!(!world.update_interior(Vec3::new(2.5, 2.0, 0.5)), "still in");
+        assert!(world.update_interior(Vec3::new(9.0, 2.0, 0.5)));
+        assert_eq!(world.inside, None);
     }
 }
