@@ -12,6 +12,7 @@ fable-data = { path = "../../crates/fable-data" }
 engine-core = { path = "../../crates/engine-core" }
 engine-world = { path = "../../crates/engine-world" }
 engine-render = { path = "../../crates/engine-render" }
+game = { path = "../game" }
 hecs = { version = "0.10", default-features = false }
 log = "0.4.34"
 env_logger = { version = "0.11.3", default-features = false, features = ["auto-color"] }

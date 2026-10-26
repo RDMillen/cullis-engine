@@ -3,15 +3,22 @@
 
 use crate::*;
 
+/// What a window shows: a region, or (in the viewer) a single mesh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Subject {
+    Region(String),
+    Mesh(String),
+}
+
 /// What is on screen: a region's terrain or a single mesh.
-pub(crate) enum Scene {
+pub enum Scene {
     /// A region: its renderer and its world.
     Terrain(Box<TerrainRenderer>, Box<engine_world::world::World>),
     Model(Box<ModelRenderer>),
 }
 
 impl Scene {
-    pub(crate) fn load(
+    pub fn load(
         assets: &AssetCache,
         wld: &Wld,
         subject: &Subject,
@@ -225,7 +232,7 @@ impl Scene {
         }
     }
 
-    pub(crate) fn render(
+    pub fn render(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -238,7 +245,7 @@ impl Scene {
         }
     }
 
-    pub(crate) fn target(&self) -> Option<&Target> {
+    pub fn target(&self) -> Option<&Target> {
         match self {
             Self::Terrain(r, _) => r.target.as_ref(),
             Self::Model(r) => r.target.as_ref(),
@@ -247,7 +254,7 @@ impl Scene {
 }
 
 /// Reads `Levels/FinalAlbion.gtg` (region entrances).
-pub(crate) fn load_gtg(data_dir: &Path) -> Result<Gtg, Error> {
+pub fn load_gtg(data_dir: &Path) -> Result<Gtg, Error> {
     let bytes = std::fs::read(data_dir.join("Levels/FinalAlbion.gtg"))?;
     Ok(Gtg::parse(
         &bytes.iter().map(|&b| b as char).collect::<String>(),
@@ -256,7 +263,7 @@ pub(crate) fn load_gtg(data_dir: &Path) -> Result<Gtg, Error> {
 
 /// Where a region exit leads: the region to load, and the entrance's world
 /// position and facing.
-pub(crate) fn resolve_exit(
+pub fn resolve_exit(
     wld: &Wld,
     gtg: &Gtg,
     connection: u64,
@@ -277,7 +284,7 @@ pub(crate) fn resolve_exit(
 }
 
 /// The region exit the Hero stands in, if any.
-pub(crate) fn exit_at(world: &World, hero: &walk::Hero) -> Option<u64> {
+pub fn exit_at(world: &World, hero: &walk::Hero) -> Option<u64> {
     world
         .exits
         .iter()

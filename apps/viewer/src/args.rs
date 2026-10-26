@@ -2,12 +2,6 @@
 
 use crate::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Subject {
-    Region(String),
-    Mesh(String),
-}
-
 pub(crate) struct Args {
     pub(crate) subject: Subject,
     /// Screenshot camera override: target x, y, z, distance, yaw, pitch.

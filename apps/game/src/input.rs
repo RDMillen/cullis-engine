@@ -6,21 +6,21 @@ use crate::*;
 /// consumed by the frame's simulation ticks. Held keys (movement, run) apply
 /// to every tick; presses are taken by the first.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Actions {
+pub struct Actions {
     /// Forward (W minus S) and right (D minus A), -1..1.
-    pub(crate) forward: f32,
-    pub(crate) right: f32,
-    pub(crate) run: bool,
+    pub forward: f32,
+    pub right: f32,
+    pub run: bool,
     /// E: go on, talk, use.
-    pub(crate) use_: bool,
+    pub use_: bool,
     /// F: kick.
-    pub(crate) kick: bool,
+    pub kick: bool,
     /// Y or N to a question.
-    pub(crate) answer: Option<bool>,
+    pub answer: Option<bool>,
 }
 
 impl Actions {
-    pub(crate) fn read(i: &egui::InputState) -> Self {
+    pub fn read(i: &egui::InputState) -> Self {
         let axis = |pos: egui::Key, neg: egui::Key| {
             f32::from(u8::from(i.key_down(pos))) - f32::from(u8::from(i.key_down(neg)))
         };

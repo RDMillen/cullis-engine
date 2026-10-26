@@ -1,0 +1,21 @@
+[package]
+name = "game"
+version = "0.1.0"
+description = "CullisEngine: the game, played from an installed copy of Fable: The Lost Chapters"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+fable-data = { path = "../../crates/fable-data" }
+engine-core = { path = "../../crates/engine-core" }
+engine-world = { path = "../../crates/engine-world" }
+engine-render = { path = "../../crates/engine-render" }
+engine-audio = { path = "../../crates/engine-audio" }
+engine-script = { path = "../../crates/engine-script" }
+log = "0.4.34"
+env_logger = { version = "0.11.3", default-features = false, features = ["auto-color"] }
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "x11", "wayland", "default_fonts"] }
+glam = { version = "0.34.1", features = ["bytemuck"] }
+cpal = { version = "0.18.2", features = ["pulseaudio"] }

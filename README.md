@@ -30,7 +30,9 @@ Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters'
   - the ambient banks (`Sound/*.met`, `*.lug`) and which music and ambience play where
 - `engine-audio` mixes sounds for an output device (voices, music, ambience; fades and looping) and decodes Ogg Vorbis; no platform dependency.
 - `engine-script` holds the quest API and the quests, written by hand from how the game plays (the data has no quest logic). No rendering dependency.
-- `apps/viewer` is the desktop viewer (egui and wgpu), where everything is tried out.
+- `engine-core` (fixed-step time, the asset cache, logging), `engine-world` (the simulation: navigation, movement, animation, creatures, doors, light, particles) and `engine-render` (drawing it with wgpu); `docs/architecture.md` describes the layers.
+- `apps/game` is the game: a session that loads a region and plays it (quests, talk, sound), and the `game` binary that runs it in a window.
+- `apps/viewer` is the desktop viewer (egui and wgpu) on the same session, with a browser of regions, meshes, textures and text and the debug options where everything is tried out.
 
 ## Building
 
@@ -61,6 +63,15 @@ To get the Steam release on macOS with SteamCMD:
 ### Platforms
 
 Developed on Linux x86-64 (Vulkan). Reported working unchanged on macOS on Apple Silicon (Metal) with the Steam release, all tests passing: thanks to Romane Donnet for testing it ([#1](https://github.com/RDMillen/cullis-engine/issues/1)).
+
+## The game
+
+```sh
+FABLE_DIR=/path/to/Fable cargo run --release -p game
+FABLE_DIR=/path/to/Fable cargo run --release -p game -- --region HeroGuildComplexInside --section Q_GuildTraining
+```
+
+It opens in Oakvale with the young Hero beside his father; the keys are the viewer's below.
 
 ## The viewer
 

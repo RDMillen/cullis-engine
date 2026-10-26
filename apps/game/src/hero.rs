@@ -5,7 +5,7 @@ use crate::*;
 
 /// Where a route should not go: where the Hero may not stand, with a margin
 /// around people so that walking between the route's points does not graze them.
-pub(crate) fn blocked_for_route(
+pub fn blocked_for_route(
     doors: &World,
     npcs: &[engine_world::creature::Npc],
     p: glam::Vec2,
@@ -17,7 +17,7 @@ pub(crate) fn blocked_for_route(
 }
 
 /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
-pub(crate) fn blocked_for_hero(
+pub fn blocked_for_hero(
     doors: &World,
     npcs: &[engine_world::creature::Npc],
     p: glam::Vec2,
@@ -29,7 +29,7 @@ pub(crate) fn blocked_for_hero(
 }
 
 /// Places the young Hero on the walkable cell nearest `near`.
-pub(crate) fn spawn_hero(
+pub fn spawn_hero(
     renderer: &mut TerrainRenderer,
     world: &mut World,
     assets: &AssetCache,
@@ -98,23 +98,23 @@ pub(crate) fn spawn_hero(
 
 /// The Hero's clips by name, used when his animation table lacks a slot:
 /// standing, walking, running (indices used by [`animate_hero`]).
-pub(crate) const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
+pub const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
 
 /// The boy Hero's kick (one of his `STRIKE_MEDIUM_FRONT` animations).
-pub(crate) const HERO_KICK: &str = "ANIM_HERO_UNARMED_KICK_RIGHT_2_1";
+pub const HERO_KICK: &str = "ANIM_HERO_UNARMED_KICK_RIGHT_2_1";
 
 /// The young Hero's definition, whose animation table the Hero plays.
-pub(crate) const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";
+pub const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";
 
 /// Poses the Hero with clip `clip` advanced by `dt` and uploads his vertices.
-pub(crate) fn animate_hero(world: &mut World, clip: usize, dt: f32) {
+pub fn animate_hero(world: &mut World, clip: usize, dt: f32) {
     if let Some(animator) = &mut world.hero_animator {
         animator.play(clip);
         animator.advance(dt);
     }
 }
 
-pub(crate) fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
+pub fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
     glam::Mat4::from_translation(hero.position)
         * glam::Mat4::from_rotation_z(hero.heading)
         * model::hero_local()
@@ -124,7 +124,7 @@ pub(crate) fn hero_transform(hero: &walk::Hero) -> glam::Mat4 {
 /// mesh or the ground is in the way. The camera is treated as having some width:
 /// besides the ray to it, rays to points around it are cast, so it does not end up
 /// pressed against (or poking into) a wall or a cart.
-pub(crate) fn follow(
+pub fn follow(
     camera: &mut OrbitCamera,
     hero: &walk::Hero,
     renderer: &TerrainRenderer,

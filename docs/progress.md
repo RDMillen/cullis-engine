@@ -11,6 +11,14 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Buildings' interiors moved to the world: `World::interiors` (`Interior` boxes), `World::inside`, `update_interior` and `indoors`; the renderer only hides the roof it is told to (`set_inside`) and asks the world what is lit indoors. Unit test for walking in and out.
 - Next: step 5 (`apps/game`) and step 6 (`engine-ui`).
 
+## 2026-10-26: migration step 5, apps/game
+
+- New package `apps/game` (library and binary). The library has the game session, `session::Session` (with `session/sim`: ticks, the Hero's step, talk, quest beats, conversation camera, gestures, mouths, soundscape), and the modules moved from the viewer: `scene` (with `Subject`), `terrain`, `hero`, `input`, `story`, `talk`, `audio`, `soundscape`, `door`, `npc`. `Session::loading_screen`, `update` and `view` draw a frame.
+- The `game` binary opens StartOakVale (or `--region`, `--section`) as the Hero; in the Prologue he starts beside his father.
+- The viewer is `args`, `screenshot` and `app` (the browser and debug panel around a `Session`; the texture view in `app/sim`).
+- Checked: the game window opens beside the father with the HUD; the viewer's headless door walk and window walk reach their goals; tests pass, clippy clean.
+- Next: step 6 (`engine-ui`).
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.

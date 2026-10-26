@@ -165,6 +165,11 @@ impl Voices {
         self.index.len()
     }
 
+    /// Whether no line has a voice.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The lip sync track of text entry `id`'s voice, if it has one.
     pub fn lipsync(&mut self, id: u32) -> Option<fable_data::lipsync::LipSync> {
         let voice = self.index.get(id)?;
