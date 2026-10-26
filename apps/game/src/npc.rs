@@ -5,10 +5,10 @@
 use std::collections::HashMap;
 
 use eframe::wgpu;
-use engine_world::anim::Animator;
+use engine_world::anim::{self, Animator};
 use engine_world::creature::{Npc, Spec};
 
-pub use engine_render::creature::{CreatureModel, PartModel};
+pub use engine_render::creature::{CreatureModel, EyeModel, PartModel};
 
 use crate::model::{self, ModelData, ModelRenderer, Skin};
 use crate::skin::{AnimBank, Clip};
@@ -68,6 +68,7 @@ pub fn load(
     type Key = (u32, Vec<(u32, u32)>);
     let mut meshes: HashMap<Key, Option<(ModelData, Skin)>> = HashMap::new();
     let mut clips: HashMap<(u32, u32), Option<Clip>> = HashMap::new();
+    let mut eye_meshes: HashMap<u32, Option<ModelData>> = HashMap::new();
     let mut bank = match AnimBank::open(assets) {
         Ok(b) => b,
         Err(e) => {
@@ -92,6 +93,7 @@ pub fn load(
             .chain(c.idles.hit)
             .collect();
         let mut parts = Vec::new();
+        let mut eyes = Vec::new();
         for key in meshes_for(c) {
             let id = key.0;
             let Some((model, skin)) = meshes
@@ -130,6 +132,45 @@ pub fn load(
             // Start each creature at a different point of its loop.
             animator.advance(i as f32 * 0.37);
             let renderer = ModelRenderer::new(device, queue, model);
+            // An eyeball at each eye of a head: at its eye bone, else at its eye
+            // dummy following the head bone. Eyeball meshes bulge towards +y
+            // (their iris at the texture's centre), heads face -y: half a turn.
+            let skeleton = &skin.rig.skeleton;
+            let bone = |name: &str| {
+                skeleton
+                    .bones
+                    .iter()
+                    .position(|b| b.name.eq_ignore_ascii_case(name))
+            };
+            let head = bone("Bip01 Head");
+            if let Some((eye, scale)) = c.eyes {
+                for socket in ["EYE_SET_L", "EYE_SET_R"] {
+                    let place = match (bone(socket), skeleton.named_dummy(socket), head) {
+                        (Some(b), _, _) => (b, anim::bind_matrix(&skeleton.bones[b])),
+                        (None, Some(dummy), Some(head)) => (head, model::dummy_matrix(dummy)),
+                        _ => continue,
+                    };
+                    let Some(eye_model) = eye_meshes
+                        .entry(eye)
+                        .or_insert_with(|| {
+                            model::static_model(assets, eye)
+                                .map_err(|e| log::warn!("eye mesh {eye}: {e}"))
+                                .ok()
+                        })
+                        .as_ref()
+                    else {
+                        continue;
+                    };
+                    eyes.push(EyeModel::new(
+                        ModelRenderer::new(device, queue, eye_model),
+                        parts.len(),
+                        place.0,
+                        place.1
+                            * glam::Mat4::from_rotation_z(std::f32::consts::PI)
+                            * glam::Mat4::from_scale(glam::Vec3::splat(scale)),
+                    ));
+                }
+            }
             parts.push((
                 PartModel::new(renderer, model.vertices.clone(), skin),
                 animator,
@@ -153,7 +194,10 @@ pub fn load(
             parts: animators,
         };
         if let Some(mut npc) = Npc::new(spec) {
-            let mut model = CreatureModel { parts: meshes };
+            let mut model = CreatureModel {
+                parts: meshes,
+                eyes,
+            };
             model.update(queue, &npc);
             npc.hidden = false;
             npcs.push(npc);

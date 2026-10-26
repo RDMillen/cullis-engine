@@ -86,6 +86,10 @@ Lake themes (`WATER_BWLAKE_N`, `WATER_WWLAKE_N`, `WATER_KRAKEN_LAKE_N`, …) als
 
 ## Creatures
 
+A mesh field is followed by a `u32` (0 in every record looked at) and an `f32`: 1.0 after most creatures' `Graphic`, 0.9 after `CREATURE_YOUNG_SISTER`'s (probably a body scale; not applied yet).
+
+A creature's eyes are an `EyeGraphic` field (hash `0x92f3747d`, tag 5, a static mesh), right after its `Graphic`: `MESH_EYE_BLUE_DARK` for the father, villagers and children, `MESH_HERO_EYE` for `CREATURE_HERO`. Its `f32` is the eyeballs' scale: 1.34 for adult villagers and the father, 1.3 for boys, 1.85 for the young sister, 0.93 for the Hero. Guards (`CREATURE_BS_GUARD`) have none. `Def::eye_graphic`.
+
 A creature's `Graphic` (tag 4) is its whole body for single-mesh creatures (`CREATURE_HERO_FATHER` → `MESH_HERO_FATHER`, chickens, `CREATURE_YOUNG_SISTER`). Built-up creatures (villagers, guards, children, traders) name an "unclothed" base (`MESH_BS_MALE_MIDDLE_UNCLOTHED_01`); their `CCreatureDef` component holds three part lists, heads, torsos and legs, each a `u32` count followed by options:
 
 | Field | Type | Notes |

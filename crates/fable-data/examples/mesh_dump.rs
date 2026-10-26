@@ -1,5 +1,6 @@
-//! Prints a mesh's levels of detail, materials and chunks (vertex count, height
-//! range, sub-meshes with their material).
+//! Prints a mesh's helpers, dummies and bones, and its levels of detail,
+//! materials and chunks (vertex count, height range, sub-meshes with their
+//! material).
 //!
 //! Usage: `cargo run --example mesh_dump -- <FABLE_DIR>/data <mesh name or id>`
 
@@ -52,6 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         for d in &sk.dummies {
             println!("  dummy {:?} at {:?}", sk.dummy_name(d), d.position);
+        }
+        for (i, b) in sk.bones.iter().enumerate() {
+            println!("  bone {i}: {:?} (parent {:?})", b.name, b.parent);
         }
     }
     for (l, lod) in mesh.lods.iter().enumerate() {

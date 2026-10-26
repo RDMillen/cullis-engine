@@ -233,6 +233,13 @@ fn animated_bone(bone: &Bone, track: Option<&Track>, frames: u32, fps: f32, time
     out
 }
 
+/// A bone's place in model space in the bind pose: the inverse of its inverse
+/// bind matrix. Something modelled in the bone's own space (an eyeball at an
+/// `EYE_SET_L` bone) goes there.
+pub fn bind_matrix(bone: &Bone) -> Mat4 {
+    to_mat4(&bone.inverse_bind).inverse()
+}
+
 /// Where a bone sits in model space in the bind pose (the inverse of its
 /// inverse bind matrix, applied to the origin).
 pub fn bind_origin(bone: &Bone) -> Vec3 {

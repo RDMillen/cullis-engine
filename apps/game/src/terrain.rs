@@ -321,6 +321,8 @@ pub struct CreaturePlacement {
     pub scripted: bool,
     /// Its `ScriptName` (its role), if any.
     pub script_name: Option<String>,
+    /// Its eyeball mesh and scale (`EyeGraphic`), for the eyes of its head.
+    pub eyes: Option<(u32, f32)>,
     pub placement: Placement,
 }
 
@@ -551,6 +553,7 @@ fn load_placements(
                 slots: Default::default(),
                 scripted: t.script_name().is_some_and(|n| !n.ends_with("_Villager")),
                 script_name: t.script_name().map(str::to_owned),
+                eyes: defs.get(definition)?.eye_graphic(),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,

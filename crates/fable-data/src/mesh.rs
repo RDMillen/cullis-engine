@@ -267,6 +267,12 @@ impl Skeleton {
             .map(String::as_str)
     }
 
+    /// The dummy named `name` (`EYE_SET_L`), if there is one.
+    pub fn named_dummy(&self, name: &str) -> Option<&Dummy> {
+        let hash = crate::defs::name_hash(name);
+        self.dummies.iter().find(|d| d.name_hash == hash)
+    }
+
     /// The objects the mesh creates: (definition name, dummy) for each
     /// `CREATEOBJECT` dummy.
     pub fn created_objects(&self) -> Vec<(&str, &Dummy)> {
@@ -987,6 +993,23 @@ mod tests {
             "{child:?}"
         );
         assert_eq!(child[2], 100.0);
+    }
+
+    #[test]
+    fn finds_a_dummy_by_name() {
+        let eye = Dummy {
+            name_hash: crate::defs::name_hash("EYE_SET_L"),
+            rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            position: [3.8, -4.8, 178.3],
+            unknown: 0xffff_ffff,
+        };
+        let skeleton = Skeleton {
+            helper_names: vec!["EYE_SET_L".into()],
+            dummies: vec![eye.clone()],
+            ..Default::default()
+        };
+        assert_eq!(skeleton.named_dummy("EYE_SET_L"), Some(&eye));
+        assert_eq!(skeleton.named_dummy("EYE_SET_R"), None);
     }
 
     #[test]

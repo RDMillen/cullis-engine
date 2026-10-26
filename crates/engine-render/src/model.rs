@@ -248,16 +248,7 @@ impl ModelBuilder {
             .map(|s| {
                 s.created_objects()
                     .into_iter()
-                    .map(|(name, d)| {
-                        let r = d.rotation;
-                        let m = Mat4::from_cols(
-                            Vec3::new(r[0][0], r[1][0], r[2][0]).extend(0.0),
-                            Vec3::new(r[0][1], r[1][1], r[2][1]).extend(0.0),
-                            Vec3::new(r[0][2], r[1][2], r[2][2]).extend(0.0),
-                            Vec3::from_array(d.position).extend(1.0),
-                        );
-                        (name.to_owned(), m)
-                    })
+                    .map(|(name, d)| (name.to_owned(), dummy_matrix(d)))
                     .collect()
             })
             .unwrap_or_default();
@@ -474,6 +465,26 @@ pub fn hero_model(assets: &AssetCache) -> Result<(ModelData, Option<Skin>), Erro
 
 /// Mesh `id` in its own units with its textures (with `swaps` applied: texture
 /// named -> texture used), and its skin if it has one.
+/// A dummy's place in its mesh: its rotation and position (mesh units).
+pub fn dummy_matrix(d: &fable_data::mesh::Dummy) -> Mat4 {
+    let r = d.rotation;
+    Mat4::from_cols(
+        Vec3::new(r[0][0], r[1][0], r[2][0]).extend(0.0),
+        Vec3::new(r[0][1], r[1][1], r[2][1]).extend(0.0),
+        Vec3::new(r[0][2], r[1][2], r[2][2]).extend(0.0),
+        Vec3::from_array(d.position).extend(1.0),
+    )
+}
+
+/// A static mesh alone, in its own space (mesh units), as an eyeball is drawn.
+pub fn static_model(assets: &AssetCache, id: u32) -> Result<ModelData, Error> {
+    let mut builder = ModelBuilder::open(assets, &id.to_string())?;
+    if !builder.add(id, Mat4::IDENTITY) {
+        return Err(format!("could not load mesh {id}").into());
+    }
+    Ok(builder.finish())
+}
+
 pub fn skinned_model(
     assets: &AssetCache,
     id: u32,

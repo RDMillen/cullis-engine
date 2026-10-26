@@ -623,6 +623,16 @@ impl TerrainRenderer {
                     light_at(&npc.transform),
                 );
             }
+            for eye in &model.eyes {
+                eye.renderer.prepare_placed(
+                    queue,
+                    view_proj,
+                    eye.transform,
+                    self.eye,
+                    glow(Highlight::Npc(i)),
+                    light_at(&npc.transform),
+                );
+            }
         }
         for door in &mut self.doors {
             let Some(transform) = door.update(queue, world) else {
@@ -733,7 +743,12 @@ impl TerrainRenderer {
                 .iter()
                 .zip(&world.npcs)
                 .filter(|(_, n)| !n.hidden)
-                .flat_map(|(m, _)| m.parts.iter().map(|p| &p.renderer))
+                .flat_map(|(m, _)| {
+                    m.parts
+                        .iter()
+                        .map(|p| &p.renderer)
+                        .chain(m.eyes.iter().map(|e| &e.renderer))
+                })
             {
                 part.draw(&mut pass);
             }

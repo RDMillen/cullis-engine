@@ -205,6 +205,24 @@ impl Def {
         self.find_u32("Graphic", GRAPHIC_VALUE_TAG)
             .or_else(|| self.find_u32("Graphic", SKINNED_GRAPHIC_VALUE_TAG))
     }
+
+    /// A creature's eyeball mesh and its scale, from its `EyeGraphic` field
+    /// (value tag 5, a static mesh: `MESH_EYE_BLUE_DARK`, `MESH_HERO_EYE`).
+    /// Heads have empty sockets; one eyeball goes at each of their `EYE_SET_L`
+    /// and `EYE_SET_R` bones. The scale is the `f32` 8 bytes after the mesh id,
+    /// after a `u32` that is 0 in every creature looked at (1.34 for adult
+    /// villagers, 1.3 for boys, 1.85 for the young sister).
+    pub fn eye_graphic(&self) -> Option<(u32, f32)> {
+        let mesh = self.find_u32("EyeGraphic", GRAPHIC_VALUE_TAG)?;
+        let mut pattern = name_hash("EyeGraphic").to_le_bytes().to_vec();
+        pattern.extend_from_slice(&GRAPHIC_VALUE_TAG.to_le_bytes());
+        let at = self.record.windows(8).position(|w| w == pattern)? + 16;
+        let scale = self
+            .record
+            .get(at..at + 4)
+            .map_or(1.0, |b| f32::from_le_bytes(b.try_into().unwrap()));
+        Some((mesh, scale))
+    }
 }
 
 /// One entry of a `CAppearanceDef`'s animation table: what a creature plays for a
@@ -662,6 +680,32 @@ mod tests {
         assert_eq!(name_hash("NULLDEF_FRONT_END"), 0xe34b_378d);
         assert_eq!(name_hash("BUILDING_TOWN_WAREHOUSE_02"), 0x647c_b337);
         assert_eq!(name_hash("Graphic"), 0x2e6b_63c8);
+        assert_eq!(name_hash("EyeGraphic"), 0x92f3_747d);
+    }
+
+    #[test]
+    fn reads_a_creatures_body_and_eyes() {
+        // Each mesh field: hash, tag, mesh id, a u32 (0) and an f32 scale.
+        let record: Vec<u8> = [
+            (
+                name_hash("Graphic"),
+                SKINNED_GRAPHIC_VALUE_TAG,
+                5367,
+                1.0f32,
+            ),
+            (name_hash("EyeGraphic"), GRAPHIC_VALUE_TAG, 8112, 1.34),
+        ]
+        .iter()
+        .flat_map(|&(field, tag, mesh, scale)| [field, tag, mesh, 0, scale.to_bits()])
+        .flat_map(u32::to_le_bytes)
+        .collect();
+        let def = Def {
+            def_type: 0,
+            name: None,
+            record,
+        };
+        assert_eq!(def.graphic(), Some(5367));
+        assert_eq!(def.eye_graphic(), Some((8112, 1.34)));
     }
 
     #[test]
