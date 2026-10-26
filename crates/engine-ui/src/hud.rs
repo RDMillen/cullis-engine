@@ -22,6 +22,17 @@ pub struct Hud {
     pub on_map: Option<(Vec2, f32)>,
     /// The time of day, in hours.
     pub hour: f32,
+    /// Markers on the map, where they are (as `on_map`).
+    pub markers: Vec<(Vec2, Marker)>,
+}
+
+/// What a minimap marker shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Marker {
+    /// Someone the quest has something for: a green dot.
+    Person,
+    /// Where the quest's main thread leads: the core quest orb.
+    QuestGoal,
 }
 
 /// What using (E) would do.
@@ -101,6 +112,7 @@ pub fn draw(painter: &Painter, rect: Rect, sprites: &Sprites, hud: &Hud, gold: &
         sprites,
         hud.on_map,
         hud.hour,
+        &hud.markers,
     );
 }
 
@@ -113,6 +125,7 @@ fn minimap(
     sprites: &Sprites,
     hero: Option<(Vec2, f32)>,
     hour: f32,
+    markers: &[(Vec2, Marker)],
 ) {
     if sprites.size(crate::sprites::MINIMAP) == Vec2::ZERO {
         return;
@@ -122,6 +135,25 @@ fn minimap(
     let centre = corner + Vec2::new(-52.0 * u, 47.0 * u);
     let map = Rect::from_center_size(centre, Vec2::splat(80.0 * u));
     sprites.draw(painter, crate::sprites::MINIMAP, map, white);
+    // Markers on the map: the dots, then the goal's orb over them.
+    for pass in [Marker::Person, Marker::QuestGoal] {
+        for (uv, _) in markers.iter().filter(|(_, m)| *m == pass) {
+            if (*uv - Vec2::splat(0.5)).length() > 0.48 {
+                continue;
+            }
+            let (name, size) = match pass {
+                Marker::Person => ("MINIMAP_ICON_PERSON_INTEREST", 5.0),
+                Marker::QuestGoal => ("HUD_ORB_QUEST_CORE", 11.0),
+            };
+            let at = map.min + *uv * map.size();
+            sprites.draw(
+                painter,
+                name,
+                Rect::from_center_size(at, Vec2::splat(size * u)),
+                white,
+            );
+        }
+    }
     if let Some((uv, heading)) = hero {
         let at = map.min + uv.clamp(Vec2::ZERO, Vec2::ONE) * map.size();
         // The arrow is drawn in texels 24..38 by 14..35 of its 64, about

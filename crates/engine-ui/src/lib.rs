@@ -8,5 +8,5 @@ pub mod hud;
 pub mod sprites;
 pub mod subtitles;
 
-pub use hud::{Action, GoldPopup, Hud};
+pub use hud::{Action, GoldPopup, Hud, Marker};
 pub use sprites::Sprites;

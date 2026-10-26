@@ -507,3 +507,10 @@ Newest first. One entry per session: what changed, what was learned, what is nex
   - The Prologue's Oakvale is region `StartOakVale`; the adult Oakvale is `OakBay`.
 - Removed the openalbion clone (sourced from decompiled and leaked material; see PLAN.md).
 - Next: decode a Stb per-map entry and a Lev header; list mesh and texture entries with names from `Defs/RetailHeaders`; Vita memory test once the Vita is set up.
+
+## 2026-10-26: minimap markers
+
+- `PLAYER_GUI_DEFAULT` lists the minimap's marker kinds (`docs/formats/texture.md`); which things get which is game code, so markers follow what the childhood map shows: green dots (`MINIMAP_ICON_PERSON_INTEREST`) on the named quest characters (`Story::of_interest`: not background villagers or guards) and the core quest orb (`HUD_ORB_QUEST_CORE`) on the quest's goal.
+- Quests can name their goal (`engine_script::Quest::goal`). The Prologue's follows the present: the father while he owes gold for good deeds, Theresa once the Hero has her chocolates, the trader once he can pay; none while he needs deeds. Test `the_goal_follows_the_present`. Where the game puts its orb at each step is not observed.
+- `engine_ui::Marker`, drawn on the map (dots under the orb, only those on the map's circle).
+- Checked: with the chocolates in hand the orb sits on Theresa by the Barrow Fields gate, with eight green dots on the quest's characters.

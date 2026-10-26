@@ -492,6 +492,24 @@ fn villager_line(female: bool, good: bool, bad: bool) -> &'static str {
 }
 
 impl Quest for Birthday {
+    /// The present for Theresa, step by step: the father while he owes gold for
+    /// good deeds, Theresa once the Hero has her chocolates, the trader once he
+    /// can pay for them; none while he needs deeds. (From the quest's logic;
+    /// where the game puts its orb is not observed.)
+    fn goal(&self) -> Option<&'static str> {
+        if self.finished {
+            None
+        } else if self.unrewarded > 0 {
+            Some(FATHER)
+        } else if self.chocolates {
+            Some(THERESA)
+        } else if !self.sweets_bought && self.gold >= SWEETS_PRICE {
+            Some(TRADER)
+        } else {
+            None
+        }
+    }
+
     fn talk(&mut self, who: Person<'_>, out: &mut Vec<Beat>) {
         self.pending = None;
         let Some(role) = known(who.role) else {
@@ -761,6 +779,21 @@ mod tests {
         fn hero(&self) -> [f32; 3] {
             [0.0; 3]
         }
+    }
+
+    #[test]
+    fn the_goal_follows_the_present() {
+        let mut q = Birthday::new();
+        assert_eq!(q.goal(), None, "deeds first");
+        q.gold = SWEETS_PRICE;
+        assert_eq!(q.goal(), Some(TRADER));
+        q.unrewarded = 1;
+        assert_eq!(q.goal(), Some(FATHER), "gold to collect");
+        q.unrewarded = 0;
+        q.skip_to_present();
+        assert_eq!(q.goal(), Some(THERESA));
+        q.finished = true;
+        assert_eq!(q.goal(), None);
     }
 
     fn person(role: &str) -> Person<'_> {

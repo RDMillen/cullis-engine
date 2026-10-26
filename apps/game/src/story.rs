@@ -251,6 +251,22 @@ impl Story {
         }
     }
 
+    /// Whether the quest has something of its own for `role` (the named
+    /// characters, not background villagers or the guards): a green marker on
+    /// the map.
+    pub fn of_interest(&self, role: &str) -> bool {
+        self.knows(role) && ![prologue::VILLAGER, prologue::GUARD].contains(&role)
+    }
+
+    /// Who the quest's main thread wants the Hero to go to now (a role).
+    pub fn goal(&self) -> Option<&'static str> {
+        match &self.act {
+            Act::Birthday(q) => q.goal(),
+            Act::Aftermath(q) => q.goal(),
+            Act::Guild(q) => q.goal(),
+        }
+    }
+
     /// The Hero's gold, while the quest keeps it.
     pub fn gold(&self) -> Option<u32> {
         match &self.act {

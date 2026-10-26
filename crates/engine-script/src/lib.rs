@@ -130,4 +130,10 @@ pub trait Quest {
         let _ = role;
         None
     }
+
+    /// Who the quest's main thread wants the Hero to go to now, if anyone (its
+    /// role): the HUD marks them with the core quest orb.
+    fn goal(&self) -> Option<&'static str> {
+        None
+    }
 }

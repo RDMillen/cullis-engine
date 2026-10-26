@@ -480,6 +480,28 @@ impl Session {
             sprites.set(ui.ctx(), engine_ui::sprites::MINIMAP, image);
             self.minimap_region = region;
         }
+        // The quest's people on the map: its goal with the orb, the others it
+        // has something for with green dots.
+        let mut markers = Vec::new();
+        if let (Scene::Terrain(_, world), Some(story)) = (&self.scene, &self.story)
+            && let Some(area) = world.map_area
+        {
+            let goal = story.goal();
+            for npc in world.npcs.iter().filter(|n| !n.hidden) {
+                let Some(role) = npc.script_name.as_deref() else {
+                    continue;
+                };
+                let marker = if Some(role) == goal {
+                    engine_ui::Marker::QuestGoal
+                } else if story.of_interest(role) {
+                    engine_ui::Marker::Person
+                } else {
+                    continue;
+                };
+                let uv = area.uv(npc.position());
+                markers.push((egui::vec2(uv.x, uv.y), marker));
+            }
+        }
         let on_map = match &self.scene {
             Scene::Terrain(_, world) => {
                 world.map_area.zip(world.hero.as_ref()).map(|(area, hero)| {
@@ -501,6 +523,7 @@ impl Session {
                 action: self.action,
                 on_map,
                 hour: self.hour,
+                markers,
             };
             engine_ui::hud::draw(ui.painter(), rect, sprites, &hud, &self.gold_popup);
             if self.gold_popup.visible().is_some() {
