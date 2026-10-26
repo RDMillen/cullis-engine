@@ -7,6 +7,7 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - New crate `engine-render` with the GPU code: the region renderer, model loading and drawing, sky, shadows, particle drawing, theme textures, CPU skinning, the shaders, and the drawing halves of doors (`DoorModel`) and creatures (`CreatureModel`, `PartModel`). It depends on `wgpu` pinned to eframe's version (30.0.1), so a single `wgpu` is built and the windowing's device works with it. Terrain geometry types (`Vertex`, `ThemeGrid`, `ThemeLayer`) moved with it; the renderer takes a borrowed `TerrainGeometry`, and the viewer's loader builds its theme grid through a local trait.
 - The viewer is down to the app, the region loader, quests glue, subtitles, audio output and the door and creature loaders.
 - Checked: noon, night, the fireplace and the window render as before; tests pass, clippy clean.
+- The viewer's `main.rs` (2,481 lines) split by responsibility: `args` (command line), `input` (actions), `scene` (loading and drawing a region or mesh, region exits), `screenshot` (the headless path), `hero` (placing, following, blocking), `app` (the window) with `app/sim` (simulation steps and quest effects); `main.rs` keeps start-up. Every viewer file is under 800 lines now.
 - Next: step 4's remainder (a `RenderScene`, buildings' interiors into the world), then step 5 (`apps/game`).
 
 ## 2026-10-25 (later): migration step 3, creatures in the world
