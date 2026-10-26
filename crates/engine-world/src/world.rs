@@ -31,6 +31,8 @@ pub struct World {
     /// `hero_kick`), once he is placed.
     pub hero_animator: Option<Animator>,
     pub hero_kick: Option<usize>,
+    /// What the Hero is doing between ticks (kicking, fidgeting).
+    pub hero_state: crate::hero::HeroState,
     /// Where things can walk (one grid per walking level) and the ground's
     /// height.
     pub walk: Vec<WalkGrid>,

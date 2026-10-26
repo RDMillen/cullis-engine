@@ -8,7 +8,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Checked: 29 creatures load in Oakvale and wander up to 4.4 m in 20 simulated seconds; the father's mouth takes the AH shape; tests pass, clippy clean.
 - The Hero's animator and kick clip moved to `World::hero_animator`/`hero_kick`; the renderer keeps his mesh as a `skin::SkinnedMesh`, posed from the world when drawn. The viewer's animator wrapper is gone: doors, creatures and the Hero all draw from world poses.
 - The Hero's body moved too: `World::hero` replaces the app's `walker`. His step takes him out of the world, runs, and puts him back (`walk` around `walk_with`), so it can query doors and paths in the same world; the app reads him through `hero()`. Checked: walks reach their goals headless and in the window.
-- Next: the Hero's movement logic (now in the app's `walk_with`) as a world system driven by actions; then creatures, the Hero and emitters as `hecs` entities.
+- The Hero's movement is a world system: `engine_world::hero` (`World::move_hero`: clip-matched speed, stepping round closed doors and people, idle/fidget/walk/run/kick clips; `World::start_kick`; `HeroState`). The app's step keeps input, auto-walk, talking, questions, camera and exits, and passes a world-space direction. Unit test: the Hero walks, then stands, in a headless world.
+- Next: creatures, the Hero and emitters as `hecs` entities; then step 4 (engine-render).
 
 ## 2026-10-25 (later): migration step 3, doors as entities
 

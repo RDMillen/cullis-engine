@@ -13,6 +13,7 @@ pub mod collide;
 pub mod conversation;
 pub mod creature;
 pub mod door;
+pub mod hero;
 pub mod lighting;
 pub mod particles;
 pub mod walk;

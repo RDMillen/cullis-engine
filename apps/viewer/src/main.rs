@@ -800,8 +800,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
     Ok(())
 }
 
-/// How wide a person is, for keeping the Hero and creatures apart.
-const PERSON_RADIUS: f32 = 0.35;
+use engine_world::hero::PERSON_RADIUS;
 
 /// Where a route should not go: where the Hero may not stand, with a margin
 /// around people so that walking between the route's points does not graze them.
@@ -818,31 +817,6 @@ fn blocked_for_hero(doors: &World, npcs: &[engine_world::creature::Npc], p: glam
         || npcs
             .iter()
             .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0)
-}
-
-/// The clip the standing Hero plays: his idle (0), or after he has stood for a
-/// while one of his fidgets (clips from 3 up to `end`), played once.
-fn hero_idle_clip(
-    animator: Option<&engine_world::anim::Animator>,
-    end: usize,
-    standing: &mut f32,
-    fidgets: &mut usize,
-    dt: f32,
-) -> usize {
-    let Some(animator) = animator else {
-        return 0;
-    };
-    let (current, count) = (animator.current(), animator.clip_count().min(end));
-    if current >= HERO_CLIPS.len() && !animator.finished() {
-        return current;
-    }
-    *standing += dt;
-    if count > HERO_CLIPS.len() && *standing > 10.0 {
-        *standing = 0.0;
-        *fidgets += 1;
-        return HERO_CLIPS.len() + *fidgets % (count - HERO_CLIPS.len());
-    }
-    0
 }
 
 /// Poses the Hero for a screenshot (`--anim`, or idle/walk) and frames him.
@@ -1249,11 +1223,6 @@ struct ViewerApp {
     gesture_picks: u64,
     /// An answer clicked on a question, handled next frame.
     clicked_answer: Option<bool>,
-    /// The Hero is kicking (he stands still until the kick ends).
-    kicking: bool,
-    /// Seconds the Hero has stood still, and fidgets played (picks the next).
-    hero_standing: f32,
-    hero_fidgets: usize,
     /// A point the Hero walks himself towards (`--walk-to`), until he is there.
     auto_walk: Option<walk::Follow>,
     /// Talk to whoever is near once `auto_walk` arrives (`--talk`).
@@ -1381,13 +1350,10 @@ impl ViewerApp {
                 soundscape::AMBIENCE_VOLUME,
             ],
             clicked_answer: None,
-            kicking: false,
             sections,
             reload_sections: None,
             auto_walk: None,
             auto_talk: false,
-            hero_standing: 0.0,
-            hero_fidgets: 0,
             exits_armed: false,
             want_walk: false,
             textures,
@@ -1493,7 +1459,6 @@ impl ViewerApp {
                 self.subject = subject;
                 self.want_walk = false;
                 self.subs.clear();
-                self.kicking = false;
                 if let Subject::Region(region) = &self.subject
                     && self.story.is_none()
                 {
@@ -1840,21 +1805,6 @@ impl ViewerApp {
                 }
             }
         }
-        // The clips' own movement sets the speed, so the feet do not slide.
-        let clip_speed = world
-            .hero_animator
-            .as_ref()
-            .and_then(|a| {
-                a.speed(if run { 2 } else { 1 })
-                    .map(|s| s * a.stride_ratio())
-            })
-            .map(|s| s * model::MESH_SCALE);
-        let speed = clip_speed.unwrap_or(if run {
-            walk::RUN_SPEED
-        } else {
-            walk::WALK_SPEED
-        });
-        let before = hero.position;
         let at = hero.position.truncate();
         let (talk_key, kick_key, answer_key) = (
             std::mem::take(&mut input.use_),
@@ -1880,13 +1830,7 @@ impl ViewerApp {
             story.answer(yes, &world.npcs, at, text, &mut self.subs);
         }
         // F: kick whoever is in front.
-        if kick_key
-            && !held
-            && !self.kicking
-            && let (Some(kick), Some(animator)) = (world.hero_kick, &mut world.hero_animator)
-        {
-            animator.play_once(kick, 0.0);
-            self.kicking = true;
+        if kick_key && !held && world.start_kick() {
             let facing = glam::Vec2::new(-hero.heading.sin(), hero.heading.cos());
             if let Some(i) = story::nearest_person(&world.npcs, at, story::KICK_REACH, Some(facing))
             {
@@ -1895,9 +1839,6 @@ impl ViewerApp {
                     story.hit(&world.npcs, i, at, text, &mut self.subs);
                 }
             }
-        }
-        if self.kicking {
-            direction = glam::Vec2::ZERO;
         }
         // Walking away ends a conversation.
         if let Some(i) = self.subs.waiting_on()
@@ -1912,37 +1853,10 @@ impl ViewerApp {
             let height = hero.position.z;
             story.update(dt, &world.npcs, (at, height), text, &mut self.subs);
         }
-        let (doors, npcs) = (&**world, &world.npcs);
-        hero.step_blocked(direction, speed, dt, walk, heights, |p| {
-            blocked_for_hero(doors, npcs, p)
-        });
-        let moved = (hero.position - before).truncate().length() > 1e-4;
+        world.move_hero(hero, direction, run, dt);
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }
-        let kick = world.hero_kick;
-        let kicking = self.kicking
-            && world
-                .hero_animator
-                .as_ref()
-                .is_some_and(|a| Some(a.current()) == kick && !a.finished());
-        self.kicking = kicking;
-        let clip = match (moved, run) {
-            _ if kicking => kick.unwrap_or(0),
-            (false, _) => hero_idle_clip(
-                world.hero_animator.as_ref(),
-                kick.unwrap_or(usize::MAX),
-                &mut self.hero_standing,
-                &mut self.hero_fidgets,
-                dt,
-            ),
-            (true, false) => 1,
-            (true, true) => 2,
-        };
-        if moved {
-            self.hero_standing = 0.0;
-        }
-        animate_hero(world, clip, dt);
         renderer.update_interior(hero.position);
         follow(
             &mut self.camera,
