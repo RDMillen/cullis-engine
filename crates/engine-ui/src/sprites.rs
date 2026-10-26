@@ -21,6 +21,8 @@ pub const NAMES: &[&str] = &[
     "HUD_ICON_BATTLE_UNARMED",
     "MINIMAP_BORDER",
     "MINIMAP_ICON_HERO",
+    "HUD_CLOCK_FACE",
+    "HUD_CLOCK_HAND",
     "HUD_ICON_SPEAK",
     "HUD_ICON_INTERACT",
     "HUD_TEXTBOX_TL",

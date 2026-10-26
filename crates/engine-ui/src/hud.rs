@@ -20,6 +20,8 @@ pub struct Hud {
     /// The Hero on the region's map: where (0 to 1 across from the west and
     /// down from the north) and his heading (radians anticlockwise from north).
     pub on_map: Option<(Vec2, f32)>,
+    /// The time of day, in hours.
+    pub hour: f32,
 }
 
 /// What using (E) would do.
@@ -98,17 +100,26 @@ pub fn draw(painter: &Painter, rect: Rect, sprites: &Sprites, hud: &Hud, gold: &
         u,
         sprites,
         hud.on_map,
+        hud.hour,
     );
 }
 
 /// The region's map in its ring at the top right corner `corner`, with the
 /// Hero's arrow where he is, turned the way he faces.
-fn minimap(painter: &Painter, corner: Pos2, u: f32, sprites: &Sprites, hero: Option<(Vec2, f32)>) {
+fn minimap(
+    painter: &Painter,
+    corner: Pos2,
+    u: f32,
+    sprites: &Sprites,
+    hero: Option<(Vec2, f32)>,
+    hour: f32,
+) {
     if sprites.size(crate::sprites::MINIMAP) == Vec2::ZERO {
         return;
     }
     let white = Color32::WHITE;
-    let centre = corner + Vec2::new(-43.0 * u, 43.0 * u);
+    // The ring reaches 48 units right of the map and 44 above it.
+    let centre = corner + Vec2::new(-52.0 * u, 47.0 * u);
     let map = Rect::from_center_size(centre, Vec2::splat(80.0 * u));
     sprites.draw(painter, crate::sprites::MINIMAP, map, white);
     if let Some((uv, heading)) = hero {
@@ -135,6 +146,26 @@ fn minimap(painter: &Painter, corner: Pos2, u: f32, sprites: &Sprites, hero: Opt
     );
     let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(135.0 / 256.0, 113.0 / 128.0));
     sprites.draw_part(painter, "MINIMAP_BORDER", ring, uv, white);
+    // The ring's right circle (about texel (116, 17), 26 across inside) holds
+    // the clock: night on its left half, day on its right, the hand pointing
+    // at the sun at noon. Which way the hand goes round is a guess (clockwise).
+    let clock = ring.min + Vec2::new(116.0, 17.0) * scale;
+    let size = Vec2::splat(26.0 * scale);
+    sprites.draw(
+        painter,
+        "HUD_CLOCK_FACE",
+        Rect::from_center_size(clock, size),
+        white,
+    );
+    let angle = (hour - 12.0) / 24.0 * std::f32::consts::TAU;
+    sprites.draw_turned(
+        painter,
+        "HUD_CLOCK_HAND",
+        clock,
+        size,
+        Vec2::new(0.48, 0.5),
+        angle,
+    );
 }
 
 /// The heart in its ring in the top left corner `corner` and the red bar

@@ -500,6 +500,7 @@ impl Session {
                 health: 1.0,
                 action: self.action,
                 on_map,
+                hour: self.hour,
             };
             engine_ui::hud::draw(ui.painter(), rect, sprites, &hud, &self.gold_popup);
             if self.gold_popup.visible().is_some() {

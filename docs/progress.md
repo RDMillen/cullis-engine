@@ -54,7 +54,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Each region's map is `MINIMAP_<REGION>`, a fixed circular parchment covering the square of the larger side of the region's own maps, centred on them (checked against top-down renders of Oakvale, the Guild and Barrow Fields; `docs/formats/texture.md`). `engine_world::region::MapArea` (with a test), `World::map_area` from the region loader (`TerrainMesh::own_bounds`).
 - The HUD draws it in the top right inside `MINIMAP_BORDER` (only its ring's part of the texture), with `MINIMAP_ICON_HERO` turned to the Hero's heading; the session loads the region's map when the region changes (`Sprites::set`, `Sprites::draw_part`, `Sprites::draw_turned`).
 - Checked: in Oakvale the arrow sits by the father's house at the start and in the village loop after walking east.
-- Not yet: markers (houses, entrances, people), the combat multiplier and time of day in the ring's small circles.
+- The ring's right circle holds the clock: `HUD_CLOCK_FACE` (night on its left half, day on its right) and `HUD_CLOCK_HAND` turned by the hour, at the sun at noon (which way it goes round is a guess: clockwise). The map sits 52 by 47 units in from the corner so the ring stays on screen.
+- Not yet: markers (houses, entrances, people), the combat multiplier in the left circle.
 
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
