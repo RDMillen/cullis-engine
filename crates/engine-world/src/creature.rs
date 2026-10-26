@@ -71,6 +71,8 @@ struct Wander {
     next_stroll: f32,
     /// Seconds without progress while walking.
     stuck: f32,
+    /// The way it is heading on its errand this tick.
+    going: Option<Vec2>,
 }
 
 /// How far from its placement a creature strolls.
@@ -85,6 +87,7 @@ impl Npc {
         dt: f32,
         layers: &[WalkGrid],
         heights: Option<&HeightGrid>,
+        route_blocked: &dyn Fn(Vec2) -> bool,
         blocked: &dyn Fn(Vec2) -> bool,
     ) {
         let Some(first) = self.parts.first() else {
@@ -92,7 +95,15 @@ impl Npc {
         };
         let (current, finished) = (first.current(), first.finished());
         let next = match (self.walk.is_some(), heights) {
-            (true, Some(heights)) => self.wander(dt, current, finished, layers, heights, blocked),
+            (true, Some(heights)) => self.wander(
+                dt,
+                current,
+                finished,
+                layers,
+                heights,
+                route_blocked,
+                blocked,
+            ),
             _ => self.fidget(dt, current, finished),
         };
         for animator in &mut self.parts {
@@ -118,6 +129,7 @@ impl Npc {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn wander(
         &mut self,
         dt: f32,
@@ -125,6 +137,7 @@ impl Npc {
         finished: bool,
         layers: &[WalkGrid],
         heights: &HeightGrid,
+        route_blocked: &dyn Fn(Vec2) -> bool,
         blocked: &dyn Fn(Vec2) -> bool,
     ) -> Option<usize> {
         let roll = self.random();
@@ -132,7 +145,8 @@ impl Npc {
         let w = self.walk.as_mut().unwrap();
         // An errand first: along its route, then back to standing.
         if let Some(errand) = &mut w.errand {
-            let step = errand.direction(&w.body, layers, heights, dt, blocked, blocked);
+            let step = errand.direction(&w.body, layers, heights, dt, route_blocked, blocked);
+            w.going = step;
             match step {
                 Some(to) => {
                     w.body
@@ -370,6 +384,13 @@ impl Npc {
     }
 
     /// Where the creature stands.
+    /// Where it is and the way it is heading, while it walks on an errand.
+    pub fn going(&self) -> Option<(Vec3, Vec2)> {
+        let w = self.walk.as_ref()?;
+        let going = w.going?;
+        w.errand.is_some().then_some((w.body.position, going))
+    }
+
     pub fn position(&self) -> Vec2 {
         self.transform.w_axis.truncate().truncate()
     }
@@ -510,6 +531,7 @@ impl Npc {
             resting: 0.0,
             next_stroll: 4.0 + (spec.uid % 13) as f32,
             stuck: 0.0,
+            going: None,
         });
         let transform = match &walk {
             Some(w) => body_transform(&w.body),

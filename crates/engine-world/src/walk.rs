@@ -617,7 +617,8 @@ pub fn route_to(
 /// already reached (or passed), at his height, and returns the farthest of the
 /// next ones within `ahead` units that he can walk to in a straight line, so
 /// the walk cuts the grid's corners without catching on them. None once the
-/// path is done.
+/// path is done. A point is passed once the next is no farther, so a point
+/// repeated in the path does not hold him back.
 pub fn steer(
     path: &mut std::collections::VecDeque<Vec2>,
     hero: &Hero,
@@ -639,7 +640,7 @@ pub fn steer(
     while path
         .front()
         .is_some_and(|p| p.distance(at) < 0.3 && level(*p))
-        || (path.len() > 1 && path[1].distance(at) < path[0].distance(at) && level(path[1]))
+        || (path.len() > 1 && path[1].distance(at) <= path[0].distance(at) && level(path[1]))
     {
         path.pop_front();
     }
@@ -841,6 +842,20 @@ impl Hero {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn steering_passes_a_repeated_point() {
+        let mut grid = WalkGrid::new(Vec2::ZERO, Vec2::splat(10.0));
+        grid.mark(Vec2::splat(5.0), 10.0);
+        let ground = HeightGrid::new(Vec2::ZERO, [11, 11]);
+        // Past the repeated first point, farther than he looks ahead.
+        let hero = Hero::new(Vec2::new(4.8, 5.0), &ground);
+        let mut path: std::collections::VecDeque<Vec2> = [3.0, 3.0, 3.5, 4.5, 5.5, 6.5]
+            .map(|x| Vec2::new(x, 5.0))
+            .into();
+        let to = steer(&mut path, &hero, &[grid], &ground, 1.5, |_| false).unwrap();
+        assert!(to.x > 4.8, "heads on, not back: {to}");
+    }
 
     fn corridor() -> (WalkGrid, HeightGrid) {
         // A 10x10 area with a walkable strip 2 units wide along x at y 4..6.

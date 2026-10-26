@@ -31,5 +31,6 @@ The quest plays stages 1–3 up to the Guildmaster's punch instructions: lines i
 ## Not yet
 
 - **The dormitory floor is not walkable.** The mesh has the floor at 30.1 m, but no layer of the decoded navigation data covers it, so neither the Guildmaster nor the Hero can walk up to it and the sequence stops at "follow me". Routes reach the stairs (about 27 m on layer 1).
-- **Closed doors block routes.** The hall's doors are closed, so nothing can route from the hall to the training grounds; walking people do not open doors yet.
+- **No route leaves the Map Room.** Routes from the Map Room marker (4645.6, 3667.1, z 21.4) fail even 10 m east, with or without a goal height; walking straight east climbs onto the edge of a staircase (z 23–25 on navigation layer 1). The hall's walkable cells seem not to connect to the rest of the building, likely the same navigation gap as the dormitory floor. Routes around the training ring work. A goal given without a height goes on the first layer walkable there, which inside the Guild is the ground under the building.
+- Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
 - The dummy lesson itself (targeting, punching, the stick, the dummy breaking, experience orbs), the beetles and the end question.

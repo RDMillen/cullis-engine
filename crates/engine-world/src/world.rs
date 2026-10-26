@@ -122,7 +122,7 @@ impl World {
 
     /// Moves the creatures on `dt` seconds: standing, fidgeting, strolling,
     /// errands. Closed doors stop them, and so does the Hero (at `hero`,
-    /// `radius` wide).
+    /// `radius` wide); errands route through closed doors and open them.
     pub fn step_creatures(&mut self, dt: f32, hero: Option<Vec2>, radius: f32) {
         let Self {
             ecs,
@@ -131,12 +131,21 @@ impl World {
             heights,
             ..
         } = self;
-        let blocked = |p: Vec2| {
-            ecs.query::<&Door>().iter().any(|(_, d)| d.blocks(p))
-                || hero.is_some_and(|h| h.distance(p) < radius * 2.0)
-        };
+        let near_hero = |p: Vec2| hero.is_some_and(|h| h.distance(p) < radius * 2.0);
+        let blocked =
+            |p: Vec2| ecs.query::<&Door>().iter().any(|(_, d)| d.blocks(p)) || near_hero(p);
         for npc in npcs.iter_mut() {
-            npc.animate(dt, walk, heights.as_ref(), &blocked);
+            npc.animate(dt, walk, heights.as_ref(), &near_hero, &blocked);
+        }
+        // Someone on an errand opens a closed door in their way.
+        let doors: Vec<Entity> = self
+            .npcs
+            .iter()
+            .filter_map(|n| n.going())
+            .filter_map(|(at, to)| self.door_ahead(at, to))
+            .collect();
+        for door in doors {
+            self.toggle_door(door);
         }
     }
 
@@ -151,6 +160,21 @@ impl World {
         animator.play_once(clip, f32::MAX);
         animator.advance(0.0);
         self.ecs.spawn((door, animator))
+    }
+
+    /// A closed door in the way of someone at `at` walking along `direction`:
+    /// one blocking a point up to [`door::AHEAD`] in front, on about their floor.
+    pub fn door_ahead(&self, at: Vec3, direction: Vec2) -> Option<Entity> {
+        let forward = direction.normalize_or_zero();
+        if forward == Vec2::ZERO {
+            return None;
+        }
+        let points = [0.5, 1.0].map(|k| at.truncate() + forward * door::AHEAD * k);
+        self.ecs
+            .query::<&Door>()
+            .iter()
+            .find(|(_, d)| (d.floor() - at.z).abs() < 3.0 && points.iter().any(|&p| d.blocks(p)))
+            .map(|(e, _)| e)
     }
 
     /// Whether a closed door is in the way at `p`.

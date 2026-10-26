@@ -26,6 +26,16 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Checked: talking to the father in the window shows his line with the letterbox; tests pass, clippy clean.
 - Next: the Guild training (the dorm floor, walkers opening doors, the dummy lesson).
 
+## 2026-10-26: people open doors on their routes (engine-world)
+
+- Routes no longer avoid closed doors; walking still stops at them. `World::follow_route` steers the Hero along a `walk::Follow` and opens a closed door within `door::AHEAD` (1 m) in front of him (`World::door_ahead`); creatures on a quest's errand open doors the same way in `World::step_creatures` (`Npc::going`). Walking into a door by hand does not open it; E still does. Doors opened on the way stay open (whether people close them behind them is not observed yet).
+- What routes avoid and what stops a walker moved from the game to the world: `World::route_blocked` (people, with a margin) and `World::hero_blocked` (closed doors, people). The game's scripted walks and the viewer's screenshot walks both use `follow_route`.
+- Fixed in `walk::steer`: a point repeated in a route held the walker back once he passed it farther than the look-ahead (he turned back and forth on the spot). A point is now passed once the next is no farther.
+- Tests: a route through a closed door between two rooms opens it and arrives; walking into a closed door leaves it shut; steering past a repeated point (fails without the fix).
+- Checked in Oakvale: walks through a closed house door from inside and from outside open it and arrive.
+- Found in the Guild: no route leaves the Map Room, even 10 m (see `docs/quests/guild-training.md`); routes around the training ring work.
+- Next: the Guild's navigation (the hall's cells not connecting, the dormitory floor), in the region loader's walk layers.
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.

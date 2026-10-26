@@ -133,23 +133,17 @@ pub(crate) fn screenshot(
                 // Follow a route there, or head straight for it if there is none.
                 let mut follow = walk::Follow::to_floor(goal, floor);
                 for _ in 0..6000 {
+                    let Some(to) = world.follow_route(&hero, &mut follow, TICK) else {
+                        break;
+                    };
                     let Some(heights) = &world.heights else {
                         break;
                     };
-                    let (doors, npcs) = (&**world, &world.npcs);
-                    let Some(to) = follow.direction(
-                        &hero,
-                        &world.walk,
-                        heights,
-                        TICK,
-                        |p| blocked_for_route(doors, npcs, p),
-                        |p| blocked_for_hero(doors, npcs, p),
-                    ) else {
-                        break;
-                    };
                     hero.step_blocked(to, walk::WALK_SPEED, TICK, &world.walk, heights, |p| {
-                        blocked_for_hero(doors, npcs, p)
+                        world.hero_blocked(p)
                     });
+                    // Doors opened on the way swing.
+                    world.tick(TICK);
                     highest = highest.max(hero.position.z);
                 }
                 log::info!("walk pass {pass} ended at {}", hero.position);

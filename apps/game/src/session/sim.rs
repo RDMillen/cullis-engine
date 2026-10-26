@@ -131,9 +131,9 @@ impl Session {
         let Scene::Terrain(renderer, world) = &mut self.scene else {
             return;
         };
-        let (walk, Some(heights)) = (&world.walk, &world.heights) else {
+        if world.heights.is_none() {
             return;
-        };
+        }
         let (forward, right, run) = (input.forward, input.right, input.run);
         let view = (self.camera.target - self.camera.eye())
             .truncate()
@@ -150,15 +150,7 @@ impl Session {
             && !held
             && let Some(follow) = &mut self.auto_walk
         {
-            let (doors, npcs) = (&**world, &world.npcs);
-            match follow.direction(
-                hero,
-                walk,
-                heights,
-                dt,
-                |p| blocked_for_route(doors, npcs, p),
-                |p| blocked_for_hero(doors, npcs, p),
-            ) {
+            match world.follow_route(hero, follow, dt) {
                 Some(to) => direction = to,
                 None => {
                     let goal = follow.goal;

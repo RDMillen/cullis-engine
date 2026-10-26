@@ -8,6 +8,8 @@ use glam::{Mat4, Vec2};
 const HALF_DEPTH: f32 = 0.25;
 /// How near the Hero must be to use a door.
 pub const REACH: f32 = 2.0;
+/// How far ahead of someone following a route a closed door is opened.
+pub const AHEAD: f32 = 1.0;
 /// The door animator's clips.
 pub const OPEN_CLIP: usize = 0;
 pub const CLOSE_CLIP: usize = 1;

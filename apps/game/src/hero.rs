@@ -1,32 +1,6 @@
-//! The Hero in the app: placing him, keeping the camera on him, and what
-//! stops him and routes.
+//! The Hero in the app: placing him and keeping the camera on him.
 
 use crate::*;
-
-/// Where a route should not go: where the Hero may not stand, with a margin
-/// around people so that walking between the route's points does not graze them.
-pub fn blocked_for_route(
-    doors: &World,
-    npcs: &[engine_world::creature::Npc],
-    p: glam::Vec2,
-) -> bool {
-    blocked_for_hero(doors, npcs, p)
-        || npcs
-            .iter()
-            .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0 + walk::CELL)
-}
-
-/// Whether the Hero may not stand at `p`: a closed door, or a creature there.
-pub fn blocked_for_hero(
-    doors: &World,
-    npcs: &[engine_world::creature::Npc],
-    p: glam::Vec2,
-) -> bool {
-    doors.door_blocks(p)
-        || npcs
-            .iter()
-            .any(|n| !n.hidden && n.position().distance(p) < PERSON_RADIUS * 2.0)
-}
 
 /// Places the young Hero on the walkable cell nearest `near`.
 pub fn spawn_hero(
