@@ -29,9 +29,10 @@ const MUSIC_FADE: f32 = 2.0;
 const BED_FADE: f32 = 1.5;
 const AMBIENCE_SETTLE: f32 = 0.75;
 
-/// Mix levels of the channels against the voices (1).
+/// Mix levels of the channels against the voices (1). Ambience sits just
+/// under the music; at 0.5 it drowned the music and voices out.
 pub const MUSIC_VOLUME: f32 = 0.25;
-pub const AMBIENCE_VOLUME: f32 = 0.5;
+pub const AMBIENCE_VOLUME: f32 = 0.2;
 
 /// Plays a region's music, decoding it in the background, and crossfading
 /// from one piece to the next.

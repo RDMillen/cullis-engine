@@ -57,6 +57,10 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - The ring's right circle holds the clock: `HUD_CLOCK_FACE` (night on its left half, day on its right) and `HUD_CLOCK_HAND` turned by the hour, at the sun at noon (which way it goes round is a guess: clockwise). The map sits 52 by 47 units in from the corner so the ring stays on screen.
 - Not yet: markers (houses, entrances, people), the combat multiplier in the left circle.
 
+## 2026-10-26: quieter ambience
+
+- The ambience channel's default level drops from 0.5 to 0.2 (music 0.25, voices 1): it drowned out the music and voices. The viewer's Sound panel still sets it.
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.
