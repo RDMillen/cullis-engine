@@ -287,6 +287,7 @@ impl Session {
         renderer.eye = shown.eye();
         world.focus = shown.target;
         renderer.highlight = None;
+        self.action = None;
         let Some(hero) = &world.hero else {
             return;
         };
@@ -310,6 +311,10 @@ impl Session {
         };
         let strength = 0.5 + 0.15 * (time * 4.0).sin();
         renderer.highlight = what.map(|w| (w, [0.3, 1.0, 0.4, strength]));
+        self.action = what.map(|w| match w {
+            render::Highlight::Npc(_) => engine_ui::Action::Speak,
+            render::Highlight::Door(_) => engine_ui::Action::Interact,
+        });
     }
 
     /// The camera the view uses: the orbit or follow camera, eased towards the

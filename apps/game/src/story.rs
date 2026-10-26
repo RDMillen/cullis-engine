@@ -8,7 +8,6 @@ use fable_data::strings::TextBank;
 use glam::Vec2;
 
 use crate::skin::AnimBank;
-use engine_ui::Hud;
 use engine_ui::subtitles::{self, Item, Subtitles};
 use engine_world::creature::Npc;
 
@@ -252,19 +251,11 @@ impl Story {
         }
     }
 
-    /// What the HUD shows, while the quest keeps the Hero's gold and items.
-    pub fn hud(&self, text: &TextBank) -> Option<Hud> {
-        let Act::Birthday(q) = &self.act else {
-            return None;
-        };
-        Some(Hud {
-            gold: q.gold,
-            items: q
-                .items()
-                .map(|item| text.get(item).unwrap_or(item).to_owned())
-                .collect(),
-            good_deeds: q.good_deeds,
-            bad_deeds: q.bad_deeds,
-        })
+    /// The Hero's gold, while the quest keeps it.
+    pub fn gold(&self) -> Option<u32> {
+        match &self.act {
+            Act::Birthday(q) => Some(q.gold),
+            _ => None,
+        }
     }
 }

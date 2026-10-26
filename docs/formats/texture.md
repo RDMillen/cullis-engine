@@ -53,3 +53,20 @@ LZO1X stream             stream_len bytes, decompressing to (top level length - 
 ## Exporting
 
 `cargo run --release -p fable-data --example texture_png -- ARCHIVE NAME_PART OUT.png [LEVEL] [IMAGE]` writes one level as PNG.
+
+## Interface sprites
+
+The HUD and menus are textures too. `graphics/pc/textures.big` holds `GBANK_MAIN_PC` (6,290 entries) and `GBANK_GUI_PC` (34 entries, the level editor's icons, `EDITORGUI_*`); `graphics/pc/frontend.big` holds `GBANK_FRONT_END_PC` (394 entries: the menus' text boxes and slot bars, region minimaps). From about entry 4485 of `GBANK_MAIN_PC`, entries have names rather than source paths: interface sprites, Dxt3 with alpha.
+
+| Names | What |
+| --- | --- |
+| `HUD_HEALTH_BAR_*` | the heart (`_HEART`, `_HEART_GOOD`, `_HEART_EVIL`) in its ring (`_RING`, 64×64, visible in the middle 38), the bar's frame (`_MIDDLE`, `_END`, `_END_ROUND`, `_DIVIDE`, 8×16) and fills (`_HEALTH_SEGMENT`, `_HEALTH_END`, visible in their top 11 rows; `_STAMINA*`) |
+| `HUD_STATBOX_*` | a rounded box (`_LEFT_END_CURVE`, `_MIDDLE`, `_END`, `_RIGHT_END_CURVE`, 32 high, visible in 26) and morality faces (`_MORALITY_GOOD/_NEUTRAL/_EVIL`) |
+| `HUD_TEXTBOX_*` | a nine-piece box: corners `_TL _TR _BL _BR` (32×32), edges `_TM _BM` (8×32) and `_ML _MR` (32×8), fill `_BACK` (4×4): black at alpha 136 with soft rounded edges |
+| `GUI_DIGIT_0`…`_9` | outlined white digits, 32×32 |
+| `HUD_ICON_*` | 193 icons: actions (`BATTLE` crossed swords, `BATTLE_UNARMED` fist, `SPEAK`, `INTERACT`), spells, items (`MONEY_BAG`, `CHOCS`, `TEDDY`, …), experience (`EXP_*`), `RENOWN` |
+| `HUD_PC_*` | the PC's rings (`MOUSE_RING`, `WEAPON_RINGS`, `ITEM_RINGS_*`, `EXPRESSION_RINGS`), mouse buttons (`MOUSE_LMB`, `MOUSE_RMB`), target brackets, Guild seal |
+| `HUD_ORB_*`, `HUD_EXPR_*`, `HUD_DPAD_*`, `HUD_ABXY_*`, `HUD_COMBAT_*`, `HUD_MODES_*`, `HUD_CROSSHAIR_*` | quest orbs, expressions, the Xbox controller's rings and buttons, combat multiplier, modes |
+| `PC_UI_*_FRAME_n_SPRITE`, `UI_*` | the PC menus' nine-piece frames (quest start, finished, failed, death, experience, options, map) and backdrops |
+
+`engine_ui::Sprites` loads the HUD's by name; `engine_ui::hud` draws the childhood HUD from them (health bar top left, gold box when gold changes, action rings bottom right) and `engine_ui::draw` puts subtitles and notices in the text box.

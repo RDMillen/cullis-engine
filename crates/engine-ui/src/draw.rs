@@ -1,21 +1,23 @@
 //! Draws the UI with egui over the 3D view: subtitles and questions, notices,
 //! the HUD, the conversation letterbox and the black of a night passing.
 
-use egui::{Color32, Context, Painter, Rect, RichText};
+use egui::{Color32, Context, Painter, Rect, RichText, Shape};
 
-use crate::Hud;
+use crate::sprites::Sprites;
 use crate::subtitles::{Item, Subtitles};
 
-/// Draws the subtitle at the bottom of `rect` and the notice at its top.
-/// Returns the answer if a question's button was clicked.
-pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles) -> Option<bool> {
+/// Draws the subtitle at the bottom of `rect` and the notice at its top, in
+/// the game's text boxes. Returns the answer if a question's button was
+/// clicked.
+pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles, sprites: &Sprites) -> Option<bool> {
+    let u = rect.height() / 480.0;
     if let Some((text, kind)) = subs.notice() {
-        // Clear of the HUD in the top right.
+        // Clear of the health bar in the top left and the map in the top right.
         let width = (rect.width() - 480.0).clamp(240.0, 620.0);
         egui::Area::new(egui::Id::new("notice"))
             .fixed_pos(egui::pos2(rect.center().x - width / 2.0, rect.top() + 16.0))
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                in_text_box(ui, sprites, u, |ui| {
                     ui.set_width(width);
                     let colour = match kind {
                         Some(true) => Color32::from_rgb(120, 200, 120),
@@ -43,7 +45,7 @@ pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles) -> Option<bool> {
             rect.bottom() - 140.0,
         ))
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
+            in_text_box(ui, sprites, u, |ui| {
                 ui.set_width(width);
                 if !speaker.is_empty() {
                     ui.label(RichText::new(speaker).strong());
@@ -65,33 +67,6 @@ pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles) -> Option<bool> {
             });
         });
     answer
-}
-
-/// The Hero's gold, items and deeds, in the top right of `rect`.
-pub fn hud(ctx: &Context, rect: Rect, hud: &Hud) {
-    egui::Area::new(egui::Id::new("hud"))
-        .fixed_pos(egui::pos2(rect.right() - 200.0, rect.top() + 16.0))
-        .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_width(170.0);
-                ui.label(
-                    RichText::new(format!("Gold: {}", hud.gold))
-                        .strong()
-                        .size(16.0),
-                );
-                for item in &hud.items {
-                    ui.label(item);
-                }
-                ui.label(
-                    RichText::new(format!(
-                        "Good deeds {} · Bad deeds {}",
-                        hud.good_deeds, hud.bad_deeds
-                    ))
-                    .small(),
-                );
-                ui.label(RichText::new("E talk · F kick · Y/N answer").weak().small());
-            });
-        });
 }
 
 /// Black bars over the top and bottom of `rect` while the conversation camera
@@ -120,4 +95,21 @@ pub fn letterbox(painter: &Painter, rect: Rect, amount: f32) {
 pub fn fade(painter: &Painter, rect: Rect, amount: f32) {
     let alpha = (amount.clamp(0.0, 1.0) * 255.0) as u8;
     painter.rect_filled(rect, 0.0, Color32::from_black_alpha(alpha));
+}
+
+/// Lays out `content` on the game's text box (a dark frame, so its text is
+/// drawn light).
+fn in_text_box(ui: &mut egui::Ui, sprites: &Sprites, u: f32, content: impl FnOnce(&mut egui::Ui)) {
+    let behind = ui.painter().add(Shape::Noop);
+    let margin = (10.0 * u).max(8.0);
+    let inner = egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+        ui.visuals_mut().override_text_color = Some(Color32::from_gray(235));
+        content(ui)
+    });
+    let box_shape = if sprites.is_empty() {
+        Shape::rect_filled(inner.response.rect, 6.0, Color32::from_black_alpha(200))
+    } else {
+        sprites.text_box(inner.response.rect, margin * 1.5, Color32::WHITE)
+    };
+    ui.painter().set(behind, box_shape);
 }

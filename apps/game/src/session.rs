@@ -85,6 +85,11 @@ pub struct Session {
     pub scene: Scene,
     pub camera: OrbitCamera,
     pub texture: Option<egui::TextureId>,
+    /// The HUD's sprites, loaded on the first frame drawn; the gold box; what
+    /// using would do now.
+    pub sprites: Option<engine_ui::Sprites>,
+    pub gold_popup: engine_ui::GoldPopup,
+    pub action: Option<engine_ui::Action>,
 }
 
 impl Session {
@@ -171,6 +176,9 @@ impl Session {
             scene,
             camera,
             texture: None,
+            sprites: None,
+            gold_popup: Default::default(),
+            action: None,
         })
     }
 
@@ -431,17 +439,38 @@ impl Session {
             self.fade -= ui.input(|i| i.stable_dt.min(0.1)) / NIGHT_FADE;
             ui.ctx().request_repaint();
         }
-        // What is being said, notices, and the Hero's gold and items.
-        if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs) {
+        // What is being said and notices, and the HUD while walking.
+        let walking = self.hero().is_some() && self.conversation == 0.0;
+        let sprites = self.sprites.get_or_insert_with(|| {
+            let mut assets = self.assets.clone();
+            let mut bank = model::TextureBank::open(&assets);
+            let sprites = engine_ui::Sprites::load(ui.ctx(), |name| {
+                let id = assets.id_of(engine_core::assets::Archive::Textures, name)?;
+                let image = bank.load(id).ok()?;
+                Some(([image.width as usize, image.height as usize], image.rgba))
+            });
+            log::info!(
+                "HUD: {} of {} sprites",
+                sprites.len(),
+                engine_ui::sprites::NAMES.len()
+            );
+            sprites
+        });
+        if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs, sprites) {
             self.clicked_answer = Some(answer);
         }
-        if let (Some(story), Some(text), true) = (
-            &self.story,
-            &self.text,
-            self.hero().is_some() && self.conversation == 0.0,
-        ) && let Some(hud) = story.hud(text)
-        {
-            draw::hud(ui.ctx(), rect, &hud);
+        let dt = ui.input(|i| i.stable_dt.min(0.1));
+        self.gold_popup
+            .update(self.story.as_ref().and_then(story::Story::gold), dt);
+        if walking {
+            let hud = engine_ui::Hud {
+                health: 1.0,
+                action: self.action,
+            };
+            engine_ui::hud::draw(ui.painter(), rect, sprites, &hud, &self.gold_popup);
+            if self.gold_popup.visible().is_some() {
+                ui.ctx().request_repaint();
+            }
         }
     }
 }

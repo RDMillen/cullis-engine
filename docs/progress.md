@@ -42,6 +42,13 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Checked: the father and a built-up villager (the bully) have blue eyes looking forward; without the scale the eyeballs sit behind the socket.
 - Not yet: the Hero's eyes (his mesh is drawn separately), eyelids and blinking, eyes following what a creature looks at, the body scale after `Graphic`.
 
+## 2026-10-26: the HUD from the game's sprites (engine-ui)
+
+- The interface sprites are named textures in `GBANK_MAIN_PC` (`HUD_*`, `GUI_DIGIT_*`, `PC_UI_*`, `UI_*`); listed in `docs/formats/texture.md`.
+- `engine_ui::Sprites` loads the HUD's sprites into egui by name; `engine_ui::hud` draws the childhood HUD as the original lays it out (sizes from a 4:3 screenshot, in units of a 480-line screen): the heart in its ring and the health bar in the top left (full: there is no health yet), the gold box (stat box, money bag, the game's digits) for four seconds when the Hero's gold changes (`GoldPopup`; placed under the health bar, a guess), and two rings in the bottom right, an unarmed attack and what using would do now (speak or interact; the original's right ring is not identified, a stand-in). Subtitles and notices sit in the game's nine-piece text box (`Sprites::text_box`).
+- The permanent egui gold, items and deeds panel is gone; deeds and items still come up as notices.
+- Not yet: the minimap (top right), the game's fonts (`lang/English/fonts.big`, not decoded), health itself.
+
 ## 2026-10-25 (later): migration step 3, creatures in the world
 
 - Creature behaviour (standing, fidgets, strolling, quest errands and placing, moods, gestures, mouth shapes, flinching) moves to `engine_world::creature` unchanged apart from its parts becoming world animators; `Npc::new(Spec)` builds one from its placement facts. `World::npcs` holds them and `World::step_creatures` steps them (doors and the Hero block them). The viewer's `npc` keeps the loader (meshes, clips, mesh options) and returns `CreatureModel` meshes at the same indices, deformed from the world's poses when drawn. `engine_world::body` holds the mesh scale and orientation the viewer re-exports.
