@@ -109,13 +109,8 @@ pub struct TerrainRenderer {
     /// Creatures standing in the region.
     /// Creatures' meshes, at the indices of the world's creatures.
     pub creatures: Vec<crate::npc::CreatureModel>,
-    /// The Hero's animations from his animation table, and his bone configs.
-    pub hero_animations: crate::HeroAnimations,
-    pub hero_morphs: Vec<String>,
     /// The Hero's skinned mesh, posed from the world's animator when drawn.
     pub hero_mesh: Option<crate::skin::SkinnedMesh>,
-    /// The region's music and ambience.
-    pub soundscape: crate::soundscape::Soundscape,
     /// This frame's light outdoors and indoors (the world's, with shadows
     /// added), the sky, and the clear colour shown where there is no sky.
     light: crate::lighting::Light,
@@ -134,10 +129,6 @@ pub struct TerrainRenderer {
     /// and where the camera is (for the glow's rim).
     pub highlight: Option<(Highlight, [f32; 4])>,
     pub eye: Vec3,
-    /// The region's quest-state sections (for choosing which are shown).
-    pub sections: Vec<String>,
-    /// Region exits in the region's own maps.
-    pub exits: Vec<crate::terrain::RegionExit>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     grid: [f32; 4],
@@ -497,7 +488,6 @@ impl TerrainRenderer {
             things: None,
             hero: None,
             hero_mesh: None,
-            soundscape: Default::default(),
             light: Default::default(),
             indoor_light: Default::default(),
             sky: None,
@@ -509,14 +499,10 @@ impl TerrainRenderer {
             shadow_bind_group,
             highlight: None,
             eye: Vec3::ZERO,
-            hero_animations: Default::default(),
-            hero_morphs: Vec::new(),
             creatures: Vec::new(),
             doors: Vec::new(),
             buildings: Vec::new(),
             inside: None,
-            exits: mesh.exits.clone(),
-            sections: mesh.sections.iter().cloned().collect(),
             uniforms,
             bind_group,
             grid,

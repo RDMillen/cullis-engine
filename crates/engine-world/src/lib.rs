@@ -16,5 +16,6 @@ pub mod door;
 pub mod hero;
 pub mod lighting;
 pub mod particles;
+pub mod region;
 pub mod walk;
 pub mod world;

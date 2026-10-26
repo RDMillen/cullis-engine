@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use eframe::{egui, egui_wgpu, wgpu};
 use engine_core::assets::AssetCache;
 use engine_core::time::TICK;
+use engine_world::hero::HeroAnimations;
 use engine_world::world::World;
 use fable_data::big::BigFile;
 use fable_data::defs::{Defs, Names};
@@ -296,10 +297,12 @@ impl Scene {
                     walk: mesh.walk.clone(),
                     heights: mesh.heights.clone(),
                     point_lights: mesh.lights.clone(),
+                    exits: mesh.exits.clone(),
+                    sections: mesh.sections.iter().cloned().collect(),
                     ..World::default()
                 };
                 if let Some(r) = wld.region(name) {
-                    renderer.soundscape = soundscape::Soundscape::resolve(
+                    world.soundscape = soundscape::Soundscape::resolve(
                         data_dir,
                         &r.region_def,
                         &defs,
@@ -307,12 +310,8 @@ impl Scene {
                     );
                     log::info!(
                         "sound: music {:?}, ambience {:?}",
-                        renderer
-                            .soundscape
-                            .music
-                            .as_ref()
-                            .and_then(|m| m.file_name()),
-                        renderer.soundscape.bank_names()
+                        world.soundscape.music.as_ref().and_then(|m| m.file_name()),
+                        world.soundscape.bank_names()
                     );
                 }
                 if let Some(r) = wld.region(name) {
@@ -340,8 +339,8 @@ impl Scene {
                     );
                 }
                 log::info!("{} placed lights", world.point_lights.len());
-                renderer.hero_animations = HeroAnimations::from_slots(&hero_slots);
-                renderer.hero_morphs = hero_morphs;
+                world.hero_animations = HeroAnimations::from_slots(&hero_slots);
+                world.hero_morphs = hero_morphs;
                 let resolve = |object: &str| {
                     defs.get(object)
                         .map(|d| defs.meshes_of(d))
@@ -674,7 +673,7 @@ fn screenshot(data_dir: &Path, wld: &Wld, args: &Args, path: &Path) -> Result<()
                 subs.clear();
             }
         }
-        pending_exit = exit_at(renderer, &hero);
+        pending_exit = exit_at(world, &hero);
         if pending_exit.is_none() {
             pose_and_frame(renderer, world, &assets, &mut camera, &hero, args)?;
         }
@@ -890,8 +889,8 @@ fn resolve_exit(wld: &Wld, gtg: &Gtg, connection: u64) -> Option<(String, glam::
 }
 
 /// The region exit the Hero stands in, if any.
-fn exit_at(renderer: &TerrainRenderer, hero: &walk::Hero) -> Option<u64> {
-    renderer
+fn exit_at(world: &World, hero: &walk::Hero) -> Option<u64> {
+    world
         .exits
         .iter()
         .find(|e| {
@@ -926,8 +925,8 @@ fn spawn_hero(
         hero_transform(&hero),
     ));
     let mut bank = skin::AnimBank::open(assets)?;
-    let animations = renderer.hero_animations.clone();
-    let configs = model::bone_configs(assets.data_dir(), &renderer.hero_morphs);
+    let animations = world.hero_animations.clone();
+    let configs = model::bone_configs(assets.data_dir(), &world.hero_morphs);
     world.hero_animator = skin.and_then(|mut skin| {
         skin.rig.set_morph(&configs);
         // Idle, walk and run from his table (or by name), then his fidgets.
@@ -978,30 +977,6 @@ const HERO_KICK: &str = "ANIM_HERO_UNARMED_KICK_RIGHT_2_1";
 
 /// The young Hero's definition, whose animation table the Hero plays.
 const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";
-
-/// The Hero's animations from his table, as bank ids: idle (`ST_IDLE_SUBTLE`),
-/// walk (`ST_WALK`), run (`ST_RUN`) and fidgets (`ST_IDLE`).
-#[derive(Debug, Clone, Default)]
-pub struct HeroAnimations {
-    pub main: [Option<u32>; 3],
-    pub fidgets: Vec<u32>,
-}
-
-impl HeroAnimations {
-    fn from_slots(slots: &[fable_data::defs::AnimationSlot]) -> Self {
-        let idles = terrain::IdleAnimations::from_slots(slots);
-        let plain = |slot: &str| {
-            slots
-                .iter()
-                .find(|s| s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND"))
-                .map(|s| s.animation)
-        };
-        Self {
-            main: [idles.base, plain("ST_WALK"), plain("ST_RUN")],
-            fidgets: idles.fidgets,
-        }
-    }
-}
 
 /// Poses the Hero with clip `clip` advanced by `dt` and uploads his vertices.
 fn animate_hero(world: &mut World, clip: usize, dt: f32) {
@@ -1549,9 +1524,9 @@ impl ViewerApp {
                     }
                 });
             }
-            if !renderer.sections.is_empty() {
+            if !world.sections.is_empty() {
                 egui::CollapsingHeader::new("Quest state (Tng sections)").show(ui, |ui| {
-                    for section in &renderer.sections {
+                    for section in &world.sections {
                         let mut on = self.sections.contains(section);
                         if ui.checkbox(&mut on, section).changed() {
                             let mut next = self.sections.clone();
@@ -1865,7 +1840,7 @@ impl ViewerApp {
             world,
             self.follow_distance,
         );
-        match exit_at(renderer, hero) {
+        match exit_at(world, hero) {
             Some(connection) if self.exits_armed => self.pending_exit = Some(connection),
             Some(_) => {}
             None => self.exits_armed = true,
@@ -1894,8 +1869,8 @@ impl ViewerApp {
                 // Night when the sun's light is low (as the lighting reckons it).
                 let sun = world.light.sun.iter().sum::<f32>() / 3.0;
                 (
-                    r.soundscape.music.clone(),
-                    r.soundscape.bank_at(at).cloned(),
+                    world.soundscape.music.clone(),
+                    world.soundscape.bank_at(at).cloned(),
                     world.lighting.is_some() && sun < 0.3,
                     r.inside.is_some(),
                 )

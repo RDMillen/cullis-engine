@@ -26,6 +26,30 @@ pub struct HeroState {
     fidgets: usize,
 }
 
+/// The Hero's animations from his table, as bank ids: idle (`ST_IDLE_SUBTLE`),
+/// walk (`ST_WALK`), run (`ST_RUN`) and fidgets (`ST_IDLE`).
+#[derive(Debug, Clone, Default)]
+pub struct HeroAnimations {
+    pub main: [Option<u32>; 3],
+    pub fidgets: Vec<u32>,
+}
+
+impl HeroAnimations {
+    pub fn from_slots(slots: &[fable_data::defs::AnimationSlot]) -> Self {
+        let idles = crate::region::IdleAnimations::from_slots(slots);
+        let plain = |slot: &str| {
+            slots
+                .iter()
+                .find(|s| s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND"))
+                .map(|s| s.animation)
+        };
+        Self {
+            main: [idles.base, plain("ST_WALK"), plain("ST_RUN")],
+            fidgets: idles.fidgets,
+        }
+    }
+}
+
 impl World {
     /// Starts the Hero's kick, unless he is kicking already or has none.
     pub fn start_kick(&mut self) -> bool {

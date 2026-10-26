@@ -6,6 +6,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
+pub use engine_world::region::{IdleAnimations, RegionExit, SoundArea};
 use fable_data::bbbb::BbbbFile;
 use fable_data::defs::Defs;
 use fable_data::lev::Lev;
@@ -32,35 +33,6 @@ pub const SEA_LEVEL: f32 = 3.0;
 /// Its contents (compressed, format unknown) may hold per-region water heights; until
 /// then such regions get a plane at [`SEA_LEVEL`] if their ground dips below it.
 const SEA_BANK_PREFIX: &str = "__ENGINE_SEA_STATIC_MAP_BANK_FILE__";
-
-/// One map's sound map: per 4x4-unit block, row by row from the map's origin,
-/// the sound theme it plays (`SOUND_THEME_COUNTRY`). A block's value counts
-/// from 1 into the map's list of sound themes.
-#[derive(Debug, Clone)]
-pub struct SoundArea {
-    pub origin: Vec2,
-    /// Blocks per row.
-    pub columns: usize,
-    pub themes: Vec<Option<String>>,
-}
-
-/// Side of a sound map block in world units.
-pub const SOUND_BLOCK: f32 = 4.0;
-
-impl SoundArea {
-    /// The theme of the block at world point `p`, if `p` is on this map.
-    pub fn theme_at(&self, p: Vec2) -> Option<&str> {
-        let local = (p - self.origin) / SOUND_BLOCK;
-        if local.x < 0.0 || local.y < 0.0 || self.columns == 0 {
-            return None;
-        }
-        let (x, y) = (local.x as usize, local.y as usize);
-        if x >= self.columns {
-            return None;
-        }
-        self.themes.get(y * self.columns + x)?.as_deref()
-    }
-}
 
 /// World units: x and y as in the `.wld`, z is height.
 #[derive(Debug, Default)]
@@ -368,66 +340,6 @@ pub struct CreaturePlacement {
     /// Its `ScriptName` (its role), if any.
     pub script_name: Option<String>,
     pub placement: Placement,
-}
-
-/// A creature's standing animations, as `MBANK_ALLMESHES` ids: the loop it
-/// breathes in (`ST_IDLE_SUBTLE`) and the fidgets it sometimes plays (`ST_IDLE`).
-#[derive(Debug, Clone, Default)]
-pub struct IdleAnimations {
-    pub base: Option<u32>,
-    pub fidgets: Vec<u32>,
-    /// Its walk (`ST_WALK`).
-    pub walk: Option<u32>,
-    /// Its flinch when hit (`RESPONSE_GENERIC_HIT_RIGHT`).
-    pub hit: Option<u32>,
-    /// Variants of its idle by animation table modifier (`MORTALLY_WOUNDED`),
-    /// for quests that pose it.
-    pub moods: Vec<(String, u32)>,
-}
-
-impl IdleAnimations {
-    /// From an animation table: the plain or `STAND` variants of the two slots.
-    pub fn from_slots(slots: &[fable_data::defs::AnimationSlot]) -> Self {
-        let plain = |slot: &'static str| {
-            slots
-                .iter()
-                .filter(move |s| {
-                    s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND")
-                })
-                .map(|s| s.animation)
-        };
-        let mut fidgets: Vec<u32> = Vec::new();
-        for a in plain("ST_IDLE") {
-            if !fidgets.contains(&a) {
-                fidgets.push(a);
-            }
-        }
-        let base = plain("ST_IDLE_SUBTLE").next();
-        fidgets.retain(|&a| Some(a) != base);
-        let walk = plain("ST_WALK").next();
-        let hit = plain("RESPONSE_GENERIC_HIT_RIGHT").next();
-        let moods = slots
-            .iter()
-            .filter(|s| s.slot == "ST_IDLE_SUBTLE")
-            .filter_map(|s| Some((s.modifier.clone().filter(|m| m != "STAND")?, s.animation)))
-            .collect();
-        Self {
-            base,
-            fidgets,
-            walk,
-            hit,
-            moods,
-        }
-    }
-}
-
-/// A region exit (`CTCDRegionExit`): walking within `radius` of `position` leads to
-/// the entrance named by `connection` (see `fable_data::gtg::split_connected_uid`).
-#[derive(Debug, Clone, Copy)]
-pub struct RegionExit {
-    pub position: Vec3,
-    pub radius: f32,
-    pub connection: u64,
 }
 
 /// Loads every map a region contains or sees.

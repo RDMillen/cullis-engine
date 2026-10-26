@@ -51,6 +51,13 @@ pub struct World {
     pub focus: Vec3,
     /// Simulated seconds since the region loaded.
     pub time: f32,
+    /// The region's quest-state sections, its exits, and what it sounds like.
+    pub sections: Vec<String>,
+    pub exits: Vec<crate::region::RegionExit>,
+    pub soundscape: crate::region::Soundscape,
+    /// The Hero's animations from his table, and his bone configs.
+    pub hero_animations: crate::hero::HeroAnimations,
+    pub hero_morphs: Vec<String>,
 }
 
 impl World {

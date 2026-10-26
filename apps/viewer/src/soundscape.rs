@@ -17,13 +17,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
 use engine_audio::{Channel, Settings, Sound, SoundId};
-use fable_data::atmos::{self, Enums};
-use fable_data::defs::Defs;
 use fable_data::lug::AmbientBank;
-use glam::Vec2;
 
 use crate::audio::Audio;
-use crate::terrain::SoundArea;
+pub use engine_world::region::Soundscape;
 
 /// Seconds music crossfades over, ambience beds fade over, and that a new
 /// ambience must be wanted before it takes over (so a path along a boundary
@@ -35,68 +32,6 @@ const AMBIENCE_SETTLE: f32 = 0.75;
 /// Mix levels of the channels against the voices (1).
 pub const MUSIC_VOLUME: f32 = 0.25;
 pub const AMBIENCE_VOLUME: f32 = 0.5;
-
-/// What plays where in a region.
-#[derive(Debug, Clone, Default)]
-pub struct Soundscape {
-    /// The region's music file.
-    pub music: Option<PathBuf>,
-    areas: Vec<SoundArea>,
-    /// Sound theme name to its ambient bank (`.met`).
-    banks: HashMap<String, PathBuf>,
-}
-
-impl Soundscape {
-    /// Works out region `region_def`'s music and its sound map's banks.
-    pub fn resolve(data_dir: &Path, region_def: &str, defs: &Defs, areas: Vec<SoundArea>) -> Self {
-        let sound_dir = data_dir.join("Sound");
-        let Ok(enums) = Enums::open(data_dir) else {
-            return Self::default();
-        };
-        let music = defs
-            .get(region_def)
-            .and_then(atmos::region_music_set)
-            .and_then(|set| enums.name("EMusicSetType", i64::from(set)))
-            .and_then(|name| atmos::music_file(&sound_dir, name));
-        let mut banks = HashMap::new();
-        for theme in areas.iter().flat_map(|a| a.themes.iter().flatten()) {
-            if banks.contains_key(theme) {
-                continue;
-            }
-            if let Some(bank) = defs
-                .get(theme)
-                .and_then(atmos::theme_atmos)
-                .and_then(|a| enums.name("EAtmosType", i64::from(a)))
-                .and_then(|name| atmos::atmos_bank(&sound_dir, name))
-            {
-                banks.insert(theme.clone(), bank);
-            }
-        }
-        Self {
-            music,
-            areas,
-            banks,
-        }
-    }
-
-    /// The ambient bank of the block at `p`.
-    pub fn bank_at(&self, p: Vec2) -> Option<&PathBuf> {
-        let theme = self.areas.iter().find_map(|a| a.theme_at(p))?;
-        self.banks.get(theme)
-    }
-
-    /// Names of the banks the region uses (for the log).
-    pub fn bank_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .banks
-            .values()
-            .filter_map(|p| p.file_stem()?.to_str().map(str::to_owned))
-            .collect();
-        names.sort();
-        names.dedup();
-        names
-    }
-}
 
 /// Plays a region's music, decoding it in the background, and crossfading
 /// from one piece to the next.
