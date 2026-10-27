@@ -526,3 +526,4 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Text looked distorted: the glyph table's coordinates are whole texels over the texture's size less one (`docs/formats/font.md`), and read over the size, glyphs past the texture's middle came a texel off and picked up a column of their neighbour (thin bars between letters). Now read correctly and snapped to whole texels.
 - Text is no longer scaled: the UI loads every size the game has (Arial 12 to 28, Tahoma 10 and 12) and draws the one nearest the size wanted, a texel to a physical pixel, on whole pixels, without filtering (`draw::Fonts`).
+- A question's Yes and No are now choices set in the game's font (gold, brighter under the pointer) instead of egui buttons (`draw::choice`); not yet seen on screen.

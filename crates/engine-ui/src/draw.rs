@@ -95,11 +95,11 @@ pub fn subtitles(
                 }
                 if subs.asking().is_some() {
                     ui.horizontal(|ui| {
-                        if ui.button("Yes (Y)").clicked() {
-                            answer = Some(true);
-                        }
-                        if ui.button("No (N)").clicked() {
-                            answer = Some(false);
+                        for (text, yes) in [("Yes (Y)", true), ("No (N)", false)] {
+                            if choice(ui, body_font, scale, text) {
+                                answer = Some(yes);
+                            }
+                            ui.add_space(24.0 * u);
                         }
                     });
                 }
@@ -179,4 +179,24 @@ fn label(
         font.draw(painter, egui::pos2(rect.left(), y), l, scale, colour);
         y += line;
     });
+}
+
+/// A choice set in `font` that can be clicked: gold, brighter under the
+/// pointer, else an egui button. Whether it was clicked.
+fn choice(ui: &mut egui::Ui, font: Option<&BitmapFont>, scale: f32, text: &str) -> bool {
+    let Some(font) = font else {
+        return ui.button(text).clicked();
+    };
+    let size = egui::vec2(font.width(text, scale), font.line_height(scale));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let colour = if response.hovered() {
+        Color32::from_rgb(255, 236, 170)
+    } else {
+        SPEAKER
+    };
+    font.draw(ui.painter(), rect.min, text, scale, colour);
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
 }
