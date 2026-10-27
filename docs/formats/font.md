@@ -27,7 +27,7 @@ All little-endian.
 | | 22 bytes | not decoded: u16 0x12, u16 texel bytes ÷ 65536, …, at bytes 16–19 the texture's width and height again as u16s, ending `20 28` |
 | end − w×h×4 | texels | the texture, 4 bytes a texel, rows top to bottom: the first three bytes 255 where the glyph covers the texel at all (else 0), the fourth the anti-aliased coverage |
 
-A glyph record is 22 bytes: four f32 (left, top, right, bottom as fractions of the texture; the cell is one texel wider than the glyph), then three i16: the offset from the pen to the glyph's left edge, the glyph's width, and the advance, in pixels. Characters follow on from the first character in record order.
+A glyph record is 22 bytes: four f32 (left, top, right, bottom: whole texels divided by the texture's size less one, so `ENG_TAHOMA_10`'s "E" is 48/127 to 56/127 across its 128 texels and `ENG_ARIAL_16`'s rows are 22/255 high; read as fractions of the size, glyphs past the middle come out a texel off and pick up a column of their neighbour; the cell is one texel wider than the glyph), then three i16: the offset from the pen to the glyph's left edge, the glyph's width, and the advance, in pixels. Characters follow on from the first character in record order.
 
 The last row of `ENG_ARIAL_18` (`z` to `~` and DEL) and DEL in `ENG_ARIAL_12` reach 7–8% past the texture's bottom edge: the glyphs were set in more rows than the texture holds, so their bottoms are cut off in the data.
 

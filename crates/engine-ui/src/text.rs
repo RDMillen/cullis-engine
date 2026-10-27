@@ -18,7 +18,8 @@ impl BitmapFont {
         let size = [font.texture_size[0] as usize, font.texture_size[1] as usize];
         let image = egui::ColorImage::from_rgba_unmultiplied(size, &font.rgba());
         Self {
-            texture: ctx.load_texture(name, image, egui::TextureOptions::LINEAR),
+            // Drawn a texel to a pixel, so no filtering.
+            texture: ctx.load_texture(name, image, egui::TextureOptions::NEAREST),
             first: font.first,
             glyphs: font.glyphs().copied().collect(),
             height: font.height as f32,
@@ -29,6 +30,11 @@ impl BitmapFont {
     fn glyph(&self, ch: char) -> Option<&fable_data::font::Glyph> {
         let i = (ch as u32).checked_sub(self.first)? as usize;
         self.glyphs.get(i)
+    }
+
+    /// The font's line height in pixels.
+    pub fn pixel_height(&self) -> f32 {
+        self.height
     }
 
     /// The height of a line at `scale`.
@@ -71,20 +77,32 @@ impl BitmapFont {
         }
     }
 
-    /// Draws `text` on one line with its top left at `at`.
+    /// Draws `text` on one line with its top left at `at` (moved to a whole
+    /// pixel, so that at a scale of one pixel a texel each glyph stays sharp).
     pub fn draw(&self, painter: &Painter, at: Pos2, text: &str, scale: f32, colour: Color32) {
+        let ppp = painter.ctx().pixels_per_point();
+        let at = Pos2::new((at.x * ppp).round() / ppp, (at.y * ppp).round() / ppp);
         let mut mesh = Mesh::with_texture(self.texture.id());
         let mut x = at.x;
         for c in text.chars() {
             let Some(g) = self.glyph(plain(c)).or_else(|| self.glyph(' ')) else {
                 continue;
             };
-            // The cell is a texel wider than the glyph; its pixels map to
-            // texels one to one.
+            // The cell (a texel wider than the glyph) in texels: the table
+            // gives them as fractions of the size less one.
+            let size_t = self.texture_size;
             let [l, t, r, b] = g.uv;
-            let size = Vec2::new((r - l) * self.texture_size.x, (b - t) * self.texture_size.y);
+            let last = size_t - Vec2::splat(1.0);
+            let texels = Rect::from_min_max(
+                Pos2::new((l * last.x).round(), (t * last.y).round()),
+                Pos2::new((r * last.x).round(), (b * last.y).round().min(size_t.y)),
+            );
+            let size = texels.size();
             let min = Pos2::new(x + g.offset as f32 * scale, at.y);
-            let uv = Rect::from_min_max(Pos2::new(l, t), Pos2::new(r, b));
+            let uv = Rect::from_min_max(
+                (texels.min.to_vec2() / size_t).to_pos2(),
+                (texels.max.to_vec2() / size_t).to_pos2(),
+            );
             mesh.add_rect_with_uv(Rect::from_min_size(min, size * scale), uv, colour);
             x += g.advance as f32 * scale;
         }

@@ -10,8 +10,9 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glyph {
     pub ch: char,
-    /// Left, top, right, bottom, as fractions of the texture's size. The cell
-    /// is a texel wider than `width`.
+    /// Left, top, right, bottom, as fractions of the texture's size less one
+    /// (`ENG_TAHOMA_10`'s "E" from 48/127 to 56/127 of its 128 texels). The
+    /// cell is a texel wider than `width`.
     pub uv: [f32; 4],
     /// Pixels from the pen to the glyph's left edge.
     pub offset: i16,

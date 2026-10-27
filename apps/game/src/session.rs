@@ -530,10 +530,18 @@ impl Session {
                         .ok()?;
                     Some(engine_ui::text::BitmapFont::load(ui.ctx(), name, &font))
                 };
-                let fonts = Some(engine_ui::draw::Fonts {
-                    body: load("ENG_ARIAL_16")?,
-                    small: load("ENG_TAHOMA_10")?,
-                });
+                let mut sizes =
+                    |names: &[&str]| -> Vec<_> { names.iter().filter_map(|n| load(n)).collect() };
+                let body = sizes(&[
+                    "ENG_ARIAL_12",
+                    "ENG_ARIAL_16",
+                    "ENG_ARIAL_18",
+                    "ENG_ARIAL_24",
+                    "ENG_ARIAL_28",
+                ]);
+                let small = sizes(&["ENG_TAHOMA_10", "ENG_TAHOMA_12"]);
+                let fonts = (!body.is_empty() && !small.is_empty())
+                    .then_some(engine_ui::draw::Fonts { body, small });
                 log::info!("fonts: {}", if fonts.is_some() { "loaded" } else { "none" });
                 fonts
             })

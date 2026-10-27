@@ -7,12 +7,25 @@ use crate::sprites::Sprites;
 use crate::subtitles::{Item, Subtitles};
 use crate::text::BitmapFont;
 
-/// The game's fonts the UI sets its text in.
+/// The game's fonts the UI sets its text in, each in the sizes the game has:
+/// they are drawn at the size nearest the one wanted, a texel to a pixel,
+/// since scaling a bitmap font distorts it.
 pub struct Fonts {
-    /// Lines and notices (`ENG_ARIAL_16`).
-    pub body: BitmapFont,
-    /// Hints (`ENG_TAHOMA_10`).
-    pub small: BitmapFont,
+    /// Lines and notices (`ENG_ARIAL_12` to `_28`).
+    pub body: Vec<BitmapFont>,
+    /// Hints (`ENG_TAHOMA_10`, `_12`).
+    pub small: Vec<BitmapFont>,
+}
+
+impl Fonts {
+    /// The font in `sizes` nearest `pixels` high.
+    fn nearest(sizes: &[BitmapFont], pixels: f32) -> Option<&BitmapFont> {
+        sizes.iter().min_by(|a, b| {
+            (a.pixel_height() - pixels)
+                .abs()
+                .total_cmp(&(b.pixel_height() - pixels).abs())
+        })
+    }
 }
 
 /// The colour of a speaker's name.
@@ -29,10 +42,13 @@ pub fn subtitles(
     fonts: Option<&Fonts>,
 ) -> Option<bool> {
     let u = rect.height() / 480.0;
-    // The fonts' pixel sizes are for a 600-line screen.
-    let scale = rect.height() / 600.0;
-    let body = fonts.map(|f| &f.body);
-    let small = fonts.map(|f| &f.small);
+    // Text as big as Arial 16 (21 pixels a line) on a 600-line screen, in the
+    // nearest size the game has, one texel to a physical pixel.
+    let ppp = ctx.pixels_per_point();
+    let want = rect.height() * ppp / 600.0;
+    let scale = 1.0 / ppp;
+    let body = fonts.and_then(|f| Fonts::nearest(&f.body, 21.0 * want));
+    let small = fonts.and_then(|f| Fonts::nearest(&f.small, 13.0 * want));
     if let Some((text, kind)) = subs.notice() {
         // Clear of the health bar in the top left and the map in the top right.
         let width = (rect.width() - 480.0).clamp(240.0, 620.0);

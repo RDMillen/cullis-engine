@@ -521,3 +521,8 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Found: `ENG_ARIAL_18`'s last row of glyphs runs past the texture's bottom edge.
 - `engine_ui::text::BitmapFont` sets text in them (measuring, wrapping at spaces through a callback, textured quads; curly quotes and dashes fall back to plain ones, since the fonts are ASCII), with tests. Subtitles and notices use `ENG_ARIAL_16` (the speaker's name in gold) and hints `ENG_TAHOMA_10`, scaled for a 600-line screen; egui's labels remain if the fonts cannot be read. `Archive::Fonts` in the asset cache.
 - Checked: the father's first line in the window, in the game's Arial.
+
+## 2026-10-27: sharper bitmap text
+
+- Text looked distorted: the glyph table's coordinates are whole texels over the texture's size less one (`docs/formats/font.md`), and read over the size, glyphs past the texture's middle came a texel off and picked up a column of their neighbour (thin bars between letters). Now read correctly and snapped to whole texels.
+- Text is no longer scaled: the UI loads every size the game has (Arial 12 to 28, Tahoma 10 and 12) and draws the one nearest the size wanted, a texel to a physical pixel, on whole pixels, without filtering (`draw::Fonts`).
