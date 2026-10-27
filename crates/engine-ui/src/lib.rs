@@ -7,6 +7,7 @@ pub mod draw;
 pub mod hud;
 pub mod sprites;
 pub mod subtitles;
+pub mod text;
 
 pub use hud::{Action, GoldPopup, Hud, Marker};
 pub use sprites::Sprites;

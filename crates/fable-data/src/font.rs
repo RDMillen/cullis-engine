@@ -179,7 +179,9 @@ impl Font {
     /// The texture as white RGBA, alpha the glyphs' coverage.
     pub fn rgba(&self) -> Vec<u8> {
         self.texels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|t| [255, 255, 255, t[3]])
             .collect()
     }

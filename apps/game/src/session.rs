@@ -90,6 +90,9 @@ pub struct Session {
     pub sprites: Option<engine_ui::Sprites>,
     /// The region whose map the sprites hold.
     pub minimap_region: Option<String>,
+    /// The game's fonts, loaded on the first frame drawn (`None` inside if
+    /// they could not be read).
+    pub fonts: Option<Option<engine_ui::draw::Fonts>>,
     pub gold_popup: engine_ui::GoldPopup,
     pub action: Option<engine_ui::Action>,
 }
@@ -180,6 +183,7 @@ impl Session {
             texture: None,
             sprites: None,
             minimap_region: None,
+            fonts: None,
             gold_popup: Default::default(),
             action: None,
         })
@@ -511,7 +515,30 @@ impl Session {
             }
             Scene::Model(_) => None,
         };
-        if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs, sprites) {
+        let fonts = self
+            .fonts
+            .get_or_insert_with(|| {
+                let mut assets = self.assets.clone();
+                let mut load = |name: &str| {
+                    let id = assets.id_of(engine_core::assets::Archive::Fonts, name)?;
+                    let (_, data) = assets
+                        .read(engine_core::assets::Archive::Fonts, id)
+                        .map_err(|e| log::warn!("font {name}: {e}"))
+                        .ok()?;
+                    let font = fable_data::font::Font::parse(&data)
+                        .map_err(|e| log::warn!("font {name}: {e}"))
+                        .ok()?;
+                    Some(engine_ui::text::BitmapFont::load(ui.ctx(), name, &font))
+                };
+                let fonts = Some(engine_ui::draw::Fonts {
+                    body: load("ENG_ARIAL_16")?,
+                    small: load("ENG_TAHOMA_10")?,
+                });
+                log::info!("fonts: {}", if fonts.is_some() { "loaded" } else { "none" });
+                fonts
+            })
+            .as_ref();
+        if let Some(answer) = draw::subtitles(ui.ctx(), rect, &self.subs, sprites, fonts) {
             self.clicked_answer = Some(answer);
         }
         let dt = ui.input(|i| i.stable_dt.min(0.1));

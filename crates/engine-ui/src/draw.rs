@@ -5,12 +5,34 @@ use egui::{Color32, Context, Painter, Rect, RichText, Shape};
 
 use crate::sprites::Sprites;
 use crate::subtitles::{Item, Subtitles};
+use crate::text::BitmapFont;
+
+/// The game's fonts the UI sets its text in.
+pub struct Fonts {
+    /// Lines and notices (`ENG_ARIAL_16`).
+    pub body: BitmapFont,
+    /// Hints (`ENG_TAHOMA_10`).
+    pub small: BitmapFont,
+}
+
+/// The colour of a speaker's name.
+const SPEAKER: Color32 = Color32::from_rgb(232, 200, 120);
 
 /// Draws the subtitle at the bottom of `rect` and the notice at its top, in
 /// the game's text boxes. Returns the answer if a question's button was
 /// clicked.
-pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles, sprites: &Sprites) -> Option<bool> {
+pub fn subtitles(
+    ctx: &Context,
+    rect: Rect,
+    subs: &Subtitles,
+    sprites: &Sprites,
+    fonts: Option<&Fonts>,
+) -> Option<bool> {
     let u = rect.height() / 480.0;
+    // The fonts' pixel sizes are for a 600-line screen.
+    let scale = rect.height() / 600.0;
+    let body = fonts.map(|f| &f.body);
+    let small = fonts.map(|f| &f.small);
     if let Some((text, kind)) = subs.notice() {
         // Clear of the health bar in the top left and the map in the top right.
         let width = (rect.width() - 480.0).clamp(240.0, 620.0);
@@ -24,12 +46,13 @@ pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles, sprites: &Sprites)
                         Some(false) => Color32::from_rgb(220, 110, 100),
                         None => ui.visuals().strong_text_color(),
                     };
-                    ui.label(RichText::new(text).size(16.0).color(colour));
+                    label(ui, body, scale, text, colour, 16.0);
                 });
             });
     }
     let width = (rect.width() * 0.7).min(720.0);
     let mut answer = None;
+    let body_font = body;
     let (speaker, body, hint) = match subs.front() {
         Some(Item::Line { line, wait, .. }) => (
             line.speaker.as_str(),
@@ -48,11 +71,11 @@ pub fn subtitles(ctx: &Context, rect: Rect, subs: &Subtitles, sprites: &Sprites)
             in_text_box(ui, sprites, u, |ui| {
                 ui.set_width(width);
                 if !speaker.is_empty() {
-                    ui.label(RichText::new(speaker).strong());
+                    label(ui, body_font, scale, speaker, SPEAKER, 15.0);
                 }
-                ui.label(RichText::new(body).size(17.0));
+                label(ui, body_font, scale, body, Color32::from_gray(235), 17.0);
                 if let Some(hint) = hint {
-                    ui.label(RichText::new(hint).weak().small());
+                    label(ui, small, scale, hint, Color32::from_gray(170), 11.0);
                 }
                 if subs.asking().is_some() {
                     ui.horizontal(|ui| {
@@ -112,4 +135,32 @@ fn in_text_box(ui: &mut egui::Ui, sprites: &Sprites, u: f32, content: impl FnOnc
         sprites.text_box(inner.response.rect, margin * 1.5, Color32::WHITE)
     };
     ui.painter().set(behind, box_shape);
+}
+
+/// `text` in `font` at `scale`, wrapped to the width `ui` offers, else as an
+/// egui label `size` points high.
+fn label(
+    ui: &mut egui::Ui,
+    font: Option<&BitmapFont>,
+    scale: f32,
+    text: &str,
+    colour: Color32,
+    size: f32,
+) {
+    let Some(font) = font else {
+        ui.label(RichText::new(text).size(size).color(colour));
+        return;
+    };
+    let width = ui.available_width();
+    let mut lines = 0;
+    font.wrap(text, width, scale, |_| lines += 1);
+    let line = font.line_height(scale);
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(width, line * lines as f32), egui::Sense::hover());
+    let painter = ui.painter();
+    let mut y = rect.top();
+    font.wrap(text, width, scale, |l| {
+        font.draw(painter, egui::pos2(rect.left(), y), l, scale, colour);
+        y += line;
+    });
 }

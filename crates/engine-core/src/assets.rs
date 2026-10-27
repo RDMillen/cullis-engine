@@ -24,6 +24,8 @@ pub enum Archive {
     Textures,
     /// `Misc/pc/effects.big`, `PARTICLE_MAIN_PC`: particle emitters.
     Effects,
+    /// `lang/English/fonts.big`, `FONT_ENGLISH_MAIN`: bitmap fonts.
+    Fonts,
 }
 
 impl Archive {
@@ -33,6 +35,7 @@ impl Archive {
             Archive::Meshes => "graphics/graphics.big",
             Archive::Textures => "graphics/pc/textures.big",
             Archive::Effects => "Misc/pc/effects.big",
+            Archive::Fonts => "lang/English/fonts.big",
         }
     }
 
@@ -42,6 +45,7 @@ impl Archive {
             Archive::Meshes => "MBANK_ALLMESHES",
             Archive::Textures => "GBANK_MAIN_PC",
             Archive::Effects => "PARTICLE_MAIN_PC",
+            Archive::Fonts => "FONT_ENGLISH_MAIN",
         }
     }
 }

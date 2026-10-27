@@ -519,4 +519,5 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - `fable_data::font::Font` reads the fonts of `lang/English/fonts.big` (`FONT_ENGLISH_MAIN`: Tahoma 10 and 12, Arial 12 to 28): a header (face, heights, weight, texture size, character range), glyph records in ranges (texture rectangle, offset, width, advance), 22 undecoded bytes, and a 4-byte-a-texel texture whose alpha is the coverage. Unknown fields kept; every font writes back byte for byte (real-data test), plus synthetic tests. Format page `docs/formats/font.md`.
 - Found: `ENG_ARIAL_18`'s last row of glyphs runs past the texture's bottom edge.
-- Next: setting subtitles and the HUD in these fonts in `engine-ui`.
+- `engine_ui::text::BitmapFont` sets text in them (measuring, wrapping at spaces through a callback, textured quads; curly quotes and dashes fall back to plain ones, since the fonts are ASCII), with tests. Subtitles and notices use `ENG_ARIAL_16` (the speaker's name in gold) and hints `ENG_TAHOMA_10`, scaled for a 600-line screen; egui's labels remain if the fonts cannot be read. `Archive::Fonts` in the asset cache.
+- Checked: the father's first line in the window, in the game's Arial.

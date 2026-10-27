@@ -32,3 +32,5 @@ A glyph record is 22 bytes: four f32 (left, top, right, bottom as fractions of t
 The last row of `ENG_ARIAL_18` (`z` to `~` and DEL) and DEL in `ENG_ARIAL_12` reach 7–8% past the texture's bottom edge: the glyphs were set in more rows than the texture holds, so their bottoms are cut off in the data.
 
 `fable_data::font::Font::rgba` gives the texture as white with the coverage as alpha.
+
+`engine_ui::text::BitmapFont` draws text in these fonts; the HUD's subtitles use `ENG_ARIAL_16` and its hints `ENG_TAHOMA_10`.
