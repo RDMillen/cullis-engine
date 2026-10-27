@@ -19,7 +19,7 @@ pub struct Fonts {
 
 impl Fonts {
     /// The font in `sizes` nearest `pixels` high.
-    fn nearest(sizes: &[BitmapFont], pixels: f32) -> Option<&BitmapFont> {
+    pub(crate) fn nearest(sizes: &[BitmapFont], pixels: f32) -> Option<&BitmapFont> {
         sizes.iter().min_by(|a, b| {
             (a.pixel_height() - pixels)
                 .abs()

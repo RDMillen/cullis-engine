@@ -90,6 +90,9 @@ pub struct Session {
     pub sprites: Option<engine_ui::Sprites>,
     /// The region whose map the sprites hold.
     pub minimap_region: Option<String>,
+    /// The pause menu, and its text from the text bank.
+    pub menu: engine_ui::menu::PauseMenu,
+    pub menu_labels: Option<engine_ui::menu::Labels>,
     /// The game's fonts, loaded on the first frame drawn (`None` inside if
     /// they could not be read).
     pub fonts: Option<Option<engine_ui::draw::Fonts>>,
@@ -184,6 +187,8 @@ impl Session {
             sprites: None,
             minimap_region: None,
             fonts: None,
+            menu: Default::default(),
+            menu_labels: None,
             gold_popup: Default::default(),
             action: None,
         })
@@ -380,7 +385,15 @@ impl Session {
         // The simulation runs in fixed ticks; what is only seen
         // (camera framing, highlight, fades) runs per frame.
         let frame_dt = ui.input(|i| i.stable_dt.min(0.1));
-        let ticks = self.time.advance(frame_dt);
+        // Esc pauses (while walking): no ticks while the menu is open.
+        if self.hero().is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.menu.toggle();
+        }
+        let ticks = if self.menu.open {
+            0
+        } else {
+            self.time.advance(frame_dt)
+        };
         let mut actions = ui.input(Actions::read);
         for _ in 0..ticks {
             self.tick(rs, &mut actions);
@@ -563,6 +576,37 @@ impl Session {
             engine_ui::hud::draw(ui.painter(), rect, sprites, &hud, &self.gold_popup);
             if self.gold_popup.visible().is_some() {
                 ui.ctx().request_repaint();
+            }
+        }
+        // The pause menu over everything.
+        if let (true, Some(fonts)) = (self.menu.open, fonts) {
+            let text = &self.text;
+            let labels = self.menu_labels.get_or_insert_with(|| {
+                engine_ui::menu::Labels::new(|entry| text.as_ref()?.get(entry).map(str::to_owned))
+            });
+            let mut volumes = engine_ui::menu::Volumes {
+                sound: self.volumes[3],
+                music: self.volumes[2],
+                dialogue: self.volumes[1],
+            };
+            let choice = self
+                .menu
+                .show(ui, rect, sprites, fonts, labels, &mut volumes);
+            let set = [
+                (3, volumes.sound, engine_audio::Channel::Ambience),
+                (2, volumes.music, engine_audio::Channel::Music),
+                (1, volumes.dialogue, engine_audio::Channel::Voice),
+            ];
+            for (k, v, channel) in set {
+                if self.volumes[k] != v {
+                    self.volumes[k] = v;
+                    if let Some(audio) = &self.audio {
+                        audio.set_channel_volume(channel, v);
+                    }
+                }
+            }
+            if choice == Some(engine_ui::menu::Choice::Quit) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
     }

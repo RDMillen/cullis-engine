@@ -5,6 +5,7 @@
 
 pub mod draw;
 pub mod hud;
+pub mod menu;
 pub mod sprites;
 pub mod subtitles;
 pub mod text;

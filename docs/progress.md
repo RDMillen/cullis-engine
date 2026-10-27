@@ -526,4 +526,10 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 
 - Text looked distorted: the glyph table's coordinates are whole texels over the texture's size less one (`docs/formats/font.md`), and read over the size, glyphs past the texture's middle came a texel off and picked up a column of their neighbour (thin bars between letters). Now read correctly and snapped to whole texels.
 - Text is no longer scaled: the UI loads every size the game has (Arial 12 to 28, Tahoma 10 and 12) and draws the one nearest the size wanted, a texel to a physical pixel, on whole pixels, without filtering (`draw::Fonts`).
-- A question's Yes and No are now choices set in the game's font (gold, brighter under the pointer) instead of egui buttons (`draw::choice`); not yet seen on screen.
+- A question's Yes and No are now choices set in the game's font (gold, brighter under the pointer) instead of egui buttons (`draw::choice`); seen on Theresa's "Give the chocolates to your sister?".
+
+## 2026-10-27: the pause menu
+
+- Esc (while walking) opens `engine_ui::menu::PauseMenu` and stops the simulation's ticks: `UI_OPTIONS_BACKDROP_SPRITE_1`-`6` fill the screen (a 640 by 512 picture in six tiles) and `PC_UI_OPTIONS_FRAME_1`-`9` (nine tiles, the frame 672 by 598 of them, a 36-high title bar) sit centred on it. The wording is the game's (`TEXT_GUI_MENU_PAUSED`, `_RETURN`, `_AUDIO_OPTIONS`, `_QUIT`, the three `_VOLUME`s, and the `TEXT_GUI_MENUGUIDE_PAUSEMENU_*` descriptions under the hovered item). Return To Game, Audio Options (sound, i.e. ambience, music and dialogue volumes as bars to click or drag) and Quit (closes the window).
+- The game binary can now change its volumes.
+- Checked: both pages drawn in the window.

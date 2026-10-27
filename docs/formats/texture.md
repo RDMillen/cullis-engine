@@ -67,7 +67,7 @@ The HUD and menus are textures too. `graphics/pc/textures.big` holds `GBANK_MAIN
 | `HUD_ICON_*` | 193 icons: actions (`BATTLE` crossed swords, `BATTLE_UNARMED` fist, `SPEAK`, `INTERACT`), spells, items (`MONEY_BAG`, `CHOCS`, `TEDDY`, …), experience (`EXP_*`), `RENOWN` |
 | `HUD_PC_*` | the PC's rings (`MOUSE_RING`, `WEAPON_RINGS`, `ITEM_RINGS_*`, `EXPRESSION_RINGS`), mouse buttons (`MOUSE_LMB`, `MOUSE_RMB`), target brackets, Guild seal |
 | `HUD_ORB_*`, `HUD_EXPR_*`, `HUD_DPAD_*`, `HUD_ABXY_*`, `HUD_COMBAT_*`, `HUD_MODES_*`, `HUD_CROSSHAIR_*` | quest orbs, expressions, the Xbox controller's rings and buttons, combat multiplier, modes |
-| `PC_UI_*_FRAME_n_SPRITE`, `UI_*` | the PC menus' nine-piece frames (quest start, finished, failed, death, experience, options, map) and backdrops |
+| `PC_UI_*_FRAME_n_SPRITE`, `UI_*` | the PC menus' frames (quest start, finished, failed, death, experience, options, map), each a picture cut into nine tiles (three rows of 256, the last 128 high; the options frame fills 672 by 598 with a 36-high title bar), and backdrops (`UI_OPTIONS_BACKDROP_SPRITE_1`-`6`: a 640 by 512 picture in two rows of 256, 256 and 128 wide) |
 
 ### Minimaps
 
