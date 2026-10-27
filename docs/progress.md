@@ -514,3 +514,9 @@ Newest first. One entry per session: what changed, what was learned, what is nex
 - Quests can name their goal (`engine_script::Quest::goal`). The Prologue's follows the present: the father while he owes gold for good deeds, Theresa once the Hero has her chocolates, the trader once he can pay; none while he needs deeds. Test `the_goal_follows_the_present`. Where the game puts its orb at each step is not observed.
 - `engine_ui::Marker`, drawn on the map (dots under the orb, only those on the map's circle).
 - Checked: with the chocolates in hand the orb sits on Theresa by the Barrow Fields gate, with eight green dots on the quest's characters.
+
+## 2026-10-27: the game's bitmap fonts (fable-data)
+
+- `fable_data::font::Font` reads the fonts of `lang/English/fonts.big` (`FONT_ENGLISH_MAIN`: Tahoma 10 and 12, Arial 12 to 28): a header (face, heights, weight, texture size, character range), glyph records in ranges (texture rectangle, offset, width, advance), 22 undecoded bytes, and a 4-byte-a-texel texture whose alpha is the coverage. Unknown fields kept; every font writes back byte for byte (real-data test), plus synthetic tests. Format page `docs/formats/font.md`.
+- Found: `ENG_ARIAL_18`'s last row of glyphs runs past the texture's bottom edge.
+- Next: setting subtitles and the HUD in these fonts in `engine-ui`.

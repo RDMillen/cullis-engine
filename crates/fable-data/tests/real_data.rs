@@ -1288,3 +1288,45 @@ fn particle_attachments_name_helpers() {
     }
     assert!(seen > 20, "{seen} attachments");
 }
+
+#[test]
+#[ignore = "needs FABLE_DIR"]
+fn fonts_parse_and_write_back() {
+    let path = data_dir().join("lang/English/fonts.big");
+    let mut file = BufReader::new(File::open(path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let bank = big.bank("FONT_ENGLISH_MAIN").expect("a font bank");
+    let index = bank.read_index(&mut file).unwrap();
+    assert!(!index.entries.is_empty());
+    for entry in &index.entries {
+        let data = entry.read_data(&mut file).unwrap();
+        let font = fable_data::font::Font::parse(&data).unwrap();
+        assert_eq!(font.to_bytes(), data, "{}", entry.name);
+        let glyphs: Vec<_> = font.glyphs().collect();
+        assert_eq!(
+            glyphs.len() as u32,
+            font.last - font.first + 1,
+            "{}",
+            entry.name
+        );
+        // The last row of some fonts runs a little past the texture's bottom
+        // (ENG_ARIAL_18's "z" to "~").
+        for g in glyphs {
+            assert!(
+                g.uv[..3].iter().all(|v| (0.0..=1.0).contains(v)) && g.uv[3] <= 1.1,
+                "{} {:?}",
+                entry.name,
+                g
+            );
+            assert!(
+                g.uv[2] > g.uv[0] && g.uv[3] > g.uv[1],
+                "{} {:?}",
+                entry.name,
+                g
+            );
+            assert!(g.advance > 0 && g.width >= 0, "{} {:?}", entry.name, g);
+        }
+        let a = font.glyph('A').unwrap();
+        assert!(a.width > 0, "{}: 'A' has ink", entry.name);
+    }
+}

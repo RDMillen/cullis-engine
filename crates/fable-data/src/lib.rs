@@ -13,6 +13,7 @@ pub mod defs;
 pub mod dxt;
 pub mod environment;
 mod error;
+pub mod font;
 pub mod gtg;
 pub mod lev;
 pub mod light;
