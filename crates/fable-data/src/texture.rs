@@ -9,6 +9,9 @@ use crate::{Error, Result, lzo};
 /// mip chain. Every other type stores one image (sprite sheets keep their frames as
 /// tiles inside it).
 pub const FRAME_SEQUENCE_TYPE: u32 = 1;
+/// Bank entry type of a bump map (`…_B.TGA][BUMP]`): one image whose red and
+/// green hold the surface's slope (see [`bump_slope`]).
+pub const BUMP_TYPE: u32 = 2;
 
 /// The bank entry's 34-byte info block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,9 +267,26 @@ fn decode(format: TextureFormat, [w, h]: [u32; 2], bytes: &[u8]) -> Result<Vec<u
     }
 }
 
+/// A bump map texel's slope: how steeply the surface rises along the texture's
+/// u (to the right) and v (down its rows), each -1 to 1, from red and green
+/// centred on 128. Blue is not part of it (near 0; what is there looks like
+/// DXT1 rounding). Brighter colours sit higher: raised carvings and tile
+/// faces rise, grooves and grout sink (`docs/formats/texture.md`).
+pub fn bump_slope(texel: [u8; 4]) -> [f32; 2] {
+    let signed = |v: u8| ((f32::from(v) - 128.0) / 127.0).clamp(-1.0, 1.0);
+    [signed(texel[0]), signed(texel[1])]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bump_texels_are_signed_slopes() {
+        assert_eq!(bump_slope([128, 128, 0, 255]), [0.0, 0.0], "flat");
+        assert_eq!(bump_slope([255, 1, 30, 255]), [1.0, -1.0]);
+        assert_eq!(bump_slope([0, 128, 0, 255]), [-1.0, 0.0], "clamped");
+    }
 
     fn info(
         format: u8,

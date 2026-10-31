@@ -51,7 +51,7 @@ The parser reads chunks until the bytes after a chunk start with the mesh name.
 | name | NUL-terminated | 3ds Max material names, e.g. `7 - Default`, `exterior_stone`, `DegenerateTriangles` |
 | unknown | u32 | 0 |
 | texture | u32 | main texture id, 0 for none |
-| second texture | u32 | 0 for none; role unknown |
+| second texture | u32 | 0 for none; else a bump map (bank entry type 2, `…_B.TGA][BUMP]`; [texture.md](texture.md#bump-maps)) |
 | rest | 21 bytes | not decoded |
 
 ### Chunk

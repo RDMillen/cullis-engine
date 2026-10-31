@@ -2,6 +2,15 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31 (later): bump maps decoded (fable-data)
+
+- A mesh material's second texture is a bump map: bank entry type 2 (`texture::BUMP_TYPE`), named `…_B.TGA][BUMP]`; every second texture in every static mesh is one (real-data test). 372 bump maps in `GBANK_MAIN_PC` (357 DXT1, 15 DXT3), also for about 60 ground surfaces, water and the Hero's skin, scars and looks (`docs/formats/texture.md`).
+- Red and green are signed slopes centred on 128 (u to the right, v down the rows; `texture::bump_slope`), blue is DXT1 rounding. Read from the Guild's wall and floor: red and green follow the colour texture's brightness changes (grooves dark and low), and behave as slopes of one surface. Real-data test `bump_maps_hold_two_signed_slopes`; unit test for `bump_slope`.
+- Why: the Guild looked flat and smeared; we drew none of these.
+- `mesh_dump` prints each material's texture and second texture by name.
+- Not settled: slopes or a tilted normal's x and y (the same up to sign and a small scale), and how strongly the game applies them: for the renderer, by eye. Which ground theme and Hero look use which bump map.
+- Next: draw them (engine-render: per-vertex tangents from the UVs, the slope perturbing the normal in the lighting).
+
 ## 2026-10-31 (later): unarmed fighting (engine-world)
 
 - New `engine_world::combat`: the Hero's strikes in chains (`World::attack`: F strikes, again during a strike chains the next; two chains of three punches, `ANIM_HERO_UNARMED_STRIKE_{RIGHT,LEFT}_2_{1,2,3}`, taking turns), locking on (`World::toggle_lock`, Q: the nearest foe in front; the Hero faces it and steps in his `STRAFE_*` stance), and blows (`take_blows`) on dummies and people. The kick is gone; people struck flinch and quests hear of it as before.

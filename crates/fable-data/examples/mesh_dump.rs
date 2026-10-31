@@ -58,9 +58,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  bone {i}: {:?} (parent {:?})", b.name, b.parent);
         }
     }
+    // Texture names, to show what each material draws with.
+    let textures: std::collections::HashMap<u32, String> = {
+        let path = std::path::Path::new(&dir).join("graphics/pc/textures.big");
+        let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
+        let big = BigFile::read(&mut file)?;
+        let bank = big.bank("GBANK_MAIN_PC").ok_or("no texture bank")?;
+        bank.read_index(&mut file)?
+            .entries
+            .into_iter()
+            .map(|e| (e.id, e.name))
+            .collect()
+    };
+    let name = |id: u32| textures.get(&id).map_or(id.to_string(), Clone::clone);
     for (l, lod) in mesh.lods.iter().enumerate() {
         let names: Vec<_> = lod.materials.iter().map(|m| m.name.as_str()).collect();
         println!("LOD {l}: materials {names:?}");
+        if l == 0 {
+            for m in &lod.materials {
+                println!(
+                    "  material {:?}: texture {}, second texture {}",
+                    m.name,
+                    name(m.texture),
+                    name(m.second_texture)
+                );
+            }
+        }
         for (c, chunk) in lod.chunks.iter().enumerate() {
             let p = chunk.positions();
             let (lo, hi) = p.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| {

@@ -31,6 +31,7 @@ Entries of the `GBANK_*` banks in `graphics/pc/textures.big` and `graphics/pc/fr
 
 The bank entry type decides the layout:
 
+- **Type 2 (bump maps)**: one image, as type 0; see [Bump maps](#bump-maps).
 - **Type 1 (frame sequences, e.g. `GRAPHIC_ANIM_CAMPFIRE`)**: `frame count` images of `frame width` x `frame height`, one after another, each with its own mip chain, all uncompressed.
 - **Every other type**: one image of `width` x `height`. Sprite sheets (type 5, e.g. `SPRITE_DUST_01`) keep their frames as tiles inside it; a frame count on other types is metadata only.
 
@@ -76,3 +77,16 @@ Each region has a map, `MINIMAP_<REGION>` in capitals (`MINIMAP_STARTOAKVALE`, `
 `MINIMAP_BORDER` (256×128) holds the ring in its top-left 135×113 texels: two small circles at the top (in the HUD, the combat multiplier and the time of day) and sides curving down, open at the bottom. `MINIMAP_ICON_HERO` (64×64) is the Hero's arrow, drawn in texels 24–38 by 14–35. `MINIMAP_ICON_*` (16×16) mark houses, teleports, entrances, enemies and people. `PLAYER_GUI_DEFAULT` lists the marker kinds' textures in order (field `0x9e982d66`, a count of 19, then texture ids): hero, quest orbs core, feat and optional (`HUD_ORB_QUEST_*`), person of interest (twice), teleport, teleport inactive, house, house for sale, demon door, entrance, entrance core, entrance optional, wife, love interest, enemy, henchman, blue; the same definition holds region map names (`MINIMAP_WITCHWOOD4`) with their texture ids. Which things get which marker is not in the data; `GUI_MAP_*` are the world map's. `HUD_CLOCK_FACE` (32×32: night on its left half, day on its right), `HUD_CLOCK_HAND` (a pointer about its centre, pointing right) and `HUD_CLOCK_ICON` (an hourglass) make the time of day.
 
 `engine_ui::Sprites` loads the HUD's by name; `engine_ui::hud` draws the childhood HUD from them (health bar top left, gold box when gold changes, action rings bottom right) and `engine_ui::draw` puts subtitles and notices in the text box.
+
+## Bump maps
+
+Bank entry type 2. In `GBANK_MAIN_PC` there are 372 (357 DXT1, 15 DXT3; `tests/real_data.rs`): mesh materials' second textures (`HERO_CENTRE_INT_WALLS_01_24_B.TGA][BUMP]`, the second texture of the Guild's `WALLS_01`; see [mesh.md](mesh.md)), and others with `BUMP` in the name: about 60 ground surfaces (`UNASSIGNED_COBBLES_SQUARE_01_BUMP`, `UNASSIGNED_PATH_MOSSY_BUMP`, `LANDSCAPE_PAVING_BUMP`, probably the terrain themes'), water (`WATER_BUMP_BIG`, `_SMALL`), and the Hero's skin, scars, muscle, Will and evil looks (`HERO_BUMP_SKIN_FACE`, `COMP_HERO_BUMP_*`). Which ground theme or Hero look uses which is not decoded.
+
+They decode as any other texture and look yellow-green. Red and green are signed values centred on 128 (every map's mean is within 5 of 128): the surface's slope along u (to the right) and v (down the rows), -1 to 1 (`texture::bump_slope`). Blue is not part of it: its mean is 6 to 39 and it is larger where the slope is (on the Guild wall, 6 where flat to 33 at the steepest), as DXT1 rounding would leave when the encoder aimed for 0; nothing else seen fits it.
+
+How this was read, on the Guild's wall (`HERO_CENTRE_INT_WALLS_01_24`) and floor (`HC_INT_FLOOR`):
+
+- Red follows how the colour texture's brightness changes to the right (correlation 0.32 and 0.36), green how it changes down the rows (0.56 and 0.63): grooves and grout are darker, so brighter parts sit higher and both are slopes of that height, rising to the right and downwards.
+- Together they behave as slopes of one surface: after a small blur, how red changes down the rows agrees with how green changes to the right (0.37 and 0.54; a pair of slopes of one height has the two equal), more than the other pairing does.
+
+Whether they are slopes or the tilted normal's x and y (the same up to the sign and a small scale) is not settled, nor how strongly the game applies them; that is for the renderer, by eye.

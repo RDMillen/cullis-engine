@@ -281,6 +281,64 @@ fn lev_heightmaps_match_stb_tiles() {
 
 #[test]
 #[ignore]
+fn bump_maps_hold_two_signed_slopes() {
+    use fable_data::texture::{BUMP_TYPE, Texture, TextureInfo};
+
+    // Every bump map (bank entry type 2, named `…_B.TGA][BUMP]` or otherwise with
+    // `BUMP`) holds slopes in red and green, centred on 128, and next to nothing
+    // in blue.
+    let path = data_dir().join("graphics/pc/textures.big");
+    let mut file = BufReader::new(File::open(&path).unwrap());
+    let big = BigFile::read(&mut file).unwrap();
+    let (mut bumps, mut named, mut worst_centre, mut worst_blue) = (0, 0, 0.0f64, 0.0f64);
+    let mut other_names = Vec::new();
+    let mut formats = std::collections::BTreeMap::new();
+    for bank in &big.banks {
+        for entry in bank.read_index(&mut file).unwrap().entries {
+            named += usize::from(entry.name.contains("[BUMP]"));
+            if entry.entry_type != BUMP_TYPE {
+                assert!(!entry.name.contains("[BUMP]"), "{} not type 2", entry.name);
+                continue;
+            }
+            assert!(entry.name.contains("BUMP"), "{} is type 2", entry.name);
+            if !entry.name.contains("[BUMP]") {
+                other_names.push(entry.name.clone());
+            }
+            let info = TextureInfo::parse(&entry.info).unwrap();
+            *formats.entry(format!("{:?}", info.format)).or_insert(0) += 1;
+            let data = entry.read_data(&mut file).unwrap();
+            let rgba = Texture::unpack(&info, entry.entry_type, &data)
+                .unwrap()
+                .to_rgba(0, 0)
+                .unwrap();
+            let n = (rgba.len() / 4) as f64;
+            let mean = |c: usize| {
+                rgba.iter()
+                    .skip(c)
+                    .step_by(4)
+                    .map(|&v| f64::from(v))
+                    .sum::<f64>()
+                    / n
+            };
+            let centre = (mean(0) - 128.0).abs().max((mean(1) - 128.0).abs());
+            worst_centre = worst_centre.max(centre);
+            worst_blue = worst_blue.max(mean(2));
+            bumps += 1;
+        }
+    }
+    eprintln!(
+        "{bumps} bump maps ({formats:?}); red and green means at most {worst_centre:.1} from 128, \
+         blue mean at most {worst_blue:.1}; {} named otherwise, e.g. {:?}",
+        other_names.len(),
+        &other_names[..other_names.len().min(3)]
+    );
+    assert!(bumps > 0 && bumps == named + other_names.len());
+    assert!(worst_centre < 16.0, "{worst_centre}");
+    assert!(worst_blue < 48.0, "{worst_blue}");
+}
+
+#[test]
+#[ignore]
 fn every_texture_unpacks_exactly() {
     use fable_data::texture::{Texture, TextureFormat, TextureInfo};
 
@@ -315,13 +373,22 @@ fn every_texture_unpacks_exactly() {
 fn static_meshes_parse_and_reference_real_textures() {
     use fable_data::mesh::{Mesh, STATIC_MESH_TYPE};
 
-    let textures = {
+    let (textures, bumps) = {
         let path = data_dir().join("graphics/pc/textures.big");
         let mut file = BufReader::new(File::open(&path).unwrap());
         let big = BigFile::read(&mut file).unwrap();
         let bank = big.bank("GBANK_MAIN_PC").unwrap();
         let index = bank.read_index(&mut file).unwrap();
-        index.entries.iter().map(|e| e.id).collect::<HashSet<u32>>()
+        let bumps = index
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == fable_data::texture::BUMP_TYPE)
+            .map(|e| e.id)
+            .collect::<HashSet<u32>>();
+        (
+            index.entries.iter().map(|e| e.id).collect::<HashSet<u32>>(),
+            bumps,
+        )
     };
     let path = data_dir().join("graphics/graphics.big");
     let mut file = BufReader::new(File::open(&path).unwrap());
@@ -361,6 +428,14 @@ fn static_meshes_parse_and_reference_real_textures() {
                 }
                 for lod in &mesh.lods {
                     for m in &lod.materials {
+                        // A second texture is always a bump map.
+                        assert!(
+                            m.second_texture == 0 || bumps.contains(&m.second_texture),
+                            "{} material {} second texture {}",
+                            entry.name,
+                            m.name,
+                            m.second_texture
+                        );
                         for t in [m.texture, m.second_texture] {
                             assert!(
                                 t == 0 || textures.contains(&t),
