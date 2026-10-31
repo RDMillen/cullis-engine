@@ -568,23 +568,14 @@ impl Session {
                 // Black at once, fading back in on the new day.
                 self.hour = hour;
                 self.fade = 1.0 + NIGHT_HOLD;
-                if let Scene::Terrain(renderer, world) = &mut self.scene
-                    && let (Some(heights), Some(hero)) = (&world.heights, &mut world.hero)
-                {
-                    let at = glam::Vec3::from_array(at);
-                    if let Some((layer, spot, z)) =
-                        walk::stand_at(&world.walk, heights, at.truncate(), Some(at.z))
-                    {
-                        hero.position = spot.extend(z);
-                        hero.layer = layer;
-                    }
-                    let to = glam::Vec2::new(fx, fy) - hero.position.truncate();
-                    hero.heading = (-to.x).atan2(to.y);
-                    let at = hero.position;
-                    if world.update_interior(at) {
-                        renderer.set_inside(world.inside);
-                    }
-                }
+                self.put_hero(at, glam::Vec2::new(fx, fy));
+            }
+            Beat::Cut {
+                at,
+                facing: [fx, fy],
+            } => {
+                log::info!("quest: the scene cuts to the Hero at {at:?}");
+                self.put_hero(at, glam::Vec2::new(fx, fy));
             }
             Beat::Finish(sections) => {
                 self.story = None;
@@ -617,6 +608,28 @@ impl Session {
                 );
             }
             _ => {}
+        }
+    }
+
+    /// Puts the Hero at `at` (x, y and the height of the floor) facing world
+    /// point `facing`, on the walk layer nearest that floor.
+    fn put_hero(&mut self, at: [f32; 3], facing: glam::Vec2) {
+        if let Scene::Terrain(renderer, world) = &mut self.scene
+            && let (Some(heights), Some(hero)) = (&world.heights, &mut world.hero)
+        {
+            let at = glam::Vec3::from_array(at);
+            if let Some((layer, spot, z)) =
+                walk::stand_at(&world.walk, heights, at.truncate(), Some(at.z))
+            {
+                hero.position = spot.extend(z);
+                hero.layer = layer;
+            }
+            let to = facing - hero.position.truncate();
+            hero.heading = (-to.x).atan2(to.y);
+            let at = hero.position;
+            if world.update_interior(at) {
+                renderer.set_inside(world.inside);
+            }
         }
     }
 }

@@ -8,8 +8,10 @@
 //! 2. Morning: Whisper wakes him and takes him to the Map Room, where the
 //!    Guildmaster was waiting, then on to the training ring across the river
 //!    (`TEXT_CS_028_PREMELEE_WAKEUP`).
-//! 3. The ring: the Guildmaster, by the training dummy, asks him to punch it
-//!    (`TEXT_CS_028_PREMELEE_PUNCH`). The lesson itself comes next.
+//! 3. The ring: the Guildmaster, by the training dummy, tells him to get in the
+//!    ring, and the cutscene puts him inside it, past its closed gate (as the
+//!    original does), then asks him to punch it (`TEXT_CS_028_PREMELEE_PUNCH`).
+//!    The lesson itself comes next.
 //!
 //! Positions are the quest's markers (`MK_GTP_BED_GM1`, `M_MeleeTeacherStand`, …)
 //! in world coordinates: the Guild map's origin is (4576, 3552).
@@ -32,10 +34,14 @@ const WAKE_WHISPER: [f32; 3] = [4679.6, 3667.4, 30.1];
 /// Whisper, `MK_GTP_LATE_H2` for the Hero).
 const MAP_ROOM_WHISPER: [f32; 3] = [4645.2, 3668.8, 21.4];
 const MAP_ROOM_HERO: [f32; 3] = [4645.6, 3667.1, 21.4];
-/// The training ring: the Guildmaster's stand (`M_MeleeTeacherStand`), Whisper's
-/// start (`WhisperMeleeStart`) and the dummy (`PreMeleeDummy`).
+/// The training ring: the Guildmaster's stand outside it (`M_MeleeTeacherStand`),
+/// where Whisper waits beside him (`PreMeleeChatMarker`, a guess: where she
+/// stands during the lesson is not observed), the Hero's spot inside it by the
+/// dummy (`MK_GTP_HERO2`) and the dummy (`PreMeleeDummy`). The ring's inside is
+/// cut off from the outside by its gate; no route crosses it.
 const RING_GUILDMASTER: [f32; 3] = [4759.6, 3642.6, 17.3];
-const RING_WHISPER: [f32; 3] = [4767.5, 3637.9, 17.0];
+const RING_WHISPER: [f32; 3] = [4758.2, 3644.1, 17.7];
+const RING_HERO: [f32; 3] = [4767.7, 3640.8, 17.0];
 pub const DUMMY: [f32; 2] = [4769.7, 3640.1];
 
 /// The hour the boy wakes.
@@ -177,8 +183,17 @@ impl Quest for GuildTraining {
                     "TEXT_QST_028_GUILDMASTER_PREMELEE_COMMENT_FIRST",
                     Speech,
                 ));
-                for entry in [
+                // "Get in the ring."
+                out.push(Beat::said_by(
+                    GUILDMASTER,
                     "TEXT_CS_028_PREMELEE_PUNCH_10",
+                    Speech,
+                ));
+                out.push(Beat::Cut {
+                    at: RING_HERO,
+                    facing: DUMMY,
+                });
+                for entry in [
                     "TEXT_CS_028_PREMELEE_PUNCH_20",
                     "TEXT_CS_028_PREMELEE_PUNCH_30",
                 ] {
@@ -251,6 +266,18 @@ mod tests {
         assert!(update(&mut q, MAP_ROOM_HERO).len() == 3);
         assert!(!q.at_dummy());
         let ring = update(&mut q, RING_GUILDMASTER);
-        assert!(ring.len() == 4 && q.at_dummy());
+        assert!(ring.len() == 5 && q.at_dummy());
+        // Put inside the ring after "Get in the ring", before the punching.
+        let cut = ring
+            .iter()
+            .position(|b| matches!(b, Beat::Cut { at, .. } if *at == RING_HERO))
+            .expect("a cut into the ring");
+        let said = |entry| {
+            ring.iter()
+                .position(|b| matches!(b, Beat::Say { entry: e, .. } if *e == entry))
+                .unwrap()
+        };
+        assert!(said("TEXT_CS_028_PREMELEE_PUNCH_10") < cut);
+        assert!(cut < said("TEXT_CS_028_PREMELEE_PUNCH_20"));
     }
 }

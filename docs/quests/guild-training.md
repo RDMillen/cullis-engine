@@ -35,9 +35,14 @@ Fixed 2026-10-31. Both problems below came from two causes: the Guild's wings an
 - Was: the dormitory floor not walkable (no mesh floor at the bedsides, the sequence stopped at "follow me").
 - Was: no route leaving the Map Room (the hall's floor at 23.1 m came from the entrance hall's created parts).
 
+## Into the training ring
+
+The ring's fence (`OBJECT_GUILD_WALL_*`) has a gate, `OBJECT_OAKVALE_FENCEGATE_02` at (4761.7, 3644.3): a plain object (no `CTCDoor`, no script name) whose definition has `CActionUseDef`, and whose mesh is one static leaf 2.76 m wide hinged at its origin. The navigation inside and outside the fence meets only there and no cells cross it, so nothing can walk in. In the original the Hero does not walk through it either (observed by Ross): after "Get in the ring" (`TEXT_CS_028_PREMELEE_PUNCH_10`) the cutscene puts him inside. The quest does the same with `Beat::Cut`, to `MK_GTP_HERO2` (4767.7, 3640.8), 2 m from the dummy, facing it; `MK_GTP_HERO1` (4760.2, 3644.1), outside by the Guildmaster, is his spot before.
+
+Whisper waits outside beside the Guildmaster, at the ring's `PreMeleeChatMarker` (4758.2, 3644.1), a guess. `WhisperMeleeStart`, inside the ring (in `Q_GuildTraining`, beside `HeroMeleeStart`), is probably for the apprentice melee lessons, whose markers include `MK_GTM_WHISPERGATE` and `MK_GTM_HEROGATE` just inside the gate; how they get in then is not observed.
+
 ## Not yet
 
-- **Into the training ring.** `WhisperMeleeStart` (4767.5, 3637.9), inside the ring, has no route from outside it, even from `M_MeleeTeacherStand` 8 m away: the ring's navigation inside and outside its fence meet only at the gate (the poles on its north side), and no cells cross it. Probably the gate opens for the lesson (an object to find among the ring's things, like a door). Whisper's walk to the ring stops at the fence.
-- Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, and the morning walk to the Map Room, as quest beats.
+- Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, the morning walk to the Map Room, and the cut into the ring, as quest beats.
 - Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
 - The dummy lesson itself (targeting, punching, the stick, the dummy breaking, experience orbs), the beetles and the end question.

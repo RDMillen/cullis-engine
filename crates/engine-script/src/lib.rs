@@ -64,6 +64,10 @@ pub enum Beat {
         at: [f32; 3],
         facing: [f32; 2],
     },
+    /// The scene cuts and the Hero is put at `at` facing `facing` (world
+    /// coordinates, as for `Place`), as a cutscene moves him: into the training
+    /// ring past its gate.
+    Cut { at: [f32; 3], facing: [f32; 2] },
     /// Night passes: the screen fades, the clock moves on to `hour`, and the
     /// Hero wakes at `at` facing `facing` (world coordinates, as for `Place`).
     Sleep {

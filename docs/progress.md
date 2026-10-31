@@ -2,6 +2,14 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31 (later): into the training ring (engine-script)
+
+- The ring's gate (`OBJECT_OAKVALE_FENCEGATE_02`) is a plain usable object, a static leaf, and no navigation crosses it. In the original a cutscene puts the Hero inside after "Get in the ring" (Ross). New quest beat `Beat::Cut { at, facing }` (the scene cuts, the Hero is put there; the game shares the placing with `Sleep`); the Guild training cuts to `MK_GTP_HERO2` by the dummy between `PUNCH_10` and `PUNCH_20`. Whisper now walks to the ring's `PreMeleeChatMarker` beside the Guildmaster (a guess) instead of `WhisperMeleeStart` inside the ring, which no route reaches. Test `arrival_to_the_dummy` checks the cut's place among the lines.
+- Checked headless: Whisper's route from the Map Room to her spot, and the Hero walking about inside the ring from `MK_GTP_HERO2`.
+- `tng_component` takes `def:<definition>` to print every field and component of things of that definition.
+- Not checked: the cut played in the window.
+- Next: the dummy lesson (targeting, punching, the stick, the dummy breaking, the experience orb).
+
 ## 2026-10-31 (later): walking in the Guild (engine-render, engine-world)
 
 - Meshes create buildings as well as objects: `CREATEBUILDING <definition>` dummies (`Skeleton::created_buildings`; `docs/formats/mesh.md`). The Guild's apprentice quarters, entrance hall and dining hall create nine more buildings, among them the dormitory's wings and the hall's floors; 62 such dummies in the game. Created buildings take the dummy's position only: the dummies' rotations (a half turn on 53, none on 9) do not fit, while every part lines up with its parent unturned (the Guild's wings, the Hall of Heroes' sections end to end). Created objects keep the whole dummy (turned, Oakvale's windows go wrong; checked by eye on the tavern).
