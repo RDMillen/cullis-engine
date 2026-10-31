@@ -2,6 +2,15 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31 (later): bump maps drawn (engine-render)
+
+- Placed meshes, creatures, doors, dummies and the Hero draw with their materials' bump maps: `ModelVertex` gains a tangent (u's direction and v's sign, `tangent::tangents` from the triangles' UVs; turned with placements and skinning, its sign flipped by a mirroring placement), each draw its bump map (`Draw::bump`, `ModelData::bumps`, uploaded as linear `Rgba8Unorm`; a flat 1x1 map otherwise), and the shader leans the normal back from the slope for the sun and the placed lights (`BUMP_STRENGTH` 1, by eye). Bind groups are per pairing of colour texture and bump map.
+- Checked in headless screenshots against the build without: the Guild's floor and rug gain relief (at 4 times the strength the grout reads as grooves, so the signs are right); Oakvale's thatch and wall stones stand out in sunlight. Indoors the change is slight, most light there being ambient.
+- Tests: tangents follow u with v's sign, a mirrored texture flips it, a vertex with no texture space still gets one.
+- Found: model textures are uploaded without their mip chains (`mip_level_count: 1`), though the data has them, so distant surfaces shimmer.
+- Not yet: the terrain's ground bump maps (the terrain has its own shader), water's.
+- Next: upload the textures' mip chains; then the Guild's lighting against the original (a screenshot of the same spot from Ross).
+
 ## 2026-10-31 (later): bump maps decoded (fable-data)
 
 - A mesh material's second texture is a bump map: bank entry type 2 (`texture::BUMP_TYPE`), named `…_B.TGA][BUMP]`; every second texture in every static mesh is one (real-data test). 372 bump maps in `GBANK_MAIN_PC` (357 DXT1, 15 DXT3), also for about 60 ground surfaces, water and the Hero's skin, scars and looks (`docs/formats/texture.md`).

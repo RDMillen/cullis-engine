@@ -89,4 +89,6 @@ How this was read, on the Guild's wall (`HERO_CENTRE_INT_WALLS_01_24`) and floor
 - Red follows how the colour texture's brightness changes to the right (correlation 0.32 and 0.36), green how it changes down the rows (0.56 and 0.63): grooves and grout are darker, so brighter parts sit higher and both are slopes of that height, rising to the right and downwards.
 - Together they behave as slopes of one surface: after a small blur, how red changes down the rows agrees with how green changes to the right (0.37 and 0.54; a pair of slopes of one height has the two equal), more than the other pairing does.
 
-Whether they are slopes or the tilted normal's x and y (the same up to the sign and a small scale) is not settled, nor how strongly the game applies them; that is for the renderer, by eye.
+Whether they are slopes or the tilted normal's x and y (the same up to the sign and a small scale) is not settled, nor how strongly the game applies them.
+
+Drawn (`engine-render`, `model.wgsl`): each vertex carries the direction of increasing u and the sign of v's direction (`tangent::tangents`, from the triangles' UVs), and the normal leans back from the slope, `normalize(n - k (s.u t_u + s.v t_v))` with `k` = 1 (`BUMP_STRENGTH`, by eye). At 4 times that, the Guild's floor grout reads as grooves cut into the tiles, lit on one side and shaded on the other, so the signs are right. Indoors, where most light is ambient, the effect is slight; in sunlight Oakvale's thatch and wall stones stand out.

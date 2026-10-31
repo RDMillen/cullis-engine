@@ -38,6 +38,11 @@ pub fn deform(skin: &Skin, bind: &[ModelVertex], matrices: &[Mat4], out: &mut Ve
                         .normalize_or_zero()
                         .to_array(),
                     uv: v.uv,
+                    tangent: {
+                        let t = Vec3::new(v.tangent[0], v.tangent[1], v.tangent[2]);
+                        let t = m.transform_vector3(t).normalize_or_zero();
+                        [t.x, t.y, t.z, v.tangent[3]]
+                    },
                 }
             }),
     );
@@ -80,6 +85,7 @@ mod tests {
             position: [1.0, 0.0, 0.0],
             normal: [0.0, 0.0, 1.0],
             uv: [0.0; 2],
+            tangent: [1.0, 0.0, 0.0, 1.0],
         }];
         let matrices = [
             Mat4::IDENTITY,

@@ -10,5 +10,6 @@ pub mod render;
 pub mod shadow;
 pub mod skin;
 pub mod sky;
+pub mod tangent;
 pub mod terrain;
 pub mod themes;

@@ -24,6 +24,12 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
+// The material's bump map: the surface's slope along u and v in red and green,
+// centred on 128 (a flat 1x1 map for materials without one).
+@group(1) @binding(2) var bump: texture_2d<f32>;
+
+// How strongly bump maps tilt the surface (set by eye).
+const BUMP_STRENGTH: f32 = 1.0;
 @group(2) @binding(0) var shadow_map: texture_depth_2d;
 @group(2) @binding(1) var shadow_samp: sampler_comparison;
 
@@ -35,6 +41,8 @@ struct VsOut {
     @location(3) shadow_pos: vec4<f32>,
     @location(4) world: vec3<f32>,
     @location(5) world_normal: vec3<f32>,
+    @location(6) tangent: vec4<f32>,
+    @location(7) world_tangent: vec3<f32>,
 };
 
 @vertex
@@ -42,6 +50,7 @@ fn vs_main(
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) tangent: vec4<f32>,
 ) -> VsOut {
     var out: VsOut;
     out.clip = u.view_proj * vec4<f32>(position, 1.0);
@@ -51,6 +60,8 @@ fn vs_main(
     out.shadow_pos = u.shadow_proj * vec4<f32>(position, 1.0);
     out.world = (u.model * vec4<f32>(position, 1.0)).xyz;
     out.world_normal = (u.model * vec4<f32>(normal, 0.0)).xyz;
+    out.tangent = tangent;
+    out.world_tangent = (u.model * vec4<f32>(tangent.xyz, 0.0)).xyz;
     return out;
 }
 
@@ -115,6 +126,15 @@ fn lit(n: vec3<f32>, sun_seen: f32, points: vec3<f32>) -> vec3<f32> {
     return pow(l, vec3<f32>(2.2));
 }
 
+// A normal tilted by the bump map's slope `s` (along u, along v): the surface
+// rises towards +u and +v, so the normal leans back from them. `t` is u's
+// direction and `sign` says which way v runs from n x t.
+fn bumped(n: vec3<f32>, t: vec3<f32>, sign: f32, s: vec2<f32>) -> vec3<f32> {
+    let along_u = normalize(t - n * dot(n, t));
+    let along_v = cross(n, along_u) * sign;
+    return normalize(n - BUMP_STRENGTH * (s.x * along_u + s.y * along_v));
+}
+
 // Placeholder material: the main texture, alpha-tested, lit by the sun.
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
@@ -122,8 +142,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if c.a < 0.5 {
         discard;
     }
-    let n = normalize(in.normal);
-    let points = points_at(in.world, normalize(in.world_normal));
+    let slope = (textureSample(bump, samp, in.uv).rg * 255.0 - 128.0) / 127.0;
+    let n = bumped(normalize(in.normal), in.tangent.xyz, in.tangent.w, slope);
+    let world_n = bumped(normalize(in.world_normal), in.world_tangent, in.tangent.w, slope);
+    let points = points_at(in.world, world_n);
     var rgb = c.rgb * lit(n, sunlit(in.shadow_pos), points);
     // The interaction highlight: a glow at the silhouette's edge and a faint tint.
     if u.highlight.a > 0.0 {

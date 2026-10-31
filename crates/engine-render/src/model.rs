@@ -20,6 +20,9 @@ pub struct ModelVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    /// The direction of increasing u, and the sign of v's direction relative
+    /// to `normal × tangent`, for bump maps ([`crate::tangent`]).
+    pub tangent: [f32; 4],
 }
 
 /// An RGBA8 image.
@@ -34,6 +37,8 @@ pub struct Draw {
     pub first: u32,
     pub count: u32,
     pub image: usize,
+    /// Its material's bump map (its second texture), in the model's `bumps`.
+    pub bump: Option<usize>,
     /// Its material is a roof (named `Roof`, `roof`, `Roof fringe`, `Fringe`):
     /// hidden while the Hero is inside the building.
     pub roof: bool,
@@ -45,6 +50,8 @@ pub struct ModelData {
     pub indices: Vec<u32>,
     pub draws: Vec<Draw>,
     pub images: Vec<Image>,
+    /// Bump maps: slopes in red and green, not colours (sampled linearly).
+    pub bumps: Vec<Image>,
     pub lo: Vec3,
     pub hi: Vec3,
     /// Particle emitters started by the meshes (`CREATEPARTICLE` dummies) and
@@ -142,6 +149,7 @@ pub struct ModelBuilder {
     assets: AssetCache,
     textures: TextureBank,
     images: HashMap<u32, usize>,
+    bumps: HashMap<u32, Option<usize>>,
     meshes: HashMap<u32, Option<LocalMesh>>,
     model: ModelData,
     /// Textures to use in place of those materials name (creature part options).
@@ -154,6 +162,7 @@ impl ModelBuilder {
             assets: assets.clone(),
             textures: TextureBank::open(assets),
             images: HashMap::new(),
+            bumps: HashMap::new(),
             meshes: HashMap::new(),
             swaps: HashMap::new(),
             model: ModelData {
@@ -166,6 +175,7 @@ impl ModelBuilder {
                     height: 1,
                     rgba: vec![255; 4],
                 }],
+                bumps: Vec::new(),
                 lo: Vec3::splat(f32::INFINITY),
                 hi: Vec3::splat(f32::NEG_INFINITY),
                 particles: Vec::new(),
@@ -202,7 +212,17 @@ impl ModelBuilder {
         };
         let base = self.model.vertices.len() as u32;
         let first = self.model.indices.len() as u32;
+        // A mirroring transform turns which way v runs.
+        let mirrored = transform.determinant() < 0.0;
         self.model.vertices.extend(local.vertices.iter().map(|v| {
+            let t = transform
+                .transform_vector3(Vec3::new(v.tangent[0], v.tangent[1], v.tangent[2]))
+                .normalize_or_zero();
+            let w = if mirrored {
+                -v.tangent[3]
+            } else {
+                v.tangent[3]
+            };
             ModelVertex {
                 position: transform
                     .transform_point3(Vec3::from_array(v.position))
@@ -212,6 +232,7 @@ impl ModelBuilder {
                     .normalize_or_zero()
                     .to_array(),
                 uv: v.uv,
+                tangent: [t.x, t.y, t.z, w],
             }
         }));
         self.model
@@ -229,6 +250,7 @@ impl ModelBuilder {
             first: first + d.first,
             count: d.count,
             image: d.image,
+            bump: d.bump,
             roof: d.roof,
         }));
         true
@@ -326,12 +348,20 @@ impl ModelBuilder {
                 skin.influences.extend(resolved);
             }
             let (positions, normals, uvs) = (chunk.positions(), chunk.normals(), chunk.uvs());
+            let triangles: Vec<[u32; 3]> = chunk
+                .sub_meshes
+                .iter()
+                .flat_map(|sub| chunk.triangles(sub))
+                .map(|t| t.map(u32::from))
+                .collect();
+            let tangents = crate::tangent::tangents(&positions, &normals, &uvs, &triangles);
             local
                 .vertices
                 .extend((0..positions.len()).map(|i| ModelVertex {
                     position: positions[i],
                     normal: normals[i],
                     uv: uvs[i],
+                    tangent: tangents[i],
                 }));
             for sub in &chunk.sub_meshes {
                 let material = &lod.materials[sub.material as usize];
@@ -341,6 +371,7 @@ impl ModelBuilder {
                     .copied()
                     .unwrap_or(material.texture);
                 let image = self.image(texture, &material.name);
+                let bump = self.bump(material.second_texture, &material.name);
                 let first = local.indices.len() as u32;
                 for t in chunk.triangles(sub) {
                     local.indices.extend(t.map(|i| base + u32::from(i)));
@@ -350,6 +381,7 @@ impl ModelBuilder {
                     first,
                     count: local.indices.len() as u32 - first,
                     image,
+                    bump,
                     roof: name.contains("roof") || name.contains("fringe"),
                 });
             }
@@ -432,6 +464,29 @@ impl ModelBuilder {
             }
         };
         self.images.insert(id, i);
+        i
+    }
+
+    /// Index of a bump map in the model's bumps (none for id 0 or one that
+    /// does not load).
+    fn bump(&mut self, id: u32, material: &str) -> Option<usize> {
+        if id == 0 {
+            return None;
+        }
+        if let Some(&i) = self.bumps.get(&id) {
+            return i;
+        }
+        let i = match self.textures.load(id) {
+            Ok(img) => {
+                self.model.bumps.push(img);
+                Some(self.model.bumps.len() - 1)
+            }
+            Err(e) => {
+                log::warn!("bump map {id} for {material}: {e}");
+                None
+            }
+        };
+        self.bumps.insert(id, i);
         i
     }
 
@@ -732,7 +787,9 @@ pub struct ModelRenderer {
     indices: wgpu::Buffer,
     uniforms: wgpu::Buffer,
     uniform_group: wgpu::BindGroup,
+    /// One per pairing of colour texture and bump map the draws use.
     texture_groups: Vec<wgpu::BindGroup>,
+    /// Per draw: first index, count and its texture group.
     draws: Vec<(u32, u32, usize)>,
     /// Draws skipped (an exterior hidden while the Hero is inside).
     hidden: Vec<usize>,
@@ -789,6 +846,17 @@ impl ModelRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // The bump map (slopes in red and green).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let uniform_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -834,11 +902,9 @@ impl ModelRenderer {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let texture_groups = model
-            .images
-            .iter()
-            .map(|img| {
-                let texture = device.create_texture_with_data(
+        let upload = |img: &Image, format: wgpu::TextureFormat| {
+            device
+                .create_texture_with_data(
                     queue,
                     &wgpu::TextureDescriptor {
                         label: Some("model texture"),
@@ -850,25 +916,68 @@ impl ModelRenderer {
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
-                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        format,
                         usage: wgpu::TextureUsages::TEXTURE_BINDING,
                         view_formats: &[],
                     },
                     wgpu::util::TextureDataOrder::LayerMajor,
                     &img.rgba,
-                );
-                let view = texture.create_view(&Default::default());
+                )
+                .create_view(&Default::default())
+        };
+        let colours: Vec<wgpu::TextureView> = model
+            .images
+            .iter()
+            .map(|img| upload(img, wgpu::TextureFormat::Rgba8UnormSrgb))
+            .collect();
+        // Bump maps hold slopes, not colours; draws without one get a flat one.
+        let flat = Image {
+            width: 1,
+            height: 1,
+            rgba: vec![128, 128, 0, 255],
+        };
+        let bumps: Vec<wgpu::TextureView> = model
+            .bumps
+            .iter()
+            .chain(std::iter::once(&flat))
+            .map(|img| upload(img, wgpu::TextureFormat::Rgba8Unorm))
+            .collect();
+        let flat = bumps.len() - 1;
+        // One bind group for each pairing of colour and bump the draws use.
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        let draws = model
+            .draws
+            .iter()
+            .map(|d| {
+                let pair = (d.image, d.bump.unwrap_or(flat));
+                let group = pairs.iter().position(|&p| p == pair).unwrap_or_else(|| {
+                    pairs.push(pair);
+                    pairs.len() - 1
+                });
+                (d.first, d.count, group)
+            })
+            .collect();
+        if pairs.is_empty() {
+            pairs.push((0, flat));
+        }
+        let texture_groups = pairs
+            .iter()
+            .map(|&(image, bump)| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("model texture"),
                     layout: &texture_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&view),
+                            resource: wgpu::BindingResource::TextureView(&colours[image]),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&bumps[bump]),
                         },
                     ],
                 })
@@ -900,7 +1009,7 @@ impl ModelRenderer {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: size_of::<ModelVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4],
                 })],
             },
             fragment: Some(wgpu::FragmentState {
@@ -925,7 +1034,7 @@ impl ModelRenderer {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: size_of::<ModelVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4],
                 })],
             },
             fragment: Some(wgpu::FragmentState {
@@ -973,11 +1082,7 @@ impl ModelRenderer {
             uniforms,
             uniform_group,
             texture_groups,
-            draws: model
-                .draws
-                .iter()
-                .map(|d| (d.first, d.count, d.image))
-                .collect(),
+            draws,
             hidden: Vec::new(),
             indoor: Vec::new(),
             indoor_uniforms,
