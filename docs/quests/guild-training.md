@@ -28,9 +28,16 @@ The apprentice stages (melee, skill and Will training, grades A+ to F, the depar
 
 The quest plays stages 1–3 up to the Guildmaster's punch instructions: lines in order, the Guildmaster walking off towards the dormitory, the night passing (a fade, the clock to 07:00, the Hero placed by his bed, the Guildmaster moved to the ring and Whisper beside the bed), Whisper's wake-up lines and her walk to the Map Room, then to the ring. Quest beats `Walk`, `Place` and `Sleep` were added to the quest API; people walk by route and goals carry a floor height where floors are stacked.
 
+## Walking in the Guild
+
+Fixed 2026-10-31. Both problems below came from two causes: the Guild's wings and the hall's floors are buildings created by `CREATEBUILDING` dummies, which were not placed ([mesh.md](../formats/mesh.md)), and the dormitory's navigation layer started from the ground floor under it ([nav.md](../formats/nav.md)). Every navigation cell of the Guild now has a height. Headless walks (`--walk-to`) that now reach their goals: from the hall (`TheRealGuildmaster`) to `MK_GTP_BED_GM1` and `MK_GTP_BED_HERO2` (layer 2, 30.1 m); from `MK_GTP_END_GM` down to the Map Room (`MK_GTP_LATE_W2`); from the Map Room east and out to `M_MeleeTeacherStand`.
+
+- Was: the dormitory floor not walkable (no mesh floor at the bedsides, the sequence stopped at "follow me").
+- Was: no route leaving the Map Room (the hall's floor at 23.1 m came from the entrance hall's created parts).
+
 ## Not yet
 
-- **The dormitory floor is not walkable.** The mesh has the floor at 30.1 m, but no layer of the decoded navigation data covers it, so neither the Guildmaster nor the Hero can walk up to it and the sequence stops at "follow me". Routes reach the stairs (about 27 m on layer 1).
-- **No route leaves the Map Room.** Routes from the Map Room marker (4645.6, 3667.1, z 21.4) fail even 10 m east, with or without a goal height; walking straight east climbs onto the edge of a staircase (z 23–25 on navigation layer 1). The hall's walkable cells seem not to connect to the rest of the building, likely the same navigation gap as the dormitory floor. Routes around the training ring work. A goal given without a height goes on the first layer walkable there, which inside the Guild is the ground under the building.
+- **Into the training ring.** `WhisperMeleeStart` (4767.5, 3637.9), inside the ring, has no route from outside it, even from `M_MeleeTeacherStand` 8 m away: the ring's navigation inside and outside its fence meet only at the gate (the poles on its north side), and no cells cross it. Probably the gate opens for the lesson (an object to find among the ring's things, like a door). Whisper's walk to the ring stops at the fence.
+- Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, and the morning walk to the Map Room, as quest beats.
 - Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
 - The dummy lesson itself (targeting, punching, the stick, the dummy breaking, experience orbs), the beetles and the end question.

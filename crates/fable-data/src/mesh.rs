@@ -245,7 +245,9 @@ pub struct Helper {
 }
 
 /// A named point in a mesh. `CREATEOBJECT <definition>` dummies are where the game
-/// creates objects as part of the mesh: a building's door frames and windows.
+/// creates objects as part of the mesh: a building's door frames and windows;
+/// `CREATEBUILDING <definition>` dummies create further buildings (the Guild's
+/// apprentice quarters are four buildings, three of them created this way).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dummy {
     /// [`crate::defs::name_hash`] of its name in [`Skeleton::helper_names`].
@@ -276,9 +278,19 @@ impl Skeleton {
     /// The objects the mesh creates: (definition name, dummy) for each
     /// `CREATEOBJECT` dummy.
     pub fn created_objects(&self) -> Vec<(&str, &Dummy)> {
+        self.created("CREATEOBJECT ")
+    }
+
+    /// The buildings the mesh creates: (definition name, dummy) for each
+    /// `CREATEBUILDING` dummy.
+    pub fn created_buildings(&self) -> Vec<(&str, &Dummy)> {
+        self.created("CREATEBUILDING ")
+    }
+
+    fn created(&self, prefix: &str) -> Vec<(&str, &Dummy)> {
         self.dummies
             .iter()
-            .filter_map(|d| Some((self.dummy_name(d)?.strip_prefix("CREATEOBJECT ")?.trim(), d)))
+            .filter_map(|d| Some((self.dummy_name(d)?.strip_prefix(prefix)?.trim(), d)))
             .collect()
     }
 
@@ -1010,6 +1022,30 @@ mod tests {
         };
         assert_eq!(skeleton.named_dummy("EYE_SET_L"), Some(&eye));
         assert_eq!(skeleton.named_dummy("EYE_SET_R"), None);
+    }
+
+    #[test]
+    fn tells_created_objects_from_created_buildings() {
+        let names = [
+            "CREATEOBJECT OBJECT_BUILDING_WINDOW_OAKVALE_01",
+            "CREATEBUILDING BUILDING_APPRENTICE_QUARTERS_PART_02",
+            "FLARE_POINT",
+        ];
+        let dummy = |name: &str| Dummy {
+            name_hash: crate::defs::name_hash(name),
+            rotation: [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]],
+            position: [0.0; 3],
+            unknown: 0xffff_ffff,
+        };
+        let skeleton = Skeleton {
+            helper_names: names.iter().map(|n| n.to_string()).collect(),
+            dummies: names.iter().map(|n| dummy(n)).collect(),
+            ..Default::default()
+        };
+        let objects: Vec<&str> = skeleton.created_objects().iter().map(|c| c.0).collect();
+        let buildings: Vec<&str> = skeleton.created_buildings().iter().map(|c| c.0).collect();
+        assert_eq!(objects, ["OBJECT_BUILDING_WINDOW_OAKVALE_01"]);
+        assert_eq!(buildings, ["BUILDING_APPRENTICE_QUARTERS_PART_02"]);
     }
 
     #[test]

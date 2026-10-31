@@ -190,8 +190,11 @@ impl WalkGrid {
 ///   that floor, their lowest surface. Cells still not reached follow the terrain.
 /// - Later layers (all `layers` must share one grid): grow from cells with a surface
 ///   within a step of the walking height on an earlier layer at the same spot or up
-///   to 1 unit away (the ends of a bridge deck, a doorway). Cells not reached are
-///   unwalkable.
+///   to 1 unit away (the ends of a bridge deck, a doorway), higher surfaces first:
+///   where two growths meet, the higher floor keeps the cells. (In the Guild the
+///   dormitory's layer also touches the ground floor that runs on under it, at
+///   the wing's doorways, and would otherwise spread across that instead of the
+///   dormitory floor reached from the stairs.) Cells not reached are unwalkable.
 pub fn assign_surfaces(
     layers: &mut [WalkGrid],
     ground: &HeightGrid,
@@ -204,7 +207,7 @@ pub fn assign_surfaces(
         let n = layer.cells.len();
         let mut height = vec![f32::NAN; n];
         let mut candidates: Vec<Option<Vec<f32>>> = vec![None; n];
-        let mut queue = std::collections::VecDeque::new();
+        let mut queue = Frontier::new(l > 0);
         let candidates_of = |i: usize, candidates: &mut Vec<Option<Vec<f32>>>| -> Vec<f32> {
             candidates[i]
                 .get_or_insert_with(|| {
@@ -264,8 +267,10 @@ pub fn assign_surfaces(
                     })
             };
             if let Some(h) = seed {
-                height[i] = h;
-                queue.push_back(i);
+                if l == 0 {
+                    height[i] = h;
+                }
+                queue.push(i, h);
             }
         }
         for pass in 0..2 {
@@ -285,12 +290,19 @@ pub fn assign_surfaces(
                         .min_by(f32::total_cmp);
                     if let Some(z) = floor {
                         height[i] = z;
-                        queue.push_back(i);
+                        queue.push(i, z);
                     }
                 }
             }
-            while let Some(i) = queue.pop_front() {
-                let h = height[i];
+            while let Some((i, h)) = queue.pop() {
+                // Later layers settle a cell when it leaves the frontier, so a
+                // higher floor growing in takes it from a lower seed.
+                if l > 0 {
+                    if height[i].is_finite() {
+                        continue;
+                    }
+                    height[i] = h;
+                }
                 for j in layer.neighbours(i).collect::<Vec<_>>() {
                     if !layer.cells[j] || height[j].is_finite() {
                         continue;
@@ -300,8 +312,10 @@ pub fn assign_surfaces(
                         .filter(|c| (c - h).abs() <= MAX_STEP)
                         .max_by(f32::total_cmp)
                     {
-                        height[j] = z;
-                        queue.push_back(j);
+                        if l == 0 {
+                            height[j] = z;
+                        }
+                        queue.push(j, z);
                     }
                 }
             }
@@ -319,6 +333,52 @@ pub fn assign_surfaces(
             }
         }
         layer.surface = Some(height);
+    }
+}
+
+/// The cells still to grow from in [`assign_surfaces`], with their heights: first
+/// in, first out, or the highest first.
+enum Frontier {
+    Fifo(std::collections::VecDeque<(usize, f32)>),
+    Highest(
+        std::collections::BinaryHeap<(u32, std::cmp::Reverse<u32>, usize, u32)>,
+        u32,
+    ),
+}
+
+impl Frontier {
+    fn new(highest_first: bool) -> Self {
+        if highest_first {
+            Self::Highest(std::collections::BinaryHeap::new(), 0)
+        } else {
+            Self::Fifo(std::collections::VecDeque::new())
+        }
+    }
+
+    fn push(&mut self, cell: usize, height: f32) {
+        match self {
+            Self::Fifo(q) => q.push_back((cell, height)),
+            Self::Highest(q, order) => {
+                // Heights as ordered integers; ties in the order pushed.
+                let bits = height.to_bits();
+                let key = if bits >> 31 == 1 {
+                    !bits
+                } else {
+                    bits | 1 << 31
+                };
+                q.push((key, std::cmp::Reverse(*order), cell, bits));
+                *order += 1;
+            }
+        }
+    }
+
+    fn pop(&mut self) -> Option<(usize, f32)> {
+        match self {
+            Self::Fifo(q) => q.pop_front(),
+            Self::Highest(q, _) => q
+                .pop()
+                .map(|(_, _, cell, bits)| (cell, f32::from_bits(bits))),
+        }
     }
 }
 
@@ -1013,6 +1073,33 @@ mod tests {
             Some(1.3),
             "the hall floor, not the terrain under it"
         );
+    }
+
+    #[test]
+    fn an_upper_floor_is_not_the_ground_floor_under_it() {
+        // Flat ground at 0, walkable along y 4..6 (the ground floor). An upper
+        // layer over the same strip: stairs over x 0..2 rising from 0.3 to 3.0,
+        // then a floor at 3.0. The ground floor's mesh runs on under the upper
+        // floor, so the upper layer could also start from it (as the Guild's
+        // dormitory layer can from the ground floor beneath it).
+        let heights = HeightGrid::new(Vec2::ZERO, [13, 11]);
+        let mut ground = WalkGrid::new(Vec2::ZERO, Vec2::new(12.0, 10.0));
+        let mut upper = WalkGrid::new(Vec2::ZERO, Vec2::new(12.0, 10.0));
+        for x in 0..12 {
+            ground.mark(Vec2::new(x as f32 + 0.5, 5.0), 1.0);
+            upper.mark(Vec2::new(x as f32 + 0.5, 5.0), 1.0);
+        }
+        let mut layers = [ground, upper];
+        assign_surfaces(&mut layers, &heights, |p| {
+            if p.x < 2.0 {
+                vec![0.3 + 1.35 * p.x.max(0.0)]
+            } else {
+                vec![0.0, 3.0]
+            }
+        });
+        let at = |l: usize, x: f32| layers[l].height(Vec2::new(x, 5.0), &heights);
+        assert_eq!(at(0, 9.0), Some(0.0), "the ground floor");
+        assert_eq!(at(1, 9.0), Some(3.0), "the upper floor, up the stairs");
     }
 
     #[test]

@@ -70,12 +70,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .sub_meshes
                 .iter()
                 .map(|s| {
+                    let triangles = chunk.triangles(s);
+                    let mut b = [[f32::MAX, f32::MIN]; 3];
+                    for &i in triangles.iter().flatten() {
+                        for (a, r) in b.iter_mut().enumerate() {
+                            r[0] = r[0].min(p[i as usize][a]);
+                            r[1] = r[1].max(p[i as usize][a]);
+                        }
+                    }
                     format!(
-                        "{}x{}",
+                        "{}x{} [x {:.0}..{:.0} y {:.0}..{:.0} z {:.0}..{:.0}]",
                         lod.materials
                             .get(s.material as usize)
                             .map_or("?", |m| m.name.as_str()),
-                        chunk.triangles(s).len()
+                        triangles.len(),
+                        b[0][0],
+                        b[0][1],
+                        b[1][0],
+                        b[1][1],
+                        b[2][0],
+                        b[2][1]
                     )
                 })
                 .collect();

@@ -331,8 +331,14 @@ fn static_meshes_parse_and_reference_real_textures() {
         .unwrap()
         .read_index(&mut file)
         .unwrap();
+    let defs = {
+        use fable_data::defs::{Defs, Names};
+        let dir = data_dir().join("CompiledDefs");
+        let names = Names::parse(&std::fs::read(dir.join("names.bin")).unwrap()).unwrap();
+        Defs::parse(&std::fs::read(dir.join("game.bin")).unwrap(), &names).unwrap()
+    };
     let (mut parsed, mut failed, mut triangles) = (0, Vec::new(), 0usize);
-    let (mut headers, mut created) = (0, 0);
+    let (mut headers, mut created, mut buildings) = (0, 0, 0);
     for entry in index
         .entries
         .iter()
@@ -344,6 +350,14 @@ fn static_meshes_parse_and_reference_real_textures() {
                 if let Some(skeleton) = mesh.skeleton() {
                     headers += 1;
                     created += skeleton.created_objects().len();
+                    // Every building a mesh creates is a definition with a mesh.
+                    for (name, _) in skeleton.created_buildings() {
+                        let def = defs
+                            .get(name)
+                            .unwrap_or_else(|| panic!("{} creates unknown {name}", entry.name));
+                        assert!(!defs.meshes_of(def).is_empty(), "{name} has no mesh");
+                        buildings += 1;
+                    }
                 }
                 for lod in &mesh.lods {
                     for m in &lod.materials {
@@ -369,7 +383,7 @@ fn static_meshes_parse_and_reference_real_textures() {
     }
     eprintln!(
         "{parsed} static meshes parsed ({triangles} triangles), {headers} headers \
-         ({created} CREATEOBJECT dummies), {} failed, e.g. {:?}",
+         ({created} CREATEOBJECT, {buildings} CREATEBUILDING dummies), {} failed, e.g. {:?}",
         failed.len(),
         &failed[..failed.len().min(3)]
     );

@@ -2,6 +2,16 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31 (later): walking in the Guild (engine-render, engine-world)
+
+- Meshes create buildings as well as objects: `CREATEBUILDING <definition>` dummies (`Skeleton::created_buildings`; `docs/formats/mesh.md`). The Guild's apprentice quarters, entrance hall and dining hall create nine more buildings, among them the dormitory's wings and the hall's floors; 62 such dummies in the game. Created buildings take the dummy's position only: the dummies' rotations (a half turn on 53, none on 9) do not fit, while every part lines up with its parent unturned (the Guild's wings, the Hall of Heroes' sections end to end). Created objects keep the whole dummy (turned, Oakvale's windows go wrong; checked by eye on the tavern).
+- `walk::assign_surfaces`: later layers grow highest first and settle cells when they leave the frontier, so a higher floor takes cells from the floor below seeded beside it. In the Guild layer 2 had taken the ground floor under the dormitory (16.9 m); it now reaches the dormitory floor (30.1 m) from the stairs. Every Guild navigation cell gets a height (layer 2 from 5,174 to 11,464). Two Oakvale houses' upper floors were the same bug (layer 1 on the ground floor, now 20.7 m); the bridge deck is unchanged; OakBay's second layer gains 55 cells with a height (6,645 to 6,700), not looked at. Test `an_upper_floor_is_not_the_ground_floor_under_it` (fails without the fix); `tells_created_objects_from_created_buildings`; the real-data mesh test checks every `CREATEBUILDING` names a definition with a mesh.
+- Checked headless: routes from the hall to both dormitory beds, from the dormitory to the Map Room, from the Map Room east and to the training ring all reach their goals (the Map Room and the dormitory failed before). `docs/quests/guild-training.md` updated.
+- Found: `WhisperMeleeStart` inside the training ring is cut off by the ring's gate (no navigation crosses it), before and after these changes.
+- Diagnostics: examples `nav_at` (a map's navigation sections and the leaves under points), `mesh_id_refs` (definitions holding mesh ids), `def_meshes` (`Defs::meshes_of`); `mesh_dump` prints each sub-mesh's extent.
+- Not checked: the Hall of Heroes and other created buildings by eye; the Guild's quest walks played as beats in the window.
+- Next: the training ring's gate (what opens it, so Whisper and the Hero can get in), then the dummy lesson.
+
 ## 2026-10-31: dev VM rebuilt, Steam install
 
 - The dev VM was set up again without Nix: rustup with the pinned nightly in `~/.cargo`, the desktop dependencies from apt (listed in PLAN.md). `$FABLE_DIR` is now the Steam release in the VM's own Steam library (path in CLAUDE.md), not the DVD copy shared from the host.

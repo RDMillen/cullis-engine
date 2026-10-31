@@ -109,8 +109,9 @@ struct LocalMesh {
     draws: Vec<Draw>,
     /// Skinned meshes: per vertex, 4 skeleton bones and weights, and the skeleton.
     skin: Option<Skin>,
-    /// Objects the mesh creates (`CREATEOBJECT` dummies): definition name and
-    /// where, in the mesh's own space.
+    /// Objects and buildings the mesh creates (`CREATEOBJECT` and
+    /// `CREATEBUILDING` dummies): definition name and where, in the mesh's own
+    /// space.
     creates: Vec<(String, Mat4)>,
     /// Particle emitters it starts (`CREATEPARTICLE` dummies), likewise.
     particles: Vec<(String, Vec3)>,
@@ -243,13 +244,23 @@ impl ModelBuilder {
         } else {
             Mesh::parse_static(&entry.info, &data)?
         };
+        // A created building takes only its dummy's position: the dummies' rotations
+        // are a half turn on 53 of the game's 62 and none on the rest, yet every
+        // such building lines up with its parent unturned (the Guild's wings, over
+        // the navigation of their upper floors; the Hall of Heroes' sections, end
+        // to end). Created objects (windows, door frames) take the whole dummy.
         let creates = mesh
             .skeleton()
             .map(|s| {
-                s.created_objects()
+                let objects = s
+                    .created_objects()
                     .into_iter()
-                    .map(|(name, d)| (name.to_owned(), dummy_matrix(d)))
-                    .collect()
+                    .map(|(name, d)| (name.to_owned(), dummy_matrix(d)));
+                let buildings = s.created_buildings().into_iter().map(|(name, d)| {
+                    let at = Vec3::from_array(d.position);
+                    (name.to_owned(), Mat4::from_translation(at))
+                });
+                objects.chain(buildings).collect()
             })
             .unwrap_or_default();
         let particles = mesh
@@ -500,8 +511,9 @@ pub fn skinned_model(
 }
 
 /// Loads every placement into one model in world space.
-/// `resolve` gives the meshes of an object definition, for the objects meshes
-/// create at their `CREATEOBJECT` dummies (a building's door frames and windows).
+/// `resolve` gives the meshes of a definition, for the objects and buildings
+/// meshes create at their `CREATEOBJECT` and `CREATEBUILDING` dummies (a
+/// building's door frames and windows, the Guild's wings).
 pub fn load_placements(
     assets: &AssetCache,
     name: &str,
