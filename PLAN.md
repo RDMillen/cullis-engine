@@ -36,10 +36,9 @@ This repository is desktop only. A PS Vita version will come later, in a **separ
 
 ## Development environment
 
-- Dev VM: Debian 13 with Nix. `nix develop` gives the desktop dependencies (Vulkan loader, lavapipe, windowing libraries, pkg-config, ffmpeg). Rust comes from rustup, pinned by `rust-toolchain.toml`.
+- Dev VM: Debian 13. The desktop dependencies come from apt (`build-essential pkg-config libasound2-dev libvulkan1 mesa-vulkan-drivers vulkan-tools libxkbcommon-x11-0 libwayland-client0 libx11-6 libxcursor1 libxi6 libxrandr2 ffmpeg`; `flake.nix` lists the same for Nix). Rust comes from rustup, pinned by `rust-toolchain.toml`.
 - Claude Code CLI runs in the VM inside tmux; code review happens from the host over SSH. The VM has an X display (`:0`), so the viewer can open a window there.
-- Original game is installed and played on the host (Proton on Linux). Its install folder is shared into the VM read-only and exposed as `$FABLE_DIR` (currently `/home/ross/fable_data`).
-- The install in use is a European retail DVD copy of The Lost Chapters (multilingual readmes, `banks_dvd.ini`). The Steam release may differ, so tests must not hard-code file sizes or offsets.
+- The install in use on the VM is the Steam release (app 204030) at `/home/ross/.steam/debian-installation/steamapps/common/Fable The Lost Chapters`, exposed as `$FABLE_DIR`. It has the DVD's layout (`banks_dvd.ini` included). Earlier sessions used a European retail DVD copy shared from the host; the two may differ, so tests must not hard-code file sizes or offsets.
 - Rendering in the VM uses software rendering (llvmpipe or lavapipe): fine for correctness, never for performance numbers.
 - The VM has no `xxd`; use `od -A x -t x1z` for hex dumps.
 - VitaSDK and the Vita reference clones (`cargo-vita`, `vita-rust-examples`, `vitaGL` in `/home/ross/`) are already installed for the future Vita repository; this repository does not use them.

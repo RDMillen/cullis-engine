@@ -2,6 +2,12 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31: dev VM rebuilt, Steam install
+
+- The dev VM was set up again without Nix: rustup with the pinned nightly in `~/.cargo`, the desktop dependencies from apt (listed in PLAN.md). `$FABLE_DIR` is now the Steam release in the VM's own Steam library (path in CLAUDE.md), not the DVD copy shared from the host.
+- Checked: the workspace builds, the 138 debug tests pass, clippy is clean, and all 30 real-data tests pass on the Steam release.
+- Note: the three 2026-10-27 entries (fonts, sharper text, pause menu) were appended at the end of this file instead of the top.
+
 ## 2026-10-26: migration step 4, engine-render
 
 - New crate `engine-render` with the GPU code: the region renderer, model loading and drawing, sky, shadows, particle drawing, theme textures, CPU skinning, the shaders, and the drawing halves of doors (`DoorModel`) and creatures (`CreatureModel`, `PartModel`). It depends on `wgpu` pinned to eframe's version (30.0.1), so a single `wgpu` is built and the windowing's device works with it. Terrain geometry types (`Vertex`, `ThemeGrid`, `ThemeLayer`) moved with it; the renderer takes a borrowed `TerrainGeometry`, and the viewer's loader builds its theme grid through a local trait.

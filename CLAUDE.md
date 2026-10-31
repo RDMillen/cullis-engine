@@ -12,8 +12,8 @@ Clean-room Rust engine for Fable: The Lost Chapters (requires the original game)
 
 ## Game data
 
-- `$FABLE_DIR` points at the install (`/home/ross/fable_data` on the dev VM). It is read-only; never commit anything from it.
-- Tests that need it are `#[ignore]`d: `FABLE_DIR=/home/ross/fable_data cargo test --release -- --ignored`.
+- `$FABLE_DIR` points at the install, the folder holding `data/` (on the dev VM, the Steam release at `/home/ross/.steam/debian-installation/steamapps/common/Fable The Lost Chapters`). It is read-only; never commit anything from it.
+- Tests that need it are `#[ignore]`d: `FABLE_DIR="/home/ross/.steam/debian-installation/steamapps/common/Fable The Lost Chapters" cargo test --release -- --ignored`.
 - Test internal consistency, not sizes, offsets or counts that may differ between the DVD and Steam releases.
 
 ## Build
