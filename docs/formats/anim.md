@@ -53,7 +53,13 @@ Positions are stored divided by their largest component (one component is always
 
 Played this way (frames blended linearly, quaternions normalised), `ANIM_HERO_IDLE`, `ANIM_HERO_WALK` and `ANIM_HERO_RUN` pose `MESH_YOUNGHERO_02` plausibly in the viewer.
 
+## Strikes
+
+The Hero's strikes carry the whole body: in `ANIM_HERO_UNARMED_STRIKE_RIGHT_2_1` `Bip01` (and everything under it) moves about 100 mesh units forward (-y) over the clip and stays there, while `Movement_dummy` and `Sub_movement_dummy` above it do not move. Played as stored, the Hero would lunge a metre and snap back when the clip ends. The engine marks strike clips as carrying the body (`Clip::with_root_motion`): posed, `Bip01` keeps the place across the ground it starts at, and the animator reports how far it would have gone (`Animator::take_travel`), which moves the Hero in the world (stepping as a walk does, so walls and people stop him).
+
+Nothing decoded marks when a blow lands. The engine takes the end of the frame in which a hand snaps forward fastest, measured from `Bip01 Pelvis` (`combat::contact_time`): neither where the hand is (the lunge) nor how far it reaches (many strikes end held at full stretch) marks it. The young Hero's six unarmed punches (`ANIM_HERO_UNARMED_STRIKE_{RIGHT,LEFT}_2_{1,2,3}`) all land 0.20 to 0.27 s in, a one- or two-frame jump of the hand of 100 or more mesh units.
+
 ## Not decoded
 
 - Which animation the game picks for what: `CAppearanceDef` definitions list animation slots (`ST_IDLE_SUBTLE`, `CS_SHIFT_WEIGHT3`, …) with values such as `0x49c95` that are not bank entry ids.
-- `HLPR` contents beyond `MVEC`'s first 3 floats, `XALO`.
+- `HLPR` contents beyond `MVEC`'s first 3 floats, `XALO`; perhaps they hold events such as when a blow lands.

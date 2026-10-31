@@ -1,6 +1,7 @@
 //! The world: one region's simulation state. Its navigation and collision
 //! geometry, its light by time of day and the camera's focus, and its
-//! entities in a `hecs` world: so far doors (a [`Door`] and an animator);
+//! entities in a `hecs` world: so far doors (a [`Door`] and an animator) and
+//! training dummies ([`crate::combat::Dummy`]);
 //! creatures, the Hero and emitters follow (see `docs/architecture.md`,
 //! migration step 3).
 
@@ -43,11 +44,11 @@ pub struct World {
     pub npcs: Vec<crate::creature::Npc>,
     /// The Hero's body, when he is in the world.
     pub hero: Option<crate::walk::Hero>,
-    /// The Hero's animator (idle, walk, run, fidgets, then his kick at
-    /// `hero_kick`), once he is placed.
+    /// The Hero's animator (idle, walk, run, fidgets, then his fighting clips
+    /// in `hero_combat`), once he is placed.
     pub hero_animator: Option<Animator>,
-    pub hero_kick: Option<usize>,
-    /// What the Hero is doing between ticks (kicking, fidgeting).
+    pub hero_combat: crate::combat::HeroCombat,
+    /// What the Hero is doing between ticks (striking, locked on, fidgeting).
     pub hero_state: crate::hero::HeroState,
     /// Where things can walk (one grid per walking level) and the ground's
     /// height.
@@ -119,6 +120,7 @@ impl World {
         for (_, animator) in self.ecs.query_mut::<&mut Animator>() {
             animator.advance(dt);
         }
+        self.settle_dummies();
         self.place_point_lights();
     }
 
@@ -161,7 +163,8 @@ impl World {
         };
         animator.play_once(clip, f32::MAX);
         animator.advance(0.0);
-        self.ecs.spawn((door, animator))
+        let placed = crate::body::Placed(door.transform);
+        self.ecs.spawn((door, placed, animator))
     }
 
     /// A closed door in the way of someone at `at` walking along `direction`:

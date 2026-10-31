@@ -57,15 +57,10 @@ pub fn spawn_hero(
         renderer.hero_mesh = Some(skin::SkinnedMesh::new(model.vertices.clone(), skin));
         Some(animator)
     });
-    // His kick, after the fidgets.
-    world.hero_kick = None;
-    if let Some(animator) = &mut world.hero_animator
-        && let Some(id) = bank.id(HERO_KICK)
-    {
-        match bank.clip(id, animator.skeleton()) {
-            Ok(clip) => world.hero_kick = Some(animator.add_clip(clip)),
-            Err(e) => log::warn!("kick: {e}"),
-        }
+    // His fighting clips, after the fidgets.
+    world.hero_combat = Default::default();
+    if let Some(animator) = &mut world.hero_animator {
+        world.hero_combat = combat_clips(&mut bank, animator, animations.stance);
     }
     Ok(Some(hero))
 }
@@ -74,8 +69,75 @@ pub fn spawn_hero(
 /// standing, walking, running (indices used by [`animate_hero`]).
 pub const HERO_CLIPS: [&str; 3] = ["ANIM_HERO_IDLE", "ANIM_HERO_WALK", "ANIM_HERO_RUN"];
 
-/// The boy Hero's kick (one of his `STRIKE_MEDIUM_FRONT` animations).
-pub const HERO_KICK: &str = "ANIM_HERO_UNARMED_KICK_RIGHT_2_1";
+/// The boy Hero's chains of unarmed strikes (his `STRIKE_MEDIUM_FRONT`
+/// animations with the `STAND` modifier include these two runs of three; that
+/// they chain in this order is a guess from their names).
+pub const HERO_CHAINS: [[&str; 3]; 2] = [
+    [
+        "ANIM_HERO_UNARMED_STRIKE_RIGHT_2_1",
+        "ANIM_HERO_UNARMED_STRIKE_RIGHT_2_2",
+        "ANIM_HERO_UNARMED_STRIKE_RIGHT_2_3",
+    ],
+    [
+        "ANIM_HERO_UNARMED_STRIKE_LEFT_2_1",
+        "ANIM_HERO_UNARMED_STRIKE_LEFT_2_2",
+        "ANIM_HERO_UNARMED_STRIKE_LEFT_2_3",
+    ],
+];
+
+/// The bones his punches land with.
+const HANDS: &[&str] = &["Bip01 L Hand", "Bip01 R Hand"];
+
+/// Adds the Hero's strike chains (with when each blow lands) and his stance to
+/// his animator.
+fn combat_clips(
+    bank: &mut skin::AnimBank,
+    animator: &mut engine_world::anim::Animator,
+    stance: Option<[u32; 5]>,
+) -> engine_world::combat::HeroCombat {
+    let first_clip = Some(animator.clip_count());
+    let load = |bank: &mut skin::AnimBank, id: u32, animator: &engine_world::anim::Animator| {
+        bank.clip(id, animator.skeleton())
+            .map_err(|e| log::warn!("animation {id}: {e}"))
+            .ok()
+    };
+    let mut chains = Vec::new();
+    for names in HERO_CHAINS {
+        let mut chain = Vec::new();
+        for name in names {
+            let Some(clip) = bank.id(name).and_then(|id| load(bank, id, animator)) else {
+                log::warn!("strike {name} missing");
+                break;
+            };
+            // Strikes lunge: the clip carries him forward.
+            let clip = clip.with_root_motion();
+            let contact = engine_world::combat::contact_time(animator.skeleton(), &clip, HANDS);
+            log::debug!(
+                "strike {name}: blow at {contact:.2} s of {:.2}",
+                clip.duration()
+            );
+            chain.push(engine_world::combat::Strike {
+                clip: animator.add_clip(clip),
+                contact,
+            });
+        }
+        if !chain.is_empty() {
+            chains.push(chain);
+        }
+    }
+    let stance = stance.and_then(|ids| {
+        let clips: Vec<usize> = ids
+            .iter()
+            .filter_map(|&id| load(bank, id, animator).map(|c| animator.add_clip(c)))
+            .collect();
+        clips.try_into().ok()
+    });
+    engine_world::combat::HeroCombat {
+        chains,
+        stance,
+        first_clip,
+    }
+}
 
 /// The young Hero's definition, whose animation table the Hero plays.
 pub const HERO_DEFINITION: &str = "CREATURE_HERO_CHILD";

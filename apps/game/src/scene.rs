@@ -168,8 +168,11 @@ impl Scene {
                     let (npcs, models) = npc::load(assets, device, queue, &mesh.creatures);
                     world.npcs = npcs;
                     renderer.creatures = models;
-                    renderer.doors = door::load(assets, device, queue, &mesh.doors, &mut world);
-                    log::info!("{} doors of {}", renderer.doors.len(), mesh.doors.len());
+                    renderer.animated = door::load(assets, device, queue, &mesh.doors, &mut world);
+                    log::info!("{} doors of {}", renderer.animated.len(), mesh.doors.len());
+                    let dummies = dummy::load(assets, device, queue, &mesh.dummies, &mut world);
+                    log::info!("{} dummies of {}", dummies.len(), mesh.dummies.len());
+                    renderer.animated.extend(dummies);
                     log::info!(
                         "{} creatures placed of {}",
                         world.npcs.len(),

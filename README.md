@@ -15,7 +15,7 @@ Early, but the Prologue can be played through in the desktop viewer:
 - each region's music, and ambience that follows where the Hero walks (village, shore, sea, river)
 - light, sky and drifting clouds by time of day from the region's environment theme: dawn, day, dusk and night, sun shadows from buildings, people and objects, fireplaces and fires that burn and light their surroundings, chimney smoke, warm light indoors, and the red glow over Oakvale after the raid; birdsong by day and night creatures after dark
 
-Not yet: combat beyond a kick, sound effects, night ambience, The Lost Chapters' voices, cutscenes, particle effects that orbit or follow paths (fireflies, spells), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
+Not yet: combat beyond unarmed strikes (no weapons, blocking, health or damage), sound effects, night ambience, The Lost Chapters' voices, cutscenes, particle effects that orbit or follow paths (fireflies, spells), saves. See [PLAN.md](PLAN.md) for the roadmap and [docs/progress.md](docs/progress.md) for the session log.
 
 ## Crates
 
@@ -87,7 +87,8 @@ The side panel switches between regions (with the game's names), meshes, texture
 | Drag, right-drag, scroll | Orbit, pan, zoom (scroll sets the camera distance while walking) |
 | W A S D, Shift | Walk, run |
 | E | Talk to someone, go on with what they say, or open a door |
-| F | Kick |
+| F | Strike (again during a strike to chain the next) |
+| Q | Lock on to the nearest foe in front, or let go: the Hero faces it and steps in his fighting stance |
 | Y, N | Answer a question |
 
 The Prologue starts in Oakvale (`StartOakVale`): talk to the Hero's father near the house at the top of the village. Its expected behaviour, and the values not yet checked against the game, are in [docs/quests/prologue-birthday.md](docs/quests/prologue-birthday.md).
@@ -102,6 +103,7 @@ Command-line options:
 | `--walk`, `--walk-to x,y[,z]` | Place the Hero; walk him to a point first, along a route round walls, fences and people (z picks the floor where floors are stacked) |
 | `--talk N` | On arrival, talk to the nearest person (N times, printed, with `--screenshot`) |
 | `--use` | After `--walk-to`, use the nearest door, then walk on |
+| `--strike N` | On arrival, lock on to the nearest foe and strike N times in a chain, printing where the blows land (with `--screenshot`) |
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |
 | `--gesture ROLE` | Make the creature with this role (`NOVI_LiveFather`) start a conversation gesture, for screenshots with `--npc-time` |
 | `--hour H` | Time of day for the screenshot (default 10); the window has a slider and a running clock |

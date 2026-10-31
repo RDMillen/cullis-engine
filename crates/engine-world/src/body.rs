@@ -10,3 +10,8 @@ pub const MESH_SCALE: f32 = 0.01;
 pub fn local() -> Mat4 {
     Mat4::from_scale(Vec3::splat(MESH_SCALE)) * Mat4::from_rotation_z(std::f32::consts::PI)
 }
+
+/// Where an animated object's mesh stands: its mesh space to the world (a
+/// component of doors and training dummies).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed(pub Mat4);

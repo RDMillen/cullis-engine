@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod door;
+pub mod dummy;
 pub mod hero;
 pub mod input;
 pub mod npc;

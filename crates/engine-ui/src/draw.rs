@@ -18,13 +18,19 @@ pub struct Fonts {
 }
 
 impl Fonts {
-    /// The font in `sizes` nearest `pixels` high.
+    /// The font in `sizes` nearest `pixels` high, passing over fonts with
+    /// glyphs cut off by their texture while any other is there.
     pub(crate) fn nearest(sizes: &[BitmapFont], pixels: f32) -> Option<&BitmapFont> {
-        sizes.iter().min_by(|a, b| {
+        let by_size = |a: &&BitmapFont, b: &&BitmapFont| {
             (a.pixel_height() - pixels)
                 .abs()
                 .total_cmp(&(b.pixel_height() - pixels).abs())
-        })
+        };
+        sizes
+            .iter()
+            .filter(|f| f.whole())
+            .min_by(by_size)
+            .or_else(|| sizes.iter().min_by(by_size))
     }
 }
 

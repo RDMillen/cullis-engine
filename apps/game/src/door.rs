@@ -1,13 +1,13 @@
-//! Draws doors: each door is a world entity (`engine_world::door::Door` and its
-//! animator); this holds its skinned mesh and deforms it with the animator's
-//! pose each frame.
+//! Loads doors: each door is a world entity (`engine_world::door::Door` and its
+//! animator), drawn by an [`AnimatedModel`] that deforms its skinned mesh with
+//! the animator's pose each frame.
 
 use eframe::wgpu;
 use engine_world::anim::Animator;
 use engine_world::door::Door;
 use engine_world::world::World;
 
-pub use engine_render::door::DoorModel;
+pub use engine_render::animated::AnimatedModel;
 
 use crate::model::{self, ModelRenderer};
 use crate::skin::AnimBank;
@@ -21,7 +21,7 @@ pub fn load(
     queue: &wgpu::Queue,
     doors: &[DoorPlacement],
     world: &mut World,
-) -> Vec<DoorModel> {
+) -> Vec<AnimatedModel> {
     let mut bank = match AnimBank::open(assets) {
         Ok(b) => b,
         Err(e) => {
@@ -61,7 +61,7 @@ pub fn load(
             d.open,
         );
         let entity = world.spawn_door(door, Animator::new(skin.rig.clone(), clips));
-        let mut drawn = DoorModel::new(
+        let mut drawn = AnimatedModel::new(
             entity,
             ModelRenderer::new(device, queue, &model),
             model.vertices.clone(),

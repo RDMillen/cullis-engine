@@ -13,8 +13,10 @@ pub struct Actions {
     pub run: bool,
     /// E: go on, talk, use.
     pub use_: bool,
-    /// F: kick.
-    pub kick: bool,
+    /// F: attack (a strike, or the next of a chain); Q: lock on to a foe or
+    /// let go.
+    pub attack: bool,
+    pub lock: bool,
     /// Y or N to a question.
     pub answer: Option<bool>,
 }
@@ -29,7 +31,8 @@ impl Actions {
             right: axis(egui::Key::D, egui::Key::A),
             run: i.modifiers.shift,
             use_: i.key_pressed(egui::Key::E),
-            kick: i.key_pressed(egui::Key::F),
+            attack: i.key_pressed(egui::Key::F),
+            lock: i.key_pressed(egui::Key::Q),
             answer: if i.key_pressed(egui::Key::Y) {
                 Some(true)
             } else if i.key_pressed(egui::Key::N) {

@@ -103,8 +103,8 @@ pub struct TerrainRenderer {
     /// hidden).
     pub buildings: Vec<crate::model::Building>,
     pub inside: Option<usize>,
-    /// Doors, posed open or closed.
-    pub doors: Vec<crate::door::DoorModel>,
+    /// Animated objects: doors, posed open or closed, and training dummies.
+    pub animated: Vec<crate::animated::AnimatedModel>,
     /// Creatures standing in the region.
     /// Creatures' meshes, at the indices of the world's creatures.
     pub creatures: Vec<crate::creature::CreatureModel>,
@@ -498,7 +498,7 @@ impl TerrainRenderer {
             highlight: None,
             eye: Vec3::ZERO,
             creatures: Vec::new(),
-            doors: Vec::new(),
+            animated: Vec::new(),
             buildings: Vec::new(),
             inside: None,
             uniforms,
@@ -634,16 +634,16 @@ impl TerrainRenderer {
                 );
             }
         }
-        for door in &mut self.doors {
-            let Some(transform) = door.update(queue, world) else {
+        for object in &mut self.animated {
+            let Some(transform) = object.update(queue, world) else {
                 continue;
             };
-            door.renderer.prepare_placed(
+            object.renderer.prepare_placed(
                 queue,
                 view_proj,
                 transform,
                 self.eye,
-                glow(Highlight::Door(door.entity)),
+                glow(Highlight::Door(object.entity)),
                 light_at(&transform),
             );
         }
@@ -693,8 +693,8 @@ impl TerrainRenderer {
                 {
                     part.draw_shadow(&mut pass);
                 }
-                for door in &self.doors {
-                    door.renderer.draw_shadow(&mut pass);
+                for object in &self.animated {
+                    object.renderer.draw_shadow(&mut pass);
                 }
             }
         }
@@ -752,8 +752,8 @@ impl TerrainRenderer {
             {
                 part.draw(&mut pass);
             }
-            for door in &self.doors {
-                door.renderer.draw(&mut pass);
+            for object in &self.animated {
+                object.renderer.draw(&mut pass);
             }
             terrain_groups(&mut pass);
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {

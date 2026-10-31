@@ -166,6 +166,12 @@ pub(crate) fn screenshot(
                 *transform = hero_transform(&hero);
             }
         }
+        if args.strike > 0 {
+            strike(world, &mut hero, args.strike);
+            if let Some((_, transform)) = &mut renderer.hero {
+                *transform = hero_transform(&hero);
+            }
+        }
         if args.talk > 0 {
             let text = fable_data::strings::TextBank::open(data_dir, "English")?;
             let mut subs = subtitles::Subtitles::default();
@@ -364,4 +370,51 @@ pub(crate) fn pose_and_frame(
     follow(camera, hero, renderer, world, distance);
     log::info!("hero at {}", hero.position);
     Ok(())
+}
+
+/// `--strike N`: locks on to the nearest foe, presses attack `n` times as a
+/// player chaining them would, and logs each blow, the dummies' hits and how
+/// far the Hero's lunges carried him. Stops a few ticks after the `n`th blow,
+/// so a screenshot catches the dummy reeling.
+fn strike(world: &mut World, hero: &mut walk::Hero, n: u32) {
+    let locked = world.toggle_lock(hero);
+    let foe = world.locked_on();
+    let foe_at = foe.and_then(|f| world.foe_position(f));
+    log::info!(
+        "locked on: {locked} ({foe:?} at {foe_at:?}), Hero at {}",
+        hero.position
+    );
+    let start = hero.position;
+    let (mut pressed, mut landed, mut after) = (0, 0, 0);
+    for tick in 0..(10.0 / TICK) as u32 {
+        // Press again every half second, as a player chaining.
+        if pressed < n && tick % 15 == 0 && world.attack() {
+            pressed += 1;
+        }
+        world.move_hero(hero, glam::Vec2::ZERO, false, TICK);
+        world.tick(TICK);
+        for foe in world.take_blows() {
+            landed += 1;
+            log::info!(
+                "blow at {:.2} s on {foe:?}, Hero at {}",
+                tick as f32 * TICK,
+                hero.position
+            );
+        }
+        if landed >= n {
+            after += 1;
+            if after > 4 {
+                break;
+            }
+        }
+    }
+    for (_, d) in world.ecs.query::<&engine_world::combat::Dummy>().iter() {
+        if d.hits > 0 {
+            log::info!("a dummy took {} hits", d.hits);
+        }
+    }
+    log::info!(
+        "lunges carried the Hero {:.2} m",
+        (hero.position - start).truncate().length()
+    );
 }

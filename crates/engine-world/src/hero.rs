@@ -1,6 +1,7 @@
 //! The Hero's movement: speed from his walk and run clips (so his feet do not
 //! slide), stepping round what is in the way, and which clip he plays: idle
-//! with a fidget now and then, walk, run, or his kick.
+//! with a fidget now and then, walk, run, a strike, or while locked on to a foe
+//! his combat stance, facing it ([`crate::combat`]).
 
 use glam::Vec2;
 
@@ -9,7 +10,8 @@ use crate::body::MESH_SCALE;
 use crate::walk::{self, Hero};
 use crate::world::World;
 
-/// His first clips: idle, walk, run; his fidgets follow, then his kick.
+/// His first clips: idle, walk, run; his fidgets follow, then his fighting
+/// clips.
 pub const MAIN_CLIPS: usize = 3;
 /// How wide a person is, for keeping the Hero and creatures apart.
 pub const PERSON_RADIUS: f32 = 0.35;
@@ -19,19 +21,27 @@ const FIDGET_AFTER: f32 = 10.0;
 /// What the Hero is doing between ticks.
 #[derive(Debug, Clone, Default)]
 pub struct HeroState {
-    /// Kicking: he stands still until the kick ends.
-    pub kicking: bool,
+    /// The strike under way: he stands still until it ends.
+    pub(crate) striking: Option<crate::combat::Striking>,
+    /// Chains of strikes begun (they take turns), the foe locked on to, and
+    /// blows landed since last asked.
+    pub(crate) chains_struck: usize,
+    pub(crate) locked: Option<crate::combat::Foe>,
+    pub(crate) blows: Vec<crate::combat::Foe>,
     /// Seconds standing since he last moved or fidgeted, and fidgets so far.
     standing: f32,
     fidgets: usize,
 }
 
 /// The Hero's animations from his table, as bank ids: idle (`ST_IDLE_SUBTLE`),
-/// walk (`ST_WALK`), run (`ST_RUN`) and fidgets (`ST_IDLE`).
+/// walk (`ST_WALK`), run (`ST_RUN`), fidgets (`ST_IDLE`), and his unarmed
+/// stance while locked on (`STRAFE_IDLE`, `STRAFE_MOVEMENT_FORWARD`, `_BACK`,
+/// `_LEFT`, `_RIGHT`, all with the `STAND` modifier).
 #[derive(Debug, Clone, Default)]
 pub struct HeroAnimations {
     pub main: [Option<u32>; 3],
     pub fidgets: Vec<u32>,
+    pub stance: Option<[u32; 5]>,
 }
 
 impl HeroAnimations {
@@ -43,47 +53,60 @@ impl HeroAnimations {
                 .find(|s| s.slot == slot && s.modifier.as_deref().is_none_or(|m| m == "STAND"))
                 .map(|s| s.animation)
         };
+        let stand = |slot: &str| {
+            slots
+                .iter()
+                .find(|s| s.slot == slot && s.modifier.as_deref() == Some("STAND"))
+                .map(|s| s.animation)
+        };
+        let stance = [
+            "STRAFE_IDLE",
+            "STRAFE_MOVEMENT_FORWARD",
+            "STRAFE_MOVEMENT_BACK",
+            "STRAFE_MOVEMENT_LEFT",
+            "STRAFE_MOVEMENT_RIGHT",
+        ]
+        .map(stand);
         Self {
             main: [idles.base, plain("ST_WALK"), plain("ST_RUN")],
             fidgets: idles.fidgets,
+            stance: stance
+                .iter()
+                .all(Option::is_some)
+                .then(|| stance.map(Option::unwrap_or_default)),
         }
     }
 }
 
 impl World {
-    /// Starts the Hero's kick, unless he is kicking already or has none.
-    pub fn start_kick(&mut self) -> bool {
-        match (
-            self.hero_state.kicking,
-            self.hero_kick,
-            &mut self.hero_animator,
-        ) {
-            (false, Some(kick), Some(animator)) => {
-                animator.play_once(kick, 0.0);
-                self.hero_state.kicking = true;
-                true
-            }
-            _ => false,
-        }
-    }
-
     /// Moves `hero` (out of the world for his step) `dt` seconds towards
     /// `direction` (world x, y; zero to stand), running if `run`, blocked by
-    /// closed doors and people, and plays his clip. Whether he moved.
+    /// closed doors and people, and plays his clip. Striking, he stands; locked
+    /// on to a foe, he faces it and steps in his stance. Whether he moved.
     pub fn move_hero(&mut self, hero: &mut Hero, direction: Vec2, run: bool, dt: f32) -> bool {
+        let foe = self.locked_position(hero);
         let Some(heights) = &self.heights else {
             return false;
         };
-        let kicking = self.hero_state.kicking;
-        let direction = if kicking { Vec2::ZERO } else { direction };
+        let strike = self.strike_clip();
+        let direction = if strike.is_some() {
+            Vec2::ZERO
+        } else {
+            direction
+        };
+        let to_foe = foe.map(|at| (at - hero.position).truncate().normalize_or_zero());
+        let stance = match (self.hero_combat.stance, to_foe) {
+            (Some(stance), Some(f)) if f != Vec2::ZERO => {
+                Some(crate::combat::stance_clip(stance, direction, f))
+            }
+            _ => None,
+        };
         // The clips' own movement sets the speed.
+        let moving_clip = stance.unwrap_or(if run { 2 } else { 1 });
         let clip_speed = self
             .hero_animator
             .as_ref()
-            .and_then(|a| {
-                a.speed(if run { 2 } else { 1 })
-                    .map(|s| s * a.stride_ratio())
-            })
+            .and_then(|a| a.speed(moving_clip).map(|s| s * a.stride_ratio()))
             .map(|s| s * MESH_SCALE);
         let speed = clip_speed.unwrap_or(if run {
             walk::RUN_SPEED
@@ -95,18 +118,16 @@ impl World {
             self.hero_blocked(p)
         });
         let moved = (hero.position - before).truncate().length() > 1e-4;
-        let kick = self.hero_kick;
-        let kicking = kicking
-            && self
-                .hero_animator
-                .as_ref()
-                .is_some_and(|a| Some(a.current()) == kick && !a.finished());
-        self.hero_state.kicking = kicking;
+        if let Some(f) = to_foe.filter(|f| *f != Vec2::ZERO) {
+            hero.heading = (-f.x).atan2(f.y);
+        }
+        let first_combat = self.hero_combat.first_clip.unwrap_or(usize::MAX);
         let clip = match (moved, run) {
-            _ if kicking => kick.unwrap_or(0),
+            _ if strike.is_some() => strike.unwrap_or(0),
+            _ if stance.is_some() => stance.unwrap_or(0),
             (false, _) => idle_clip(
                 self.hero_animator.as_ref(),
-                kick.unwrap_or(usize::MAX),
+                first_combat,
                 &mut self.hero_state,
                 dt,
             ),
@@ -116,11 +137,26 @@ impl World {
         if moved {
             self.hero_state.standing = 0.0;
         }
+        let mut travel = Vec2::ZERO;
         if let Some(animator) = &mut self.hero_animator {
             animator.play(clip);
             animator.advance(dt);
+            // A strike's lunge carries him along (meshes face -y; turned by
+            // his heading), stepping as a walk would, but stopping rather than
+            // sliding round whatever it meets (a foe, a wall).
+            let t = -animator.take_travel() * MESH_SCALE * animator.stride_ratio();
+            travel = Vec2::from_angle(hero.heading).rotate(t);
         }
-        moved
+        let ahead = hero.position.truncate() + travel;
+        if travel != Vec2::ZERO && dt > 0.0 && !self.hero_blocked(ahead) {
+            let heading = hero.heading;
+            hero.step_blocked(travel, travel.length() / dt, dt, &self.walk, heights, |p| {
+                self.hero_blocked(p)
+            });
+            hero.heading = heading;
+        }
+        self.step_strike(hero);
+        moved || travel != Vec2::ZERO
     }
 }
 
@@ -132,7 +168,7 @@ fn idle_clip(animator: Option<&Animator>, end: usize, state: &mut HeroState, dt:
         return 0;
     };
     let (current, count) = (animator.current(), animator.clip_count().min(end));
-    if current >= MAIN_CLIPS && !animator.finished() {
+    if (MAIN_CLIPS..count).contains(&current) && !animator.finished() {
         return current;
     }
     state.standing += dt;
@@ -152,9 +188,10 @@ impl World {
         self.person_at(p, PERSON_RADIUS * 2.0 + walk::CELL)
     }
 
-    /// Whether the Hero may not stand at `p`: a closed door, or a creature there.
+    /// Whether the Hero may not stand at `p`: a closed door, a creature or a
+    /// training dummy there.
     pub fn hero_blocked(&self, p: Vec2) -> bool {
-        self.door_blocks(p) || self.person_at(p, PERSON_RADIUS * 2.0)
+        self.door_blocks(p) || self.person_at(p, PERSON_RADIUS * 2.0) || self.target_at(p)
     }
 
     fn person_at(&self, p: Vec2, within: f32) -> bool {
@@ -271,8 +308,8 @@ mod tests {
         let mut hero = Hero::new(Vec2::new(2.0, 5.0), &heights);
         let moved = w.move_hero(&mut hero, Vec2::X, false, 0.5);
         assert!(moved && hero.position.x > 2.5, "{}", hero.position);
-        // Without a kick clip there is no kick.
-        assert!(!w.start_kick());
+        // Without strikes there is no attack.
+        assert!(!w.attack());
         assert!(!w.move_hero(&mut hero, Vec2::ZERO, false, 0.1), "standing");
     }
 }

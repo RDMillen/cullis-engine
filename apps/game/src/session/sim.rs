@@ -172,9 +172,10 @@ impl Session {
             }
         }
         let at = hero.position.truncate();
-        let (talk_key, kick_key, answer_key) = (
+        let (talk_key, attack_key, lock_key, answer_key) = (
             std::mem::take(&mut input.use_),
-            std::mem::take(&mut input.kick),
+            std::mem::take(&mut input.attack),
+            std::mem::take(&mut input.lock),
             input.answer.take(),
         );
         let mut use_door = None;
@@ -195,16 +196,12 @@ impl Session {
         {
             story.answer(yes, &world.npcs, at, text, &mut self.subs);
         }
-        // F: kick whoever is in front.
-        if kick_key && !held && world.start_kick() {
-            let facing = glam::Vec2::new(-hero.heading.sin(), hero.heading.cos());
-            if let Some(i) = story::nearest_person(&world.npcs, at, story::KICK_REACH, Some(facing))
-            {
-                world.npcs[i].flinch();
-                if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
-                    story.hit(&world.npcs, i, at, text, &mut self.subs);
-                }
-            }
+        // Q: lock on to a foe or let go; F: strike (again to chain).
+        if lock_key && !held {
+            world.toggle_lock(hero);
+        }
+        if attack_key && !held {
+            world.attack();
         }
         // Walking away ends a conversation.
         if let Some(i) = self.subs.waiting_on()
@@ -220,6 +217,17 @@ impl Session {
             story.update(dt, &world.npcs, (at, height), text, &mut self.subs);
         }
         world.move_hero(hero, direction, run, dt);
+        // People struck flinch, and the quest hears of it.
+        for foe in world.take_blows() {
+            if let engine_world::combat::Foe::Person(i) = foe
+                && i < world.npcs.len()
+            {
+                world.npcs[i].flinch();
+                if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
+                    story.hit(&world.npcs, i, at, text, &mut self.subs);
+                }
+            }
+        }
         if let Some((_, transform)) = &mut renderer.hero {
             *transform = hero_transform(hero);
         }

@@ -41,8 +41,18 @@ The ring's fence (`OBJECT_GUILD_WALL_*`) has a gate, `OBJECT_OAKVALE_FENCEGATE_0
 
 Whisper waits outside beside the Guildmaster, at the ring's `PreMeleeChatMarker` (4758.2, 3644.1), a guess. `WhisperMeleeStart`, inside the ring (in `Q_GuildTraining`, beside `HeroMeleeStart`), is probably for the apprentice melee lessons, whose markers include `MK_GTM_WHISPERGATE` and `MK_GTM_HEROGATE` just inside the gate; how they get in then is not observed.
 
+## Unarmed fighting
+
+What the dummy lesson's first part needs is in (`engine_world::combat`): F strikes, and pressing it again during a strike chains the next; Q locks on to the nearest foe in front (a dummy or a person), the Hero then facing it and stepping in his stance (`STRAFE_IDLE`, `STRAFE_MOVEMENT_FORWARD`, `_BACK`, `_LEFT`, `_RIGHT`, with the `STAND` modifier). The Guild's 13 dummies (`OBJECT_STRAW_DUMMY_01`, the lesson's `PreMeleeDummy` among them) are world entities: a blow reaching one plays its `GET_HIT` (the last of a chain its `GET_HIT_SPIN`), then `WOBBLE`, then its still `DEFAULT`; they count their hits and stop the Hero like people. People struck flinch and the quest hears of it, as the kick did. Checked headless (`--strike 3`): from 1 m, a chain of three lands three blows and the dummy spins; from the cutscene's spot (`MK_GTP_HERO2`, 2.1 m) the first punch falls short.
+
+Guesses, to check against the original:
+
+- **The chains.** Two chains of three punches (`ANIM_HERO_UNARMED_STRIKE_RIGHT_2_1` to `_2_3`, then the `LEFT` ones; chains take turns). The names suggest the order; the table also has eight kicks and turning variants (`C90`, `AC90`, `C180`, `AC180`), probably for striking a foe to the side or behind, not used yet.
+- **Reach and lock.** A blow lands on a foe whose edge is within 1 m of the Hero and within 60 degrees of straight ahead; a lock reaches 10 m, preferring foes in front, and is lost at 15 m. The lock key (Q) is ours: the game's PC binding (`GAME_ACTION_LOCK_TARGET`) is not known.
+- **The dummy's reactions.** Which blows spin it, and that it wobbles after each.
+
 ## Not yet
 
 - Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, the morning walk to the Map Room, and the cut into the ring, as quest beats.
 - Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
-- The dummy lesson itself (targeting, punching, the stick, the dummy breaking, experience orbs), the beetles and the end question.
+- The rest of the dummy lesson: the instruction notice (`TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC`), the Guildmaster's comments as punches land, the stick (`STANDARD_UNSHEATHE_STICK`; its strikes are probably the `SWORD` set), the dummy breaking and its experience orb. Then the beetles and the end question.

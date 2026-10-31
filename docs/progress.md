@@ -2,6 +2,18 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-10-31 (later): unarmed fighting (engine-world)
+
+- New `engine_world::combat`: the Hero's strikes in chains (`World::attack`: F strikes, again during a strike chains the next; two chains of three punches, `ANIM_HERO_UNARMED_STRIKE_{RIGHT,LEFT}_2_{1,2,3}`, taking turns), locking on (`World::toggle_lock`, Q: the nearest foe in front; the Hero faces it and steps in his `STRAFE_*` stance), and blows (`take_blows`) on dummies and people. The kick is gone; people struck flinch and quests hear of it as before.
+- Training dummies (objects whose table has `GET_HIT`) are world entities (`Dummy`, `Target`, an animator) loaded by the game's `dummy` module: `GET_HIT` (the last of a chain `GET_HIT_SPIN`), `WOBBLE`, then `DEFAULT`; they count hits and block the Hero. Doors and dummies draw through one `engine_render::animated::AnimatedModel` over a `Placed` component (was `DoorModel`).
+- Learned (`docs/formats/anim.md`): strike clips carry the body about a metre forward on `Bip01`. Clips can carry the body (`Clip::with_root_motion`): the pose keeps `Bip01` in place and the animator reports the travel (`take_travel`), which moves the Hero in the world. When a blow lands is not in the decoded data: it is taken as the frame a hand snaps forward fastest, measured from the pelvis (0.20 to 0.27 s into each punch).
+- Tests: blows land at their contact time and the dummy reels; a second press chains and the last blow spins the dummy; blows miss what is behind or out of reach; the lock picks the dummy and lets go; the stance follows the direction; a lunging clip holds its root and reports the travel.
+- Viewer `--strike N` (lock on, strike N times, print the blows). Checked headless: a chain of three on the ring's dummy from 1 m lands three blows and the screenshot shows it spinning and the Hero mid-punch; three blows on an Oakvale villager land, the villager stopping the lunge.
+- Checked in the window, driven with xdotool (installed on the rebuilt VM): Q turns the Hero to the dummy in his stance, three presses of F punch three times, the dummy reels and the last blow spins it, D while locked on steps round it facing it. Found and fixed there: a lunge blocked by the dummy slid the Hero round to its side (a lunge now stops at what it meets).
+- Found in the window: speakers' names lost their `z` ("Ma e"): at that window size subtitles chose `ENG_ARIAL_18`, whose last glyph row is cut off in the data. `draw::Fonts::nearest` now passes over fonts with glyphs off their texture (`BitmapFont::whole`); test `a_font_with_glyphs_off_its_texture_is_passed_over`.
+- Not checked: against the original (chains, reach, reactions are guesses, listed in `docs/quests/guild-training.md`).
+- Next: the rest of the dummy lesson (the instruction notice, the Guildmaster's comments, the stick, the dummy breaking, the experience orb).
+
 ## 2026-10-31 (later): into the training ring (engine-script)
 
 - The ring's gate (`OBJECT_OAKVALE_FENCEGATE_02`) is a plain usable object, a static leaf, and no navigation crosses it. In the original a cutscene puts the Hero inside after "Get in the ring" (Ross). New quest beat `Beat::Cut { at, facing }` (the scene cuts, the Hero is put there; the game shares the placing with `Sleep`); the Guild training cuts to `MK_GTP_HERO2` by the dummy between `PUNCH_10` and `PUNCH_20`. Whisper now walks to the ring's `PreMeleeChatMarker` beside the Guildmaster (a guess) instead of `WhisperMeleeStart` inside the ring, which no route reaches. Test `arrival_to_the_dummy` checks the cut's place among the lines.

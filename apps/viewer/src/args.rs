@@ -36,6 +36,9 @@ pub(crate) struct Args {
     /// After walking, talk to the nearest creature this many times, printing
     /// what it says.
     pub(crate) talk: u32,
+    /// After walking, lock on to the nearest foe and strike this many times in
+    /// a chain, printing where the blows land.
+    pub(crate) strike: u32,
     /// Start the Prologue quest with Theresa's present bought (for testing the
     /// ending).
     pub(crate) with_present: bool,
@@ -68,6 +71,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
         highlights: lighting::HIGHLIGHT_LIMIT,
         use_door: false,
         talk: 0,
+        strike: 0,
         with_present: false,
         gesture: None,
         mouth: None,
@@ -96,6 +100,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
             "--highlights" => args.highlights = value()?.parse()?,
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
+            "--strike" => args.strike = value()?.parse()?,
             "--with-present" => args.with_present = true,
             "--gesture" => args.gesture = Some(value()?),
             "--mouth" => {

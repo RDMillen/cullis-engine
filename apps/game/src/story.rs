@@ -11,9 +11,8 @@ use crate::skin::AnimBank;
 use engine_ui::subtitles::{self, Item, Subtitles};
 use engine_world::creature::Npc;
 
-/// How near the Hero must be to talk to someone, and to kick them.
+/// How near the Hero must be to talk to someone.
 pub const TALK_REACH: f32 = 2.5;
-pub const KICK_REACH: f32 = 1.4;
 
 /// The quest being played.
 pub enum Act {
@@ -154,7 +153,7 @@ impl Story {
         self.present(Some(i), true, npcs, hero, text, subs);
     }
 
-    /// The Hero kicks creature `i`.
+    /// The Hero strikes creature `i`.
     pub fn hit(
         &mut self,
         npcs: &[Npc],

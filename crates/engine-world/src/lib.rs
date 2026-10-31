@@ -10,6 +10,7 @@ pub mod anim;
 pub mod body;
 pub mod camera;
 pub mod collide;
+pub mod combat;
 pub mod conversation;
 pub mod creature;
 pub mod door;

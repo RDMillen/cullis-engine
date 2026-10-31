@@ -11,6 +11,9 @@ pub struct BitmapFont {
     /// Pixel height of a line.
     height: f32,
     texture_size: Vec2,
+    /// Every printable glyph lies inside the texture (`ENG_ARIAL_18`'s last
+    /// row, `z` to `~`, runs off its bottom edge; `docs/formats/font.md`).
+    whole: bool,
 }
 
 impl BitmapFont {
@@ -24,7 +27,16 @@ impl BitmapFont {
             glyphs: font.glyphs().copied().collect(),
             height: font.height as f32,
             texture_size: Vec2::new(size[0] as f32, size[1] as f32),
+            whole: font
+                .glyphs()
+                .filter(|g| (' '..='~').contains(&g.ch))
+                .all(|g| g.uv[3] <= 1.001),
         }
+    }
+
+    /// Whether every printable glyph lies inside the texture.
+    pub fn whole(&self) -> bool {
+        self.whole
     }
 
     fn glyph(&self, ch: char) -> Option<&fable_data::font::Glyph> {
@@ -128,10 +140,21 @@ mod tests {
 
     /// Every character from ' ' to '~' advancing 2 pixels.
     fn font() -> BitmapFont {
+        sized(10, 1.0)
+    }
+
+    /// As [`font`], `height` pixels a line, with `z` reaching `z_bottom` down
+    /// the texture (past 1.0: off its edge).
+    fn sized(height: u32, z_bottom: f32) -> BitmapFont {
         let glyphs = (0x20u32..0x7f)
             .map(|c| Glyph {
                 ch: char::from_u32(c).unwrap(),
-                uv: [0.0, 0.0, 1.0, 1.0],
+                uv: [
+                    0.0,
+                    0.0,
+                    1.0,
+                    if c == u32::from('z') { z_bottom } else { 1.0 },
+                ],
                 offset: 0,
                 width: 1,
                 advance: 2,
@@ -139,10 +162,10 @@ mod tests {
             .collect();
         let font = Font {
             name: "Test".into(),
-            height: 10,
+            height,
             weight: 400,
             unknown_flag: 0,
-            unknown_height: 10,
+            unknown_height: height,
             texture_size: [1, 1],
             first: 0x20,
             last: 0x7e,
@@ -172,6 +195,19 @@ mod tests {
             "a curly quote counts as one"
         );
         assert_eq!(f.line_height(1.5), 15.0);
+    }
+
+    #[test]
+    fn a_font_with_glyphs_off_its_texture_is_passed_over() {
+        let sizes = [sized(16, 1.0), sized(18, 1.08), sized(20, 1.0)];
+        assert!(!sizes[1].whole() && sizes[0].whole());
+        let pick = crate::draw::Fonts::nearest(&sizes, 18.0).unwrap();
+        assert_ne!(pick.pixel_height(), 18.0, "not the one missing its z");
+        let only = [sized(18, 1.08)];
+        assert!(
+            crate::draw::Fonts::nearest(&only, 18.0).is_some(),
+            "else it"
+        );
     }
 
     #[test]

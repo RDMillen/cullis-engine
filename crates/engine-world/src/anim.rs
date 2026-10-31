@@ -108,7 +108,15 @@ pub struct Clip {
     tracks: Vec<Option<Track>>,
     /// Distance carried per loop in mesh units (see `Animation::movement`).
     movement: f32,
+    /// The clip carries the body along by [`ROOT`] (a strike's lunge): posed,
+    /// the root is held where it starts and the distance is reported instead
+    /// ([`Animator::take_travel`]).
+    root_motion: bool,
 }
+
+/// The bone that carries a body along in clips that move it (`Bip01`; the
+/// movement dummies above it stay still).
+pub const ROOT: &str = "Bip01";
 
 /// The animations in `graphics/graphics.big`, through the asset cache.
 pub struct AnimBank {
@@ -186,7 +194,36 @@ impl Clip {
             frames: frames.max(1),
             tracks,
             movement,
+            root_motion: false,
         })
+    }
+
+    /// Marks the clip as carrying the body along (see [`Clip`]).
+    pub fn with_root_motion(mut self) -> Self {
+        self.root_motion = true;
+        self
+    }
+
+    /// Frames in one loop, and frames per second.
+    pub fn frames(&self) -> u32 {
+        self.frames
+    }
+
+    pub fn fps(&self) -> f32 {
+        self.fps
+    }
+
+    /// A clip that moves no bone, `frames` long at `fps` (for tests).
+    #[cfg(test)]
+    pub(crate) fn still(name: &str, fps: f32, frames: u32) -> Self {
+        Self {
+            name: name.into(),
+            fps,
+            frames,
+            tracks: Vec::new(),
+            movement: 0.0,
+            root_motion: false,
+        }
     }
 
     /// When the last frame starts, in seconds.
@@ -269,9 +306,61 @@ pub fn pose(skeleton: &Skeleton, clip: Option<&Clip>, time: f32, morph: &[[f32; 
 /// A bone's pose under `clip` at `time` (its rest pose without a clip).
 fn bone_pose(bone: &Bone, i: usize, clip: Option<&Clip>, time: f32) -> Bone {
     match clip {
-        Some(c) => animated_bone(bone, c.tracks[i].as_ref(), c.frames, c.fps, time),
+        Some(c) => animated_bone(
+            bone,
+            c.tracks.get(i).and_then(Option::as_ref),
+            c.frames,
+            c.fps,
+            time,
+        ),
         None => bone.clone(),
     }
+}
+
+/// As [`bone_pose`], but in a clip that carries the body along, the root keeps
+/// the place across the ground (model x, y) it starts from; `parent` is the
+/// root's parent in model space.
+fn held_pose(
+    bone: &Bone,
+    i: usize,
+    clip: Option<&Clip>,
+    time: f32,
+    parent: Option<&Affine>,
+) -> Bone {
+    let mut posed = bone_pose(bone, i, clip, time);
+    if clip.is_some_and(|c| c.root_motion) && bone.name == ROOT {
+        let start = bone_pose(bone, i, clip, 0.0);
+        let r = parent.map_or(glam::Mat3::IDENTITY, |m| {
+            glam::Mat3::from_cols(
+                Vec3::new(m[0][0], m[1][0], m[2][0]),
+                Vec3::new(m[0][1], m[1][1], m[2][1]),
+                Vec3::new(m[0][2], m[1][2], m[2][2]),
+            )
+        });
+        let moved = r * (Vec3::from_array(posed.translation) - Vec3::from_array(start.translation));
+        let across = r.inverse() * Vec3::new(moved.x, moved.y, 0.0);
+        posed.translation = (Vec3::from_array(posed.translation) - across).to_array();
+    }
+    posed
+}
+
+/// Where `clip` at `time` puts the [`ROOT`] bone in model space (unheld).
+fn root_position(skeleton: &Skeleton, clip: &Clip, time: f32) -> Option<Vec3> {
+    let root = skeleton.bones.iter().position(|b| b.name == ROOT)?;
+    let mut chain = vec![root];
+    while let Some(p) = skeleton.bones[*chain.last()?].parent {
+        chain.push(p);
+    }
+    let mut m: Option<Affine> = None;
+    for &i in chain.iter().rev() {
+        let local = bone_pose(&skeleton.bones[i], i, Some(clip), time).local();
+        m = Some(match m {
+            Some(parent) => mul_affine(&parent, &local),
+            None => local,
+        });
+    }
+    let m = m?;
+    Some(Vec3::new(m[0][3], m[1][3], m[2][3]))
 }
 
 /// Blends two poses of a bone: `k` 0 is `a`, 1 is `b` (rotations interpolated
@@ -303,9 +392,10 @@ pub fn pose_blended(
 ) -> Vec<Mat4> {
     let mut world: Vec<Affine> = Vec::with_capacity(skeleton.bones.len());
     for (i, bone) in skeleton.bones.iter().enumerate() {
-        let mut posed = bone_pose(bone, i, clip, time);
+        let parent = bone.parent.and_then(|p| world.get(p));
+        let mut posed = held_pose(bone, i, clip, time, parent);
         if let Some((old, old_time, k)) = from {
-            let before = bone_pose(bone, i, Some(old), old_time);
+            let before = held_pose(bone, i, Some(old), old_time, parent);
             posed = blend_bones(&before, &posed, k);
         }
         if face_mask.get(i).copied().unwrap_or(false) && !face.is_empty() {
@@ -389,6 +479,9 @@ pub struct Animator {
     /// make up the face (those below `Bip01 Head`).
     face: Vec<(usize, f32)>,
     face_mask: Vec<bool>,
+    /// How far clips that carry the body along have moved it since last asked
+    /// (model x, y, mesh units).
+    travel: glam::Vec2,
 }
 
 /// How long a switch between clips crossfades, in seconds.
@@ -407,7 +500,15 @@ impl Animator {
             fading: None,
             face: Vec::new(),
             face_mask,
+            travel: glam::Vec2::ZERO,
         }
+    }
+
+    /// How far the clips that carry the body along (a strike's lunge) have
+    /// moved it since last asked, across the ground in model space (mesh units;
+    /// meshes face -y). The pose itself stays in place.
+    pub fn take_travel(&mut self) -> glam::Vec2 {
+        std::mem::take(&mut self.travel)
     }
 
     /// Layers mouth shapes over the face: (clip index, weight 0..=1); empty for
@@ -470,6 +571,11 @@ impl Animator {
         self.current
     }
 
+    /// Seconds into the clip playing.
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
     /// Whether the current clip has played through once (a clip played once
     /// holds at its last frame, so it is through on reaching it).
     pub fn finished(&self) -> bool {
@@ -504,7 +610,19 @@ impl Animator {
             Some(c) if once => t.min(c.last_frame_time()),
             _ => t,
         };
+        let before = self.time;
         self.time = hold(&self.clips, self.current, self.once, self.time + dt);
+        if let Some(clip) = self
+            .clips
+            .get(self.current)
+            .filter(|c| c.root_motion && self.time >= before)
+            && let (Some(a), Some(b)) = (
+                root_position(&self.rig.skeleton, clip, before),
+                root_position(&self.rig.skeleton, clip, self.time),
+            )
+        {
+            self.travel += (b - a).truncate();
+        }
         if let Some((i, t, once, since)) = self.fading {
             let since = since + dt;
             self.fading =
@@ -602,13 +720,7 @@ mod tests {
 
     #[test]
     fn clips_played_once_finish_on_their_last_frame() {
-        let clip = |name: &str| Clip {
-            name: name.into(),
-            fps: 10.0,
-            frames: 5,
-            tracks: Vec::new(),
-            movement: 0.0,
-        };
+        let clip = |name: &str| Clip::still(name, 10.0, 5);
         let mut a = Animator::new(Rig::default(), vec![clip("idle"), clip("kick")]);
         a.advance(0.45);
         assert!(!a.finished(), "a loop is through after its full length");
@@ -619,6 +731,60 @@ mod tests {
         assert!(!a.finished());
         a.advance(10.0);
         assert!(a.finished(), "held at the last frame, the kick is over");
+    }
+
+    #[test]
+    fn a_lunging_clip_holds_its_root_and_reports_the_travel() {
+        // Bip01 100 units up, carried 4 x 25 units along -y over 5 frames.
+        let named = |name: &str, parent: Option<usize>, t: [f32; 3]| Bone {
+            name: name.into(),
+            ..bone(parent, t)
+        };
+        let skeleton = Skeleton {
+            bones: vec![
+                named("Scene Root", None, [0.0; 3]),
+                named(ROOT, Some(0), [0.0, 0.0, 100.0]),
+            ],
+            ..Default::default()
+        };
+        let track = Track {
+            unknown_id: 0,
+            parent: None,
+            name: ROOT.into(),
+            unknown_flag: 0,
+            fps: 10.0,
+            frames: 5,
+            layout: [1, 1, 2, 0],
+            unknown_tolerance: 0.0,
+            unknown_words: [0; 2],
+            rotations: vec![[0.0, 0.0, 0.0, 1.0]],
+            rotation_frames: Vec::new(),
+            positions: (0..5).map(|k| [0, -8192 * k, 32767]).collect(),
+            position_frames: Vec::new(),
+        };
+        let lunge = Clip {
+            name: "lunge".into(),
+            fps: 10.0,
+            frames: 5,
+            tracks: vec![None, Some(track)],
+            movement: 0.0,
+            root_motion: false,
+        }
+        .with_root_motion();
+        let mut a = Animator::new(Rig::new(skeleton), vec![lunge]);
+        a.play_once(0, 0.0);
+        a.advance(0.4);
+        let at = a.matrices()[1].w_axis;
+        assert!(
+            at.y.abs() < 1e-3 && (at.z - 100.0).abs() < 1e-3,
+            "held: {at}"
+        );
+        let travel = a.take_travel();
+        assert!(
+            (travel - glam::Vec2::new(0.0, -100.0)).length() < 0.1,
+            "{travel}"
+        );
+        assert_eq!(a.take_travel(), glam::Vec2::ZERO, "taken");
     }
 
     #[test]

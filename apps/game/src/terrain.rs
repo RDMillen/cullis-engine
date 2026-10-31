@@ -38,8 +38,9 @@ pub struct TerrainMesh {
     pub own_bounds: Option<(glam::Vec2, glam::Vec2)>,
     /// Creatures placed in the maps the region contains.
     pub creatures: Vec<CreaturePlacement>,
-    /// Doors in the maps the region contains.
+    /// Doors and training dummies in the maps the region contains.
     pub doors: Vec<DoorPlacement>,
+    pub dummies: Vec<DummyPlacement>,
     /// Lit lamps, fires and light markers.
     pub lights: Vec<engine_world::lighting::PointLight>,
     pub vertices: Vec<Vertex>,
@@ -283,13 +284,24 @@ impl TerrainMesh {
     }
 }
 
-/// A map's placed meshes, region exits, creatures and doors.
+/// A map's placed meshes, region exits, creatures, doors and dummies.
 type MapThings = (
     Vec<Placement>,
     Vec<RegionExit>,
     Vec<CreaturePlacement>,
     Vec<DoorPlacement>,
+    Vec<DummyPlacement>,
 );
+
+/// A training dummy (an object whose animation table has `GET_HIT`): a skinned
+/// mesh that reels from blows.
+#[derive(Debug, Clone)]
+pub struct DummyPlacement {
+    pub definition: String,
+    /// `DEFAULT`, `GET_HIT`, `WOBBLE` and `GET_HIT_SPIN` from its table.
+    pub animations: [Option<u32>; 4],
+    pub placement: Placement,
+}
 
 /// A door (a thing with a `CTCDoor`): a skinned mesh that swings open.
 #[derive(Debug, Clone)]
@@ -393,7 +405,7 @@ pub fn load_region(
         mesh.add_navigation(&lev, &data, map.x as f32, map.y as f32);
         maps.push((lev, map.x as f32, map.y as f32));
         let origin = Vec3::new(map.x as f32, map.y as f32, 0.0);
-        let (placed, exits, creatures, doors) = load_placements(
+        let (placed, exits, creatures, doors, dummies) = load_placements(
             &wad,
             &mut file,
             level,
@@ -422,6 +434,7 @@ pub fn load_region(
             mesh.exits.extend(exits);
             mesh.creatures.extend(creatures);
             mesh.doors.extend(doors);
+            mesh.dummies.extend(dummies);
         }
     }
     if !maps.is_empty() {
@@ -511,7 +524,7 @@ fn load_placements(
 ) -> Result<MapThings, Box<dyn std::error::Error>> {
     let tng_name = format!("Data\\Levels\\{}", level.replace(".lev", ".tng"));
     let Some(entry) = wad.index.by_name(&tng_name) else {
-        return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+        return Ok(Default::default());
     };
     let text: String = entry.read_data(file)?.iter().map(|&b| b as char).collect();
     let mut tng = Tng::parse(&text)?;
@@ -599,11 +612,41 @@ fn load_placements(
             })
         })
         .collect();
+    // Dummies: objects that reel from blows by their own animations.
+    let reactions = |definition: &str| {
+        let def = defs.get(definition)?;
+        let slots = defs.animation_slots(def, names);
+        let find = |slot: &str| slots.iter().find(|s| s.slot == slot).map(|s| s.animation);
+        find("GET_HIT")?;
+        Some(["DEFAULT", "GET_HIT", "WOBBLE", "GET_HIT_SPIN"].map(find))
+    };
+    let dummies: Vec<DummyPlacement> = tng
+        .things
+        .iter()
+        .filter(|t| t.kind == "Object")
+        .filter_map(|t| {
+            let definition = t.definition()?;
+            Some(DummyPlacement {
+                definition: definition.to_owned(),
+                animations: reactions(definition)?,
+                placement: Placement {
+                    role: MeshRole::Plain,
+                    mesh: defs.get(definition)?.graphic()?,
+                    effects: Vec::new(),
+                    position: origin + Vec3::from_array(t.position()?),
+                    forward: Vec3::from_array(t.forward()?),
+                    up: Vec3::from_array(t.up()?),
+                },
+            })
+        })
+        .collect();
     let placements = tng
         .things
         .iter()
         .filter(|t| {
-            (t.kind == "Building" || t.kind == "Object") && t.component("CTCDoor").is_none()
+            (t.kind == "Building" || t.kind == "Object")
+                && t.component("CTCDoor").is_none()
+                && t.definition().is_none_or(|d| reactions(d).is_none())
         })
         .filter_map(|t| {
             let definition = t.definition()?;
@@ -630,7 +673,7 @@ fn load_placements(
         })
         .flatten()
         .collect();
-    Ok((placements, exits, creatures, doors))
+    Ok((placements, exits, creatures, doors, dummies))
 }
 
 #[cfg(test)]

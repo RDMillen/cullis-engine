@@ -105,6 +105,8 @@ A creature's `Graphic` (tag 4) is its whole body for single-mesh creatures (`CRE
 
 ## Animation tables
 
+Objects can have one too: `OBJECT_STRAW_DUMMY_01` (the training dummy, with `CAnimatingObjectDef`, `CTargetingDef`, `CHitLocationsDef`, `CEnemyDef` and a skinned mesh, `MESH_GUILD_STRAW_DUMMY_01`) has four, `DEFAULT`, `GET_HIT`, `WOBBLE` and `GET_HIT_SPIN` (`ANIMATION_DUMMY_*`). The engine loads objects whose table has `GET_HIT` as dummies that reel from blows.
+
 A creature's `CAppearanceDef` (`CREATURE_HERO_CHILD`'s has 871 entries, a villager's 792, a chicken's 25) maps animation slots to animations. Each entry: `u32` slot name hash, `u32` `MBANK_ALLMESHES` id of the animation, `u32` the slot's name (a `names.bin` offset), `u32` a modifier's name offset or `0xffffffff`. Entries are found by that layout, checking that the name at the offset hashes to the hash before it (`Def::animation_slots`, `Defs::animation_slots`); the bytes between entries are not decoded.
 
 | Slot | Modifier | Animation (young Hero) |
