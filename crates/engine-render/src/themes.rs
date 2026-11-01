@@ -1,5 +1,5 @@
-//! Theme textures for the terrain: every theme's base and cliff textures, resampled
-//! to one size with mip chains, ready for texture arrays.
+//! Theme textures for the terrain: every theme's base and cliff textures and their
+//! bump maps, resampled to one size with mip chains, ready for texture arrays.
 
 use crate::model::{Image, TextureBank};
 use crate::terrain::ThemeLayer;
@@ -13,36 +13,47 @@ pub type Mips = Vec<Vec<u8>>;
 pub struct ThemeTextures {
     pub base: Vec<Mips>,
     pub cliff: Vec<Mips>,
+    /// Bump maps (slopes in red and green; flat where a theme has none).
+    pub base_bump: Vec<Mips>,
+    pub cliff_bump: Vec<Mips>,
 }
 
-/// Loads base and cliff textures for every layer; missing ones become grey.
+/// Loads base and cliff textures and bump maps for every layer; missing
+/// textures become grey, missing bump maps flat.
 pub fn load(
     assets: &engine_core::assets::AssetCache,
     layers: &[ThemeLayer],
 ) -> Result<ThemeTextures, Box<dyn std::error::Error>> {
     let mut bank = TextureBank::open(assets);
     let mut get = |id: u32, what: &str, name: &str| -> Mips {
+        let missing = || {
+            if what.ends_with("bump") {
+                flat()
+            } else {
+                grey()
+            }
+        };
         let level0 = match id {
-            0 => grey(),
+            0 => missing(),
             id => match bank.load(id) {
                 Ok(img) => resample(&img, LAYER_SIZE),
                 Err(e) => {
                     log::warn!("{what} texture {id} for theme {name}: {e}");
-                    grey()
+                    missing()
                 }
             },
         };
         mips(level0, LAYER_SIZE)
     };
-    let base = layers
-        .iter()
-        .map(|l| get(l.base, "base", &l.name))
-        .collect();
-    let cliff = layers
-        .iter()
-        .map(|l| get(l.cliff, "cliff", &l.name))
-        .collect();
-    Ok(ThemeTextures { base, cliff })
+    let mut all = |what: &str, id: fn(&ThemeLayer) -> u32| -> Vec<Mips> {
+        layers.iter().map(|l| get(id(l), what, &l.name)).collect()
+    };
+    Ok(ThemeTextures {
+        base: all("base", |l| l.base),
+        cliff: all("cliff", |l| l.cliff),
+        base_bump: all("base bump", |l| l.base_bump),
+        cliff_bump: all("cliff bump", |l| l.cliff_bump),
+    })
 }
 
 /// Loads textures by id as array layers (missing ones grey).
@@ -64,6 +75,11 @@ pub fn load_ids(
             mips(level0, LAYER_SIZE)
         })
         .collect())
+}
+
+/// A bump map with no slope.
+pub fn flat() -> Vec<u8> {
+    [128u8, 128, 0, 255].repeat((LAYER_SIZE * LAYER_SIZE) as usize)
 }
 
 fn grey() -> Vec<u8> {

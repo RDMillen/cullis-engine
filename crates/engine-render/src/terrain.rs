@@ -27,6 +27,9 @@ pub struct ThemeLayer {
     pub name: String,
     pub base: u32,
     pub cliff: u32,
+    /// Bump maps for the flat ground and the slopes (0 for none).
+    pub base_bump: u32,
+    pub cliff_bump: u32,
 }
 
 /// A region's terrain, borrowed from whatever loaded it.

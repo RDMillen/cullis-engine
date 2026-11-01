@@ -42,7 +42,13 @@ impl Sky {
         while layers.len() < LAYERS {
             layers.push(black_mips());
         }
-        let view = crate::render::layer_array(device, queue, "sky", &layers);
+        let view = crate::render::layer_array(
+            device,
+            queue,
+            "sky",
+            &layers,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
         let shader = device.create_shader_module(wgpu::include_wgsl!("sky.wgsl"));
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sky uniforms"),

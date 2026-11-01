@@ -93,15 +93,18 @@ impl ThemeGridLoad for ThemeGrid {
         // beside paths and on slopes; in the game no water shows there. They
         // probably mark ground meant to lie under a water surface,
         // which is not drawn yet, so their flat ground uses the cliff texture.
-        let base = if name.starts_with("WATER_") {
-            cliff
+        let cliff_bump = t.map_or(0, |t| t.cliff_bump);
+        let (base, base_bump) = if name.starts_with("WATER_") {
+            (cliff, cliff_bump)
         } else {
-            t.map_or(0, |t| t.base)
+            t.map_or((0, 0), |t| (t.base, t.base_bump))
         };
         self.layers.push(ThemeLayer {
             name: name.to_owned(),
             base,
             cliff,
+            base_bump,
+            cliff_bump,
         });
         (self.layers.len() - 1).min(255) as u8
     }

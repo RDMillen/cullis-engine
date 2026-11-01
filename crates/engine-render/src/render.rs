@@ -134,12 +134,14 @@ pub struct TerrainRenderer {
     pub target: Option<Target>,
 }
 
-/// Creates a 2D array texture from per-layer mip chains of `LAYER_SIZE` images.
+/// Creates a 2D array texture from per-layer mip chains of `LAYER_SIZE` images:
+/// colours (sRGB) or bump maps (linear).
 pub fn layer_array(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     label: &str,
     layers: &[Mips],
+    format: wgpu::TextureFormat,
 ) -> wgpu::TextureView {
     let mip_count = layers[0].len() as u32;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -152,7 +154,7 @@ pub fn layer_array(
         mip_level_count: mip_count,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -266,6 +268,9 @@ impl TerrainRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // The themes' bump maps, ground and cliff.
+                texture_entry(5, filterable, wgpu::TextureViewDimension::D2Array),
+                texture_entry(6, filterable, wgpu::TextureViewDimension::D2Array),
             ],
         });
 
@@ -296,14 +301,23 @@ impl TerrainRenderer {
         let grey: Vec<Mips> = vec![vec![
             [128u8, 128, 128, 255].repeat((LAYER_SIZE * LAYER_SIZE) as usize),
         ]];
-        let (base, cliff) = match themes {
+        let flat: Vec<Mips> = vec![vec![crate::themes::flat()]];
+        let (colour, linear) = (
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (base, cliff, base_bump, cliff_bump) = match themes {
             Some(t) if !t.base.is_empty() => (
-                layer_array(device, queue, "theme base", &t.base),
-                layer_array(device, queue, "theme cliff", &t.cliff),
+                layer_array(device, queue, "theme base", &t.base, colour),
+                layer_array(device, queue, "theme cliff", &t.cliff, colour),
+                layer_array(device, queue, "theme base bump", &t.base_bump, linear),
+                layer_array(device, queue, "theme cliff bump", &t.cliff_bump, linear),
             ),
             _ => (
-                layer_array(device, queue, "theme base", &grey),
-                layer_array(device, queue, "theme cliff", &grey),
+                layer_array(device, queue, "theme base", &grey, colour),
+                layer_array(device, queue, "theme cliff", &grey, colour),
+                layer_array(device, queue, "theme base bump", &flat, linear),
+                layer_array(device, queue, "theme cliff bump", &flat, linear),
             ),
         };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -340,6 +354,14 @@ impl TerrainRenderer {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&base_bump),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&cliff_bump),
                 },
             ],
         });
@@ -386,6 +408,14 @@ impl TerrainRenderer {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&base_bump),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(&cliff_bump),
                     },
                 ],
             })

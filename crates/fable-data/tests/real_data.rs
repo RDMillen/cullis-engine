@@ -938,10 +938,25 @@ fn every_used_lev_theme_has_textures() {
         &names,
     )
     .unwrap();
+    // Theme bump maps are bump map entries (type 2).
+    let bumps: HashSet<u32> = {
+        let path = data_dir().join("graphics/pc/textures.big");
+        let mut file = BufReader::new(File::open(&path).unwrap());
+        let big = BigFile::read(&mut file).unwrap();
+        let bank = big.bank("GBANK_MAIN_PC").unwrap();
+        bank.read_index(&mut file)
+            .unwrap()
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == fable_data::texture::BUMP_TYPE)
+            .map(|e| e.id)
+            .collect()
+    };
     let path = data_dir().join("Levels/FinalAlbion.wad");
     let wad = BbbbFile::open(&path).unwrap();
     let mut file = BufReader::new(File::open(&path).unwrap());
     let (mut themes, mut textured, mut points, mut in_table) = (HashSet::new(), 0, 0, 0);
+    let (mut base_bumps, mut cliff_bumps) = (0, 0);
     let mut missing = Vec::new();
     for entry in wad
         .index
@@ -963,12 +978,26 @@ fn every_used_lev_theme_has_textures() {
                     continue;
                 };
                 assert_eq!(defs.type_name(def), "ENGINE_THEME", "{}", t.name);
-                textured += usize::from(def.theme_textures().base != 0);
+                let t = def.theme_textures();
+                textured += usize::from(t.base != 0);
+                for (bump, count) in [
+                    (t.base_bump, &mut base_bumps),
+                    (t.cliff_bump, &mut cliff_bumps),
+                ] {
+                    if bump != 0 {
+                        assert!(
+                            bumps.contains(&bump),
+                            "{}: {bump} is not a bump map",
+                            def.name.as_deref().unwrap_or("?")
+                        );
+                        *count += 1;
+                    }
+                }
             }
         }
     }
     eprintln!(
-        "{} themes, {textured} with a base texture, no definition for {missing:?}; {in_table} of {points} grid points use listed slots",
+        "{} themes, {textured} with a base texture ({base_bumps} with a base bump map, {cliff_bumps} a cliff one), no definition for {missing:?}; {in_table} of {points} grid points use listed slots",
         themes.len()
     );
     assert!(missing.len() * 20 <= themes.len());

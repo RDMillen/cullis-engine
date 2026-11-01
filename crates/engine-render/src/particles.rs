@@ -58,7 +58,13 @@ impl Particles {
                 ]]
             }));
         }
-        let view = crate::render::layer_array(device, queue, "particle sprites", &layers);
+        let view = crate::render::layer_array(
+            device,
+            queue,
+            "particle sprites",
+            &layers,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
         Ok(Self::with(device, system, &view))
     }
 

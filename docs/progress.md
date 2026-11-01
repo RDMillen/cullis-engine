@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-11-01 (later): the ground's bump maps (engine-render)
+
+- Ground themes name their bump maps (`ENGINE_THEME`'s `BaseBumpMap` and `CliffBumpMap`, read since the theme textures but unused): of 344 themes used, 66 have a ground bump map and 154 a cliff one, all bump map entries (real-data test). `ThemeLayer` carries them, `themes::load` makes two more arrays (flat where a theme has none; `layer_array` takes the format, linear for bump maps), and `terrain.wgsl` blends the slopes by the theme weights like the colours and tilts the normal along each projection's axes (ground: world x and y; cliffs: their plane and up), mixed between ground and cliff as the colours are.
+- Directions that point along the normal (the ground's axes on a cliff face, a cliff's up on flat ground) are taken as zero, not normalized, so the unused half of the blend is never NaN.
+- Checked in a headless screenshot of Oakvale against the build without: the cliff earth's cracks and clods stand out; no dark spots.
+- Not yet: water's bump maps (the sea is a flat plane, `WATER_BUMP_BIG` and `_SMALL` unused).
+
 ## 2026-11-01: textures with their mip chains (engine-render)
 
 - Model textures and bump maps are uploaded with the mip levels stored with them (`Image::mips`; most stop at 4x4), and sampled trilinearly and anisotropically (16x), so distant and glancing surfaces neither shimmer nor smear. Before, only the top level was uploaded. A texture whose levels do not halve (volume slices) keeps only its top. The terrain already built its own chains (`themes::mips`).
