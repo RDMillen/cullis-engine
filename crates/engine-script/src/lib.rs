@@ -64,6 +64,9 @@ pub enum Beat {
         at: [f32; 3],
         facing: [f32; 2],
     },
+    /// The Hero is given his weapon (a definition: `OBJECT_HERO_STICK`),
+    /// carried on his back until he draws it.
+    GiveWeapon(&'static str),
     /// The scene cuts and the Hero is put at `at` facing `facing` (world
     /// coordinates, as for `Place`), as a cutscene moves him: into the training
     /// ring past its gate.
@@ -123,6 +126,10 @@ pub trait Quest {
     fn hit(&mut self, who: Person<'_>, out: &mut Vec<Beat>);
     /// The Hero strikes the thing with script name `thing` (a training dummy).
     fn struck(&mut self, thing: &str, out: &mut Vec<Beat>) {
+        let _ = (thing, out);
+    }
+    /// The Hero breaks the thing with script name `thing` (a training dummy).
+    fn broken(&mut self, thing: &str, out: &mut Vec<Beat>) {
         let _ = (thing, out);
     }
     /// The Hero answers the last [`Beat::Ask`]. Talking to someone else first

@@ -110,6 +110,8 @@ pub struct TerrainRenderer {
     pub creatures: Vec<crate::creature::CreatureModel>,
     /// The Hero's skinned mesh, posed from the world's animator when drawn.
     pub hero_mesh: Option<crate::skin::SkinnedMesh>,
+    /// His weapon, in his hand or on his back.
+    pub hero_weapon: Option<crate::weapon::HeroWeapon>,
     /// This frame's light outdoors and indoors (the world's, with shadows
     /// added), the sky, and the clear colour shown where there is no sky.
     light: engine_world::lighting::Light,
@@ -516,6 +518,7 @@ impl TerrainRenderer {
             things: None,
             hero: None,
             hero_mesh: None,
+            hero_weapon: None,
             light: Default::default(),
             indoor_light: Default::default(),
             sky: None,
@@ -634,6 +637,21 @@ impl TerrainRenderer {
                 light_at(transform),
             );
         }
+        if let (Some(weapon), Some((_, hero)), Some(animator)) =
+            (&mut self.hero_weapon, &self.hero, &world.hero_animator)
+        {
+            weapon.place(*hero, animator.matrices(), world.weapon_in_hand());
+            if let Some(at) = weapon.transform {
+                weapon.renderer.prepare_placed(
+                    queue,
+                    view_proj,
+                    at,
+                    self.eye,
+                    [0.0; 4],
+                    light_at(&at),
+                );
+            }
+        }
         let glow = |what: Highlight| match self.highlight {
             Some((h, colour)) if h == what => colour,
             _ => [0.0; 4],
@@ -668,7 +686,7 @@ impl TerrainRenderer {
             let Some(transform) = object.update(queue, world) else {
                 continue;
             };
-            object.renderer.prepare_placed(
+            object.shown(world).prepare_placed(
                 queue,
                 view_proj,
                 transform,
@@ -714,6 +732,9 @@ impl TerrainRenderer {
                 if let Some((hero, _)) = &self.hero {
                     hero.draw_shadow(&mut pass);
                 }
+                if let Some(w) = self.hero_weapon.as_ref().filter(|w| w.transform.is_some()) {
+                    w.renderer.draw_shadow(&mut pass);
+                }
                 for part in self
                     .creatures
                     .iter()
@@ -724,7 +745,7 @@ impl TerrainRenderer {
                     part.draw_shadow(&mut pass);
                 }
                 for object in &self.animated {
-                    object.renderer.draw_shadow(&mut pass);
+                    object.shown(world).draw_shadow(&mut pass);
                 }
             }
         }
@@ -768,6 +789,9 @@ impl TerrainRenderer {
             if let Some((hero, _)) = &self.hero {
                 hero.draw(&mut pass);
             }
+            if let Some(w) = self.hero_weapon.as_ref().filter(|w| w.transform.is_some()) {
+                w.renderer.draw(&mut pass);
+            }
             for part in self
                 .creatures
                 .iter()
@@ -783,7 +807,7 @@ impl TerrainRenderer {
                 part.draw(&mut pass);
             }
             for object in &self.animated {
-                object.renderer.draw(&mut pass);
+                object.shown(world).draw(&mut pass);
             }
             terrain_groups(&mut pass);
             if let (true, Some(nav)) = (self.show_nav, &self.nav) {

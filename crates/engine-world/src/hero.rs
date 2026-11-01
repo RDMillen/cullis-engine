@@ -28,6 +28,9 @@ pub struct HeroState {
     pub(crate) chains_struck: usize,
     pub(crate) locked: Option<crate::combat::Foe>,
     pub(crate) blows: Vec<crate::combat::Foe>,
+    /// Where his weapon is, if he has one, and things broken since last asked.
+    pub(crate) carried: Option<crate::weapon::Carried>,
+    pub(crate) broken: Vec<hecs::Entity>,
     /// Seconds standing since he last moved or fidgeted, and fidgets so far.
     standing: f32,
     fidgets: usize,
@@ -88,12 +91,15 @@ impl World {
         let Some(heights) = &self.heights else {
             return false;
         };
-        let strike = self.strike_clip();
+        // Striking, drawing or putting away his weapon, he stands.
+        let strike = self.strike_clip().or(self.weapon_clip());
         let direction = if strike.is_some() {
             Vec2::ZERO
         } else {
             direction
         };
+        let [armed_idle, walk_clip, run_clip] = self.moving_clips();
+        let (walk_clip, run_clip) = (walk_clip.unwrap_or(1), run_clip.unwrap_or(2));
         let to_foe = foe.map(|at| (at - hero.position).truncate().normalize_or_zero());
         let stance = match (self.hero_combat.stance, to_foe) {
             (Some(stance), Some(f)) if f != Vec2::ZERO => {
@@ -102,7 +108,7 @@ impl World {
             _ => None,
         };
         // The clips' own movement sets the speed.
-        let moving_clip = stance.unwrap_or(if run { 2 } else { 1 });
+        let moving_clip = stance.unwrap_or(if run { run_clip } else { walk_clip });
         let clip_speed = self
             .hero_animator
             .as_ref()
@@ -124,15 +130,18 @@ impl World {
         let first_combat = self.hero_combat.first_clip.unwrap_or(usize::MAX);
         let clip = match (moved, run) {
             _ if strike.is_some() => strike.unwrap_or(0),
+            // Standing locked on with his weapon drawn: its stance.
+            (false, _) if stance.is_some() && armed_idle.is_some() => armed_idle.unwrap_or(0),
             _ if stance.is_some() => stance.unwrap_or(0),
+            (false, _) if armed_idle.is_some() => armed_idle.unwrap_or(0),
             (false, _) => idle_clip(
                 self.hero_animator.as_ref(),
                 first_combat,
                 &mut self.hero_state,
                 dt,
             ),
-            (true, false) => 1,
-            (true, true) => 2,
+            (true, false) => walk_clip,
+            (true, true) => run_clip,
         };
         if moved {
             self.hero_state.standing = 0.0;
@@ -156,6 +165,7 @@ impl World {
             hero.heading = heading;
         }
         self.step_strike(hero);
+        self.step_weapon();
         moved || travel != Vec2::ZERO
     }
 }

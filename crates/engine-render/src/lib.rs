@@ -13,3 +13,4 @@ pub mod sky;
 pub mod tangent;
 pub mod terrain;
 pub mod themes;
+pub mod weapon;

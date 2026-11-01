@@ -57,10 +57,20 @@ pub fn spawn_hero(
         renderer.hero_mesh = Some(skin::SkinnedMesh::new(model.vertices.clone(), skin));
         Some(animator)
     });
-    // His fighting clips, after the fidgets.
+    // His fighting clips, after the fidgets, and his weapon's.
     world.hero_combat = Default::default();
     if let Some(animator) = &mut world.hero_animator {
         world.hero_combat = combat_clips(&mut bank, animator, animations.stance);
+        world.hero_combat.weapon = weapon_clips(&mut bank, animator);
+        renderer.hero_weapon = engine_render::weapon::HeroWeapon::load(
+            assets,
+            device,
+            queue,
+            animator.skeleton(),
+            HERO_STICK_MESH,
+        )
+        .map_err(|e| log::warn!("the stick: {e}"))
+        .ok();
     }
     Ok(Some(hero))
 }
@@ -84,6 +94,106 @@ pub const HERO_CHAINS: [[&str; 3]; 2] = [
         "ANIM_HERO_UNARMED_STRIKE_LEFT_2_3",
     ],
 ];
+
+/// The childhood stick's mesh (`OBJECT_HERO_STICK`'s).
+pub const HERO_STICK_MESH: &str = "MESH_HERO_STICK";
+
+/// The boy Hero's chains of strikes with the stick: his `STRIKE_MEDIUM_FRONT`
+/// animations with the `SWORD` modifier, right and left swings in turn. Every
+/// one ends in his combat stance, so their order is not in the clips; this one
+/// is a guess from their names.
+pub const ARMED_CHAINS: [[&str; 4]; 2] = [
+    [
+        "ANIM_HERO_STRIKE_RIGHT_1",
+        "ANIM_HERO_STRIKE_LEFT_2",
+        "ANIM_HERO_STRIKE_RIGHT_3",
+        "ANIM_HERO_STRIKE_LEFT_4",
+    ],
+    [
+        "ANIM_HERO_STRIKE_LEFT_1",
+        "ANIM_HERO_STRIKE_RIGHT_2",
+        "ANIM_HERO_STRIKE_LEFT_3",
+        "ANIM_HERO_STRIKE_RIGHT_4",
+    ],
+];
+
+/// Adds the Hero's clips for his stick: drawing and putting it away (passing
+/// it where his right hand comes nearest the scabbard socket), his armed
+/// chains and how he stands, walks and runs with it drawn.
+fn weapon_clips(
+    bank: &mut skin::AnimBank,
+    animator: &mut engine_world::anim::Animator,
+) -> engine_world::weapon::WeaponClips {
+    use engine_world::weapon::{WeaponClips, nearest_time};
+    let scabbard = animator
+        .skeleton()
+        .named_dummy("WEAPON_SCABBARD_01")
+        .map(|d| glam::Vec3::from_array(d.position));
+    let mut passing = |name: &str, animator: &mut engine_world::anim::Animator| {
+        let clip = clip_named(bank, name, animator)?;
+        let at = scabbard.map_or(clip.last_frame_time() / 2.0, |p| {
+            nearest_time(animator.skeleton(), &clip, "Bip01 R Hand", p)
+        });
+        log::debug!(
+            "{name}: the stick passes at {at:.2} s of {:.2}",
+            clip.duration()
+        );
+        Some((animator.add_clip(clip), at))
+    };
+    let draw = passing("ANIM_HERO_UNSHEATHE_STICK", animator);
+    let sheathe = passing("ANIM_HERO_SHEATHE_STICK", animator);
+    let mut plain = |name: &str| {
+        let clip = clip_named(bank, name, animator)?;
+        Some(animator.add_clip(clip))
+    };
+    let (idle, walk, run) = (
+        plain("ANIM_HERO_COMBAT_IDLE_1_1"),
+        plain("ANIM_HERO_WALK_WITH_SWORD"),
+        plain("ANIM_HERO_RUN_WITH_SWORD"),
+    );
+    let mut chains = Vec::new();
+    for names in ARMED_CHAINS {
+        let mut chain = Vec::new();
+        for name in names {
+            let Some(clip) = clip_named(bank, name, animator) else {
+                break;
+            };
+            let clip = clip.with_root_motion();
+            let contact = engine_world::combat::contact_time(animator.skeleton(), &clip, HANDS);
+            log::debug!(
+                "strike {name}: blow at {contact:.2} s of {:.2}",
+                clip.duration()
+            );
+            chain.push(engine_world::combat::Strike {
+                clip: animator.add_clip(clip),
+                contact,
+            });
+        }
+        if !chain.is_empty() {
+            chains.push(chain);
+        }
+    }
+    WeaponClips {
+        draw,
+        sheathe,
+        chains,
+        idle,
+        walk,
+        run,
+    }
+}
+
+/// The animation named `name` for `animator`'s skeleton, if it loads.
+fn clip_named(
+    bank: &mut skin::AnimBank,
+    name: &str,
+    animator: &engine_world::anim::Animator,
+) -> Option<engine_world::anim::Clip> {
+    let id = bank.id(name)?;
+    bank.clip(id, animator.skeleton())
+        .map_err(|e| log::warn!("{name}: {e}"))
+        .ok()
+}
 
 /// The bones his punches land with.
 const HANDS: &[&str] = &["Bip01 L Hand", "Bip01 R Hand"];
@@ -136,6 +246,7 @@ fn combat_clips(
         chains,
         stance,
         first_clip,
+        weapon: Default::default(),
     }
 }
 

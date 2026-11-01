@@ -19,4 +19,5 @@ pub mod lighting;
 pub mod particles;
 pub mod region;
 pub mod walk;
+pub mod weapon;
 pub mod world;

@@ -30,6 +30,9 @@ pub const DUMMY_DEFAULT: usize = 0;
 pub const DUMMY_HIT: usize = 1;
 pub const DUMMY_WOBBLE: usize = 2;
 pub const DUMMY_SPIN: usize = 3;
+/// Blows with a weapon that break a training dummy (a guess); fists never do
+/// ("Not making much of an impact there").
+pub const BREAKING_BLOWS: u32 = 3;
 
 /// One strike: its clip in the Hero's animator, and how far into it the blow
 /// lands, in seconds.
@@ -48,6 +51,8 @@ pub struct HeroCombat {
     pub stance: Option<[usize; 5]>,
     /// The first of these clips in his animator (his fidgets end there).
     pub first_clip: Option<usize>,
+    /// His weapon's clips (drawing it, putting it away, armed strikes).
+    pub weapon: crate::weapon::WeaponClips,
 }
 
 /// A strike under way: which chain and step, whether its blow has landed, and
@@ -81,6 +86,9 @@ pub struct Target {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Dummy {
     pub hits: u32,
+    /// Blows from a weapon, and whether they have broken it.
+    pub armed_hits: u32,
+    pub broken: bool,
 }
 
 /// A thing's `ScriptName` from its level file (a component), by which quests
@@ -150,16 +158,19 @@ impl World {
     /// Attack: starts a chain of strikes, or asks for the next strike of the
     /// one under way. Whether the Hero strikes.
     pub fn attack(&mut self) -> bool {
-        let chains = &self.hero_combat.chains;
-        if chains.is_empty() {
+        if self.weapon_clip().is_some() {
+            return false;
+        }
+        let count = self.chains().len();
+        if count == 0 {
             return false;
         }
         if let Some(s) = &mut self.hero_state.striking {
             s.next = true;
             return true;
         }
-        let chain = self.hero_state.chains_struck % chains.len();
-        let Some(first) = chains[chain].first().copied() else {
+        let chain = self.hero_state.chains_struck % count;
+        let Some(first) = self.chains()[chain].first().copied() else {
             return false;
         };
         let Some(animator) = &mut self.hero_animator else {
@@ -217,6 +228,11 @@ impl World {
             .any(|(_, t)| t.at.truncate().distance(p) < t.radius + PERSON_RADIUS)
     }
 
+    /// The things broken since last asked (training dummies).
+    pub fn take_broken(&mut self) -> Vec<Entity> {
+        std::mem::take(&mut self.hero_state.broken)
+    }
+
     /// Where `foe` stands, if it is still there.
     pub fn foe_position(&self, foe: Foe) -> Option<Vec3> {
         match foe {
@@ -260,7 +276,7 @@ impl World {
     /// The strike clip playing, if the Hero is striking.
     pub(crate) fn strike_clip(&self) -> Option<usize> {
         let s = self.hero_state.striking?;
-        Some(self.hero_combat.chains[s.chain][s.step].clip)
+        Some(self.chains()[s.chain][s.step].clip)
     }
 
     /// After the Hero's animator has advanced: lands the strike's blow at its
@@ -269,7 +285,7 @@ impl World {
         let Some(mut s) = self.hero_state.striking else {
             return;
         };
-        let chain = &self.hero_combat.chains[s.chain];
+        let chain = &self.chains()[s.chain];
         let (strike, last) = (chain[s.step], s.step + 1 == chain.len());
         let next = chain.get(s.step + 1).copied();
         let Some(animator) = &self.hero_animator else {
@@ -354,11 +370,22 @@ impl World {
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(foe, _)| foe)?;
+        let armed = self.armed();
         if let Foe::Thing(e) = foe
             && let Ok((dummy, animator)) = self.ecs.query_one_mut::<(&mut Dummy, &mut Animator)>(e)
         {
             dummy.hits += 1;
             animator.play_once(if last { DUMMY_SPIN } else { DUMMY_HIT }, 0.0);
+            dummy.armed_hits += u32::from(armed);
+            if dummy.armed_hits >= BREAKING_BLOWS && !dummy.broken {
+                // Broken: no longer a target; the app swaps its mesh.
+                dummy.broken = true;
+                let _ = self.ecs.remove_one::<Target>(e);
+                self.hero_state.broken.push(e);
+                if self.hero_state.locked == Some(foe) {
+                    self.hero_state.locked = None;
+                }
+            }
         }
         Some(foe)
     }
@@ -428,6 +455,7 @@ mod tests {
                 ]],
                 stance: None,
                 first_clip: Some(0),
+                weapon: Default::default(),
             },
             ..World::default()
         };
@@ -528,6 +556,27 @@ mod tests {
         w.attack();
         run(&mut w, &mut hero, 40);
         assert_eq!(w.take_blows().len(), 2, "both chains struck");
+    }
+
+    #[test]
+    fn weapon_blows_break_a_dummy_and_fists_never_do() {
+        let (mut w, mut hero, dummy) = arena();
+        for _ in 0..BREAKING_BLOWS + 2 {
+            w.attack();
+            run(&mut w, &mut hero, 30);
+        }
+        assert!(w.take_broken().is_empty(), "punches");
+        // The same strikes, now with a weapon in hand.
+        w.hero_combat.weapon.chains = w.hero_combat.chains.clone();
+        w.hero_state.carried = Some(crate::weapon::Carried::Hand);
+        w.toggle_lock(&hero);
+        for _ in 0..BREAKING_BLOWS {
+            w.attack();
+            run(&mut w, &mut hero, 30);
+        }
+        assert_eq!(w.take_broken(), [dummy]);
+        assert!(w.ecs.get::<&Target>(dummy).is_err(), "no longer a target");
+        assert_eq!(w.locked_on(), None, "the lock lets go of it");
     }
 
     #[test]

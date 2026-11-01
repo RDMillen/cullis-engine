@@ -59,6 +59,8 @@ The Hero's strikes carry the whole body: in `ANIM_HERO_UNARMED_STRIKE_RIGHT_2_1`
 
 Nothing decoded marks when a blow lands. The engine takes the end of the frame in which a hand snaps forward fastest, measured from `Bip01 Pelvis` (`combat::contact_time`): neither where the hand is (the lunge) nor how far it reaches (many strikes end held at full stretch) marks it. The young Hero's six unarmed punches (`ANIM_HERO_UNARMED_STRIKE_{RIGHT,LEFT}_2_{1,2,3}`) all land 0.20 to 0.27 s in, a one- or two-frame jump of the hand of 100 or more mesh units.
 
+The stick's armed strikes (`ANIM_HERO_STRIKE_LEFT_1` to `_4`, `_RIGHT_1` to `_4`, the `SWORD` modifier) all end in the pose `ANIM_HERO_COMBAT_IDLE_1_1` starts in (within 1 to 4 radians summed over the skeleton's bones, against 70 to 150 between any strike's end and another's start), so they are made to return to the combat stance and the clips do not say which follows which. Drawing the stick (`ANIM_HERO_UNSHEATHE_STICK`) also ends near that stance; the engine moves the stick from back to hand where `Bip01 R Hand` comes nearest the `WEAPON_SCABBARD_01` socket, 0.33 s into both drawing and putting away (`weapon::nearest_time`). Examples: `strike_chains` (end-to-start pose distances), `bone_path` (named bones through a clip).
+
 ## Not decoded
 
 - Which animation the game picks for what: `CAppearanceDef` definitions list animation slots (`ST_IDLE_SUBTLE`, `CS_SHIFT_WEIGHT3`, …) with values such as `0x49c95` that are not bank entry ids.

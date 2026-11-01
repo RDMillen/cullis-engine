@@ -55,8 +55,14 @@ Guesses, to check against the original:
 
 After the cut into the ring and "Just keep going 'til I tell you to stop", the punch instructions show (`TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC`, with `[GAME_ACTION_LOCK_TARGET]` and `[GAME_ACTION_ATTACK]` filled in as Q and F). The quest counts blows on the lesson's dummy (`PreMeleeDummy`, by script name; the other dummies do not count): after 5 the Guildmaster says "Not making much of an impact there, are you? Here, try with this." (`TEXT_CS_028_PREMELEE_STICK_10`, `_20`). With no punch for 20 s he urges "Come on, boy, you can hit it. Walk right up to it and give it a thump." (`TEXT_QST_028_GUILDMASTER_PREMELEE_HIT_DUMMY`). Both numbers are guesses. Checked in the window (`--guild-at-ring`).
 
+## The stick
+
+After "Here, try with this." the Hero is given the stick (`OBJECT_HERO_STICK`, `Beat::GiveWeapon`), carried on his back, and the stick instructions show ("Press R to equip the stick. Then attack the dummy as before, using F to strike."). R draws it (`ANIM_HERO_UNSHEATHE_STICK`) or puts it away (`ANIM_HERO_SHEATHE_STICK`); drawn, he stands, walks and runs with it (`ANIM_HERO_COMBAT_IDLE_1_1`, `_WALK_WITH_SWORD`, `_RUN_WITH_SWORD`) and strikes in two chains of the `SWORD` strikes. With no blow for 20 s the Guildmaster says "Give it a good hammering with your stick." (`_STICK_USAGE`). Three stick blows break the dummy (punches never do): it becomes `OBJECT_STRAW_DUMMY_DESTROYED_01`, a bare post with straw falling away, and the Guildmaster says "Ah, now that's more like it." (`TEXT_CS_028_PREMELEE_PASSED_10`). Checked in the window.
+
+Guesses: three blows; the chains' order (`ANIM_HERO_STRIKE_RIGHT_1`, `LEFT_2`, `RIGHT_3`, `LEFT_4` and the mirror: every armed strike ends in the combat stance, so the clips do not say); R for the key (the game's PC binding, `GAME_ACTION_UNSHEATHE_MELEE_WEAPON`, is not known); the stick's turn in the hand (by eye).
+
 ## Not yet
 
 - Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, the morning walk to the Map Room, and the cut into the ring, as quest beats.
 - Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
-- The rest of the dummy lesson: the stick (`STANDARD_UNSHEATHE_STICK`; its strikes are probably the `SWORD` set; its instructions `TEXT_QST_028_PREMELEE_INSTRUCTIONS_STICK_PC` and nags `_STICK_USAGE`, `_STICK_REPEAT`), the dummy breaking (`TEXT_CS_028_PREMELEE_PASSED`) and its experience orb (`_INSTRUCTIONS_XP_PC`, `_XP_REPEAT`). Then the beetles and the end question.
+- The rest of the dummy lesson: the experience orb the broken dummy drops (`TEXT_CS_028_PREMELEE_PASSED_20` to `_50`, `_INSTRUCTIONS_XP_PC`, `_XP_REPEAT`). Then the beetles and the end question.

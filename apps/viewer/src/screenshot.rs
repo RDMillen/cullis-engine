@@ -166,6 +166,14 @@ pub(crate) fn screenshot(
                 *transform = hero_transform(&hero);
             }
         }
+        if args.armed {
+            world.give_weapon();
+            world.toggle_weapon();
+            for _ in 0..(2.0 / TICK) as u32 {
+                world.move_hero(&mut hero, glam::Vec2::ZERO, false, TICK);
+            }
+            log::info!("armed: in hand {:?}", world.weapon_in_hand());
+        }
         if args.strike > 0 {
             strike(world, &mut hero, args.strike);
             if let Some((_, transform)) = &mut renderer.hero {

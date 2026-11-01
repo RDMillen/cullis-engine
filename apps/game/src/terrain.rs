@@ -305,6 +305,10 @@ pub struct DummyPlacement {
     pub script_name: Option<String>,
     /// `DEFAULT`, `GET_HIT`, `WOBBLE` and `GET_HIT_SPIN` from its table.
     pub animations: [Option<u32>; 4],
+    /// Its mesh once broken: the definition named like it with `_DESTROYED`
+    /// before its number (`OBJECT_STRAW_DUMMY_DESTROYED_01`); nothing in the
+    /// definitions links the two, the names do.
+    pub broken_mesh: Option<u32>,
     pub placement: Placement,
 }
 
@@ -635,6 +639,10 @@ fn load_placements(
                 definition: definition.to_owned(),
                 script_name: t.script_name().map(str::to_owned),
                 animations: reactions(definition)?,
+                broken_mesh: definition
+                    .rsplit_once('_')
+                    .and_then(|(stem, n)| defs.get(&format!("{stem}_DESTROYED_{n}")))
+                    .and_then(|d| d.graphic()),
                 placement: Placement {
                     role: MeshRole::Plain,
                     mesh: defs.get(definition)?.graphic()?,

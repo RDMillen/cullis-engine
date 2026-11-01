@@ -13,7 +13,9 @@
 //!    original does), then asks him to punch it (`TEXT_CS_028_PREMELEE_PUNCH`),
 //!    with the instructions on screen. He nags if the boy does not
 //!    (`_HIT_DUMMY`); after a few punches he hands him a stick
-//!    (`TEXT_CS_028_PREMELEE_STICK`). The stick and the dummy breaking come next.
+//!    (`TEXT_CS_028_PREMELEE_STICK`), with its instructions, and urges him on
+//!    with it (`_STICK_USAGE`) until the dummy breaks ("Ah, now that's more
+//!    like it", `TEXT_CS_028_PREMELEE_PASSED_10`). The experience orb comes next.
 //!
 //! Positions are the quest's markers (`MK_GTP_BED_GM1`, `M_MeleeTeacherStand`, …)
 //! in world coordinates: the Guild map's origin is (4576, 3552).
@@ -52,6 +54,8 @@ pub const DUMMY_NAME: &str = "PreMeleeDummy";
 pub const PUNCHES_FOR_STICK: u32 = 5;
 /// Seconds without a punch before the Guildmaster urges the boy on (a guess).
 const NAG_AFTER: f32 = 20.0;
+/// The stick he hands over.
+pub const STICK: &str = "OBJECT_HERO_STICK";
 
 /// The hour the boy wakes.
 const MORNING: f32 = 7.0;
@@ -75,6 +79,8 @@ enum Stage {
     Dummy,
     /// Given the stick.
     Stick,
+    /// The dummy broken with it.
+    Passed,
 }
 
 /// The Guild training, from the arrival.
@@ -108,7 +114,7 @@ impl GuildTraining {
 
     /// Whether the dummy lesson has begun.
     pub fn at_dummy(&self) -> bool {
-        matches!(self.stage, Stage::Dummy | Stage::Stick)
+        matches!(self.stage, Stage::Dummy | Stage::Stick | Stage::Passed)
     }
 
     /// For testing the lesson: skips the arrival, the night and the morning to
@@ -121,7 +127,12 @@ impl GuildTraining {
 
     /// Whether the boy has been given the stick.
     pub fn has_stick(&self) -> bool {
-        self.stage == Stage::Stick
+        matches!(self.stage, Stage::Stick | Stage::Passed)
+    }
+
+    /// Whether the boy has broken the dummy.
+    pub fn passed(&self) -> bool {
+        self.stage == Stage::Passed
     }
 }
 
@@ -142,11 +153,14 @@ impl Quest for GuildTraining {
     fn hit(&mut self, _: Person<'_>, _: &mut Vec<Beat>) {}
 
     fn struck(&mut self, thing: &str, out: &mut Vec<Beat>) {
-        if self.stage != Stage::Dummy || thing != DUMMY_NAME {
+        if thing != DUMMY_NAME {
+            return;
+        }
+        self.idle = 0.0;
+        if self.stage != Stage::Dummy {
             return;
         }
         self.punches += 1;
-        self.idle = 0.0;
         if self.punches >= PUNCHES_FOR_STICK {
             self.stage = Stage::Stick;
             // "Not making much of an impact there, are you? Here, try with this."
@@ -156,6 +170,20 @@ impl Quest for GuildTraining {
             ] {
                 out.push(Beat::said_by(GUILDMASTER, entry, Speech));
             }
+            out.push(Beat::GiveWeapon(STICK));
+            out.push(Beat::Notice("TEXT_QST_028_PREMELEE_INSTRUCTIONS_STICK_PC"));
+        }
+    }
+
+    fn broken(&mut self, thing: &str, out: &mut Vec<Beat>) {
+        if self.stage == Stage::Stick && thing == DUMMY_NAME {
+            self.stage = Stage::Passed;
+            // "Ah, now that's more like it."
+            out.push(Beat::said_by(
+                GUILDMASTER,
+                "TEXT_CS_028_PREMELEE_PASSED_10",
+                Speech,
+            ));
         }
     }
 
@@ -266,15 +294,20 @@ impl Quest for GuildTraining {
                 }
                 out.push(Beat::Notice("TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC"));
             }
-            Stage::Dummy => {
+            Stage::Dummy | Stage::Stick => {
                 self.idle += dt;
                 if self.idle > NAG_AFTER {
                     self.idle = 0.0;
                     // "Come on, boy, you can hit it. Walk right up to it and
-                    // give it a thump."
+                    // give it a thump." With the stick: "Give it a good
+                    // hammering with your stick."
                     out.push(Beat::said_by(
                         GUILDMASTER,
-                        "TEXT_QST_028_GUILDMASTER_PREMELEE_HIT_DUMMY",
+                        if self.stage == Stage::Dummy {
+                            "TEXT_QST_028_GUILDMASTER_PREMELEE_HIT_DUMMY"
+                        } else {
+                            "TEXT_QST_028_GUILDMASTER_PREMELEE_STICK_USAGE"
+                        },
                         Speech,
                     ));
                 }
@@ -368,8 +401,20 @@ mod tests {
             "TEXT_CS_028_PREMELEE_STICK_20",
             Speech
         )));
+        assert!(given.contains(&Beat::GiveWeapon(STICK)));
         assert!(q.has_stick());
         assert!(strike(&mut q, DUMMY_NAME).is_empty(), "once");
+        // Breaking the dummy with it passes the lesson.
+        let mut passed = Vec::new();
+        q.broken("MeleePractice", &mut passed);
+        assert!(passed.is_empty());
+        q.broken(DUMMY_NAME, &mut passed);
+        assert!(passed.contains(&Beat::said_by(
+            GUILDMASTER,
+            "TEXT_CS_028_PREMELEE_PASSED_10",
+            Speech
+        )));
+        assert!(q.passed());
     }
 
     #[test]

@@ -172,10 +172,11 @@ impl Session {
             }
         }
         let at = hero.position.truncate();
-        let (talk_key, attack_key, lock_key, answer_key) = (
+        let (talk_key, attack_key, lock_key, draw_key, answer_key) = (
             std::mem::take(&mut input.use_),
             std::mem::take(&mut input.attack),
             std::mem::take(&mut input.lock),
+            std::mem::take(&mut input.draw),
             input.answer.take(),
         );
         let mut use_door = None;
@@ -199,6 +200,10 @@ impl Session {
         // Q: lock on to a foe or let go; F: strike (again to chain).
         if lock_key && !held {
             world.toggle_lock(hero);
+        }
+        // R: draw the weapon or put it away.
+        if draw_key && !held {
+            world.toggle_weapon();
         }
         if attack_key {
             let struck = !held && world.attack();
@@ -237,6 +242,14 @@ impl Session {
                     }
                 }
                 _ => {}
+            }
+        }
+        // Things broken (a dummy): the quest hears of it.
+        for e in world.take_broken() {
+            if let (Some(name), Some(story), Some(text)) =
+                (world.thing_name(e), &mut self.story, &self.text)
+            {
+                story.broken(&name, &world.npcs, at, text, &mut self.subs);
             }
         }
         if let Some((_, transform)) = &mut renderer.hero {
@@ -588,6 +601,12 @@ impl Session {
                 self.hour = hour;
                 self.fade = 1.0 + NIGHT_HOLD;
                 self.put_hero(at, glam::Vec2::new(fx, fy));
+            }
+            Beat::GiveWeapon(weapon) => {
+                log::info!("quest: the Hero is given {weapon}");
+                if let Scene::Terrain(_, world) = &mut self.scene {
+                    world.give_weapon();
+                }
             }
             Beat::Cut {
                 at,

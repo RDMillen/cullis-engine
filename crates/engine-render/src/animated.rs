@@ -14,6 +14,8 @@ use crate::skin::{Skin, deform};
 pub struct AnimatedModel {
     pub entity: Entity,
     pub renderer: ModelRenderer,
+    /// What a training dummy looks like broken, drawn in its place once it is.
+    pub broken: Option<ModelRenderer>,
     bind: Vec<ModelVertex>,
     skin: Skin,
     posed: Vec<ModelVertex>,
@@ -28,9 +30,29 @@ impl AnimatedModel {
             .query_one::<(&Placed, &Animator)>(self.entity)
             .ok()?;
         let (placed, animator) = q.get()?;
+        if self.is_broken(world) {
+            return Some(placed.0);
+        }
         deform(&self.skin, &self.bind, animator.matrices(), &mut self.posed);
         self.renderer.set_vertices(queue, &self.posed);
         Some(placed.0)
+    }
+
+    /// Whether its entity is a broken dummy with a broken mesh to show.
+    pub fn is_broken(&self, world: &World) -> bool {
+        self.broken.is_some()
+            && world
+                .ecs
+                .get::<&engine_world::combat::Dummy>(self.entity)
+                .is_ok_and(|d| d.broken)
+    }
+
+    /// What is drawn for it now: its mesh, or its broken mesh once broken.
+    pub fn shown(&self, world: &World) -> &ModelRenderer {
+        match &self.broken {
+            Some(broken) if self.is_broken(world) => broken,
+            _ => &self.renderer,
+        }
     }
 
     /// The mesh drawing `entity`: its renderer, bind pose and weights.
@@ -43,6 +65,7 @@ impl AnimatedModel {
         Self {
             entity,
             renderer,
+            broken: None,
             bind,
             skin,
             posed: Vec::new(),

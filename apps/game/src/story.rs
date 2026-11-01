@@ -181,6 +181,19 @@ impl Story {
         self.present(None, false, npcs, hero, text, subs);
     }
 
+    /// The Hero breaks the thing with script name `thing` (a training dummy).
+    pub fn broken(
+        &mut self,
+        thing: &str,
+        npcs: &[Npc],
+        hero: Vec2,
+        text: &TextBank,
+        subs: &mut Subtitles,
+    ) {
+        quest(&mut self.act).broken(thing, &mut self.beats);
+        self.present(None, false, npcs, hero, text, subs);
+    }
+
     /// The Hero answers the question on screen.
     pub fn answer(
         &mut self,

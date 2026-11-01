@@ -39,6 +39,8 @@ pub(crate) struct Args {
     /// After walking, lock on to the nearest foe and strike this many times in
     /// a chain, printing where the blows land.
     pub(crate) strike: u32,
+    /// Give the Hero his stick, drawn, before anything else (with `--walk`).
+    pub(crate) armed: bool,
     /// Start the Prologue quest with Theresa's present bought (for testing the
     /// ending).
     pub(crate) with_present: bool,
@@ -75,6 +77,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
         use_door: false,
         talk: 0,
         strike: 0,
+        armed: false,
         with_present: false,
         guild_at_ring: false,
         gesture: None,
@@ -105,6 +108,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
             "--use" => args.use_door = true,
             "--talk" => args.talk = value()?.parse()?,
             "--strike" => args.strike = value()?.parse()?,
+            "--armed" => args.armed = true,
             "--with-present" => args.with_present = true,
             "--guild-at-ring" => args.guild_at_ring = true,
             "--gesture" => args.gesture = Some(value()?),

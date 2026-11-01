@@ -2,6 +2,17 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-11-01 (later): the stick (engine-world, engine-render)
+
+- The Hero can carry a weapon (`engine_world::weapon`): given (`World::give_weapon`, quest beat `GiveWeapon`), on his back; R draws or puts it away by its clips (`ANIM_HERO_UNSHEATHE_STICK`, `_SHEATHE_STICK`), the stick passing between back and hand where his hand comes nearest the scabbard (`weapon::nearest_time`, 0.33 s). Drawn, he stands, walks and runs with it (`COMBAT_IDLE_1_1`, `WALK_WITH_SWORD`, `RUN_WITH_SWORD`) and strikes in two chains of the `SWORD` strikes (order a guess: every one ends in the combat stance; `strike_chains` example).
+- Three weapon blows break a training dummy (`combat::BREAKING_BLOWS`, a guess; punches never do): it stops being a target, `World::take_broken` reports it, and its broken mesh (`OBJECT_STRAW_DUMMY_DESTROYED_01`, paired by name) is drawn in its place (`AnimatedModel::broken`). Quests hear of it (`Quest::broken`).
+- The stick is drawn on the Hero's sockets (`engine_render::weapon::HeroWeapon`): its grip dummy on his `WEAPON_FOCUS_01` (right hand) or `WEAPON_SCABBARD_01` (back), bones of those names that his clips carry; turned end over end in the hand (by eye: it hung down from his fist), not on the back.
+- The Guild training gives the stick after its lines, shows its instructions (R and F filled in), nags with `_STICK_USAGE`, and on the dummy breaking says "Ah, now that's more like it" (`PASSED_10`).
+- Viewer `--armed` (the stick, drawn); examples `strike_chains`, `bone_path` (engine-world).
+- Tests: drawing into the hand at the passing time and striking with the armed chain, putting away; weapon blows break a dummy and fists never do, the lock letting go of it; the quest giving the stick and passing on the break.
+- Checked in the window: the stick given onto his back, the instructions, R drawing it, stick blows, the dummy breaking into its destroyed mesh, the Guildmaster's line. Headless: the stick upright in his hand in the stance, across his back sheathed, swinging in strikes.
+- Not yet: the experience orb (`PASSED_20` to `_50`); the armed strikes' contact moments are measured from the hand as for punches, which may come early for swings.
+
 ## 2026-11-01 (later): punching the dummy (engine-script)
 
 - The Guild training's lesson goes on from the cut into the ring: the punch instructions as a notice, punches on the lesson's dummy counted (`Quest::struck`, by the thing's script name), the Guildmaster's nag after 20 s without one (`_HIT_DUMMY`), and after 5 his stick lines (`TEXT_CS_028_PREMELEE_STICK`). Both numbers are guesses (`docs/quests/guild-training.md`).

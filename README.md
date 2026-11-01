@@ -89,6 +89,7 @@ The side panel switches between regions (with the game's names), meshes, texture
 | E | Talk to someone, go on with what they say, or open a door |
 | F | Strike (again during a strike to chain the next) |
 | Q | Lock on to the nearest foe in front, or let go: the Hero faces it and steps in his fighting stance |
+| R | Draw the weapon or put it away (once the Guildmaster has given the Hero his stick) |
 | Y, N | Answer a question |
 
 The Prologue starts in Oakvale (`StartOakVale`): talk to the Hero's father near the house at the top of the village. Its expected behaviour, and the values not yet checked against the game, are in [docs/quests/prologue-birthday.md](docs/quests/prologue-birthday.md).
@@ -104,6 +105,7 @@ Command-line options:
 | `--talk N` | On arrival, talk to the nearest person (N times, printed, with `--screenshot`) |
 | `--use` | After `--walk-to`, use the nearest door, then walk on |
 | `--strike N` | On arrival, lock on to the nearest foe and strike N times in a chain, printing where the blows land (with `--screenshot`) |
+| `--armed` | On arrival, give the Hero his stick, drawn (with `--walk`; with `--anim` to pose him) |
 | `--npc-time S` | Let the creatures move for S seconds before a screenshot |
 | `--gesture ROLE` | Make the creature with this role (`NOVI_LiveFather`) start a conversation gesture, for screenshots with `--npc-time` |
 | `--hour H` | Time of day for the screenshot (default 10); the window has a slider and a running clock |

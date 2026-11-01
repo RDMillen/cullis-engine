@@ -17,6 +17,8 @@ pub struct Actions {
     /// let go.
     pub attack: bool,
     pub lock: bool,
+    /// R: draw the weapon or put it away.
+    pub draw: bool,
     /// Y or N to a question.
     pub answer: Option<bool>,
 }
@@ -27,6 +29,7 @@ pub fn key_name(action: &str) -> Option<&'static str> {
     Some(match action {
         "GAME_ACTION_ATTACK" => "F",
         "GAME_ACTION_LOCK_TARGET" => "Q",
+        "GAME_ACTION_UNSHEATHE_MELEE_WEAPON" => "R",
         _ => return None,
     })
 }
@@ -66,6 +69,7 @@ impl Actions {
             use_: i.key_pressed(egui::Key::E),
             attack: i.key_pressed(egui::Key::F),
             lock: i.key_pressed(egui::Key::Q),
+            draw: i.key_pressed(egui::Key::R),
             answer: if i.key_pressed(egui::Key::Y) {
                 Some(true)
             } else if i.key_pressed(egui::Key::N) {

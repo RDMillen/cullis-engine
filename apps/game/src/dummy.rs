@@ -72,6 +72,12 @@ pub fn load(
             model.vertices.clone(),
             skin,
         );
+        drawn.broken = d.broken_mesh.and_then(|id| {
+            model::static_model(assets, id)
+                .map_err(|e| log::warn!("broken dummy mesh {id}: {e}"))
+                .ok()
+                .map(|m| ModelRenderer::new(device, queue, &m))
+        });
         drawn.update(queue, world);
         out.push(drawn);
     }
