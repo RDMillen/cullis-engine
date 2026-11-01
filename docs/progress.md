@@ -2,6 +2,13 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-11-01: textures with their mip chains (engine-render)
+
+- Model textures and bump maps are uploaded with the mip levels stored with them (`Image::mips`; most stop at 4x4), and sampled trilinearly and anisotropically (16x), so distant and glancing surfaces neither shimmer nor smear. Before, only the top level was uploaded. A texture whose levels do not halve (volume slices) keeps only its top. The terrain already built its own chains (`themes::mips`).
+- Checked in headless screenshots against the build without: Oakvale from above loses the sparkling noise on thatch, walls and fences and reads as smooth thatch and clean stonework; the Guild's Map Room changes little up close.
+- Not checked: the frame rate on real hardware (anisotropic filtering costs more under llvmpipe).
+- Next: the Guild's lighting against the original (a screenshot of the same spot from Ross); the terrain's and water's bump maps.
+
 ## 2026-10-31 (later): bump maps drawn (engine-render)
 
 - Placed meshes, creatures, doors, dummies and the Hero draw with their materials' bump maps: `ModelVertex` gains a tangent (u's direction and v's sign, `tangent::tangents` from the triangles' UVs; turned with placements and skinning, its sign flipped by a mirroring placement), each draw its bump map (`Draw::bump`, `ModelData::bumps`, uploaded as linear `Rgba8Unorm`; a flat 1x1 map otherwise), and the shader leans the normal back from the slope for the sun and the placed lights (`BUMP_STRENGTH` 1, by eye). Bind groups are per pairing of colour texture and bump map.

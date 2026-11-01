@@ -128,6 +128,7 @@ mod tests {
             width: 2,
             height: 1,
             rgba: vec![1, 1, 1, 1, 9, 9, 9, 9],
+            mips: Vec::new(),
         };
         let out = resample(&img, 4);
         assert_eq!(&out[0..4], &[1; 4]);

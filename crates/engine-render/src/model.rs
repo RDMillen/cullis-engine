@@ -30,6 +30,9 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    /// Its smaller mip levels as stored with it, each half the last (at least
+    /// one texel), largest first; empty for none.
+    pub mips: Vec<Vec<u8>>,
 }
 
 /// A range of `indices` drawn with one texture.
@@ -174,6 +177,7 @@ impl ModelBuilder {
                     width: 1,
                     height: 1,
                     rgba: vec![255; 4],
+                    mips: Vec::new(),
                 }],
                 bumps: Vec::new(),
                 lo: Vec3::splat(f32::INFINITY),
@@ -751,10 +755,21 @@ impl TextureBank {
         let (entry, data) = self.assets.read(Archive::Textures, id)?;
         let info = TextureInfo::parse(&entry.info)?;
         let texture = Texture::unpack(&info, entry.entry_type, &data)?;
+        // The stored mip chain, as far as it goes (most stop at 4x4), each level
+        // half the last; a texture whose levels are otherwise (volume slices
+        // stacked) keeps only its top.
+        let mips = (1..u32::from(info.mip_count))
+            .map_while(|level| {
+                let [w, h] = texture.level_size(level);
+                let rgba = texture.to_rgba(0, level).ok()?;
+                (rgba.len() == (w * h * 4) as usize).then_some(rgba)
+            })
+            .collect();
         Ok(Image {
             width: texture.width,
             height: texture.height,
             rgba: texture.to_rgba(0, 0)?,
+            mips,
         })
     }
 }
@@ -895,14 +910,23 @@ impl ModelRenderer {
                 resource: shadow_uniforms.as_entire_binding(),
             }],
         });
+        // Trilinear between the stored mip levels, and anisotropic so walls and
+        // floors seen at a glancing angle stay sharp.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 16,
             ..Default::default()
         });
         let upload = |img: &Image, format: wgpu::TextureFormat| {
+            // All levels one after another, as the upload takes them.
+            let mut levels = img.rgba.clone();
+            for mip in &img.mips {
+                levels.extend_from_slice(mip);
+            }
             device
                 .create_texture_with_data(
                     queue,
@@ -913,7 +937,7 @@ impl ModelRenderer {
                             height: img.height,
                             depth_or_array_layers: 1,
                         },
-                        mip_level_count: 1,
+                        mip_level_count: 1 + img.mips.len() as u32,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         format,
@@ -921,7 +945,7 @@ impl ModelRenderer {
                         view_formats: &[],
                     },
                     wgpu::util::TextureDataOrder::LayerMajor,
-                    &img.rgba,
+                    &levels,
                 )
                 .create_view(&Default::default())
         };
@@ -935,6 +959,7 @@ impl ModelRenderer {
             width: 1,
             height: 1,
             rgba: vec![128, 128, 0, 255],
+            mips: Vec::new(),
         };
         let bumps: Vec<wgpu::TextureView> = model
             .bumps
