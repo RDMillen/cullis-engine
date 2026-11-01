@@ -2,6 +2,16 @@
 
 Newest first. One entry per session: what changed, what was learned, what is next.
 
+## 2026-11-01 (later): punching the dummy (engine-script)
+
+- The Guild training's lesson goes on from the cut into the ring: the punch instructions as a notice, punches on the lesson's dummy counted (`Quest::struck`, by the thing's script name), the Guildmaster's nag after 20 s without one (`_HIT_DUMMY`), and after 5 his stick lines (`TEXT_CS_028_PREMELEE_STICK`). Both numbers are guesses (`docs/quests/guild-training.md`).
+- Dummies keep their Tng script name (`combat::ScriptName`, `World::thing_name`); the game passes blows on named things to the quest (`Story::struck`). Notices fill in `[GAME_ACTION_ATTACK]` and `[GAME_ACTION_LOCK_TARGET]` with F and Q (`input::fill_keys`); other actions are left as written.
+- Fixed in `engine-world`: pressing attack during a chain's last strike was dropped; it now starts the next chain, so mashing F keeps punching.
+- `--guild-at-ring` (viewer): starts the Guild training at the walk to the ring, the Guildmaster and Whisper put in place, for testing the lesson (`GuildTraining::skip_to_ring`).
+- Tests: punches on the lesson's dummy earn the stick (others do not count), the nag and a punch resetting it, skipping to the ring, key filling, chains continuing; real-data test that every line `guild.rs` names exists.
+- Checked in the window with xdotool: the Guildmaster's lines, the cut, the instructions with Q and F, five blows landing, then his stick lines. Seen there: under llvmpipe the simulation runs at about half speed, so presses a second apart fall two to a strike and count once.
+- Not yet: the stick itself (drawing it, its strikes), the dummy breaking, the experience orb.
+
 ## 2026-11-01 (later): the ground's bump maps (engine-render)
 
 - Ground themes name their bump maps (`ENGINE_THEME`'s `BaseBumpMap` and `CliffBumpMap`, read since the theme textures but unused): of 344 themes used, 66 have a ground bump map and 154 a cliff one, all bump map entries (real-data test). `ThemeLayer` carries them, `themes::load` makes two more arrays (flat where a theme has none; `layer_array` takes the format, linear for bump maps), and `terrain.wgsl` blends the slopes by the theme weights like the colours and tilts the normal along each projection's axes (ground: world x and y; cliffs: their plane and up), mixed between ground and cliff as the colours are.

@@ -200,8 +200,9 @@ impl Session {
         if lock_key && !held {
             world.toggle_lock(hero);
         }
-        if attack_key && !held {
-            world.attack();
+        if attack_key {
+            let struck = !held && world.attack();
+            log::debug!(target: "game::combat", "attack pressed: held {held}, striking {struck}");
         }
         // Walking away ends a conversation.
         if let Some(i) = self.subs.waiting_on()
@@ -217,15 +218,25 @@ impl Session {
             story.update(dt, &world.npcs, (at, height), text, &mut self.subs);
         }
         world.move_hero(hero, direction, run, dt);
-        // People struck flinch, and the quest hears of it.
+        // People struck flinch, and the quest hears of it and of named things
+        // struck (the lesson's dummy).
         for foe in world.take_blows() {
-            if let engine_world::combat::Foe::Person(i) = foe
-                && i < world.npcs.len()
-            {
-                world.npcs[i].flinch();
-                if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
-                    story.hit(&world.npcs, i, at, text, &mut self.subs);
+            match foe {
+                engine_world::combat::Foe::Person(i) if i < world.npcs.len() => {
+                    world.npcs[i].flinch();
+                    if let (Some(story), Some(text)) = (&mut self.story, &self.text) {
+                        story.hit(&world.npcs, i, at, text, &mut self.subs);
+                    }
                 }
+                engine_world::combat::Foe::Thing(e) => {
+                    log::debug!(target: "game::combat", "struck {:?}", world.thing_name(e));
+                    if let (Some(name), Some(story), Some(text)) =
+                        (world.thing_name(e), &mut self.story, &self.text)
+                    {
+                        story.struck(&name, &world.npcs, at, text, &mut self.subs);
+                    }
+                }
+                _ => {}
             }
         }
         if let Some((_, transform)) = &mut renderer.hero {

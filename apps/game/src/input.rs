@@ -21,6 +21,39 @@ pub struct Actions {
     pub answer: Option<bool>,
 }
 
+/// The key bound to one of the game's actions as its text names them
+/// (`[GAME_ACTION_ATTACK]` in instructions), if it has one here.
+pub fn key_name(action: &str) -> Option<&'static str> {
+    Some(match action {
+        "GAME_ACTION_ATTACK" => "F",
+        "GAME_ACTION_LOCK_TARGET" => "Q",
+        _ => return None,
+    })
+}
+
+/// `text` with every `[GAME_ACTION_…]` it names replaced by its key; ones
+/// without a key here are left as they are.
+pub fn fill_keys(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find(']') {
+            Some(close) if key_name(&after[..close]).is_some() => {
+                out.push_str(key_name(&after[..close]).unwrap_or_default());
+                rest = &after[close + 1..];
+            }
+            _ => {
+                out.push('[');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 impl Actions {
     pub fn read(i: &egui::InputState) -> Self {
         let axis = |pos: egui::Key, neg: egui::Key| {
@@ -41,5 +74,23 @@ impl Actions {
                 None
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instructions_name_our_keys() {
+        assert_eq!(
+            fill_keys("Tap [GAME_ACTION_LOCK_TARGET] to target, [GAME_ACTION_ATTACK] to attack."),
+            "Tap Q to target, F to attack."
+        );
+        assert_eq!(
+            fill_keys("Press [GAME_ACTION_UNKNOWN] [and] [GAME_ACTION_ATTACK"),
+            "Press [GAME_ACTION_UNKNOWN] [and] [GAME_ACTION_ATTACK",
+            "unbound actions and stray brackets stay"
+        );
     }
 }

@@ -51,8 +51,12 @@ Guesses, to check against the original:
 - **Reach and lock.** A blow lands on a foe whose edge is within 1 m of the Hero and within 60 degrees of straight ahead; a lock reaches 10 m, preferring foes in front, and is lost at 15 m. The lock key (Q) is ours: the game's PC binding (`GAME_ACTION_LOCK_TARGET`) is not known.
 - **The dummy's reactions.** Which blows spin it, and that it wobbles after each.
 
+## Punching the dummy
+
+After the cut into the ring and "Just keep going 'til I tell you to stop", the punch instructions show (`TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC`, with `[GAME_ACTION_LOCK_TARGET]` and `[GAME_ACTION_ATTACK]` filled in as Q and F). The quest counts blows on the lesson's dummy (`PreMeleeDummy`, by script name; the other dummies do not count): after 5 the Guildmaster says "Not making much of an impact there, are you? Here, try with this." (`TEXT_CS_028_PREMELEE_STICK_10`, `_20`). With no punch for 20 s he urges "Come on, boy, you can hit it. Walk right up to it and give it a thump." (`TEXT_QST_028_GUILDMASTER_PREMELEE_HIT_DUMMY`). Both numbers are guesses. Checked in the window (`--guild-at-ring`).
+
 ## Not yet
 
 - Not yet watched in the window: the Guildmaster leading the Hero up to the dormitory, the morning walk to the Map Room, and the cut into the ring, as quest beats.
 - Closed doors no longer block routes: routes go through them and whoever follows a route opens a closed door in their way (`World::follow_route`, creatures' errands).
-- The rest of the dummy lesson: the instruction notice (`TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC`), the Guildmaster's comments as punches land, the stick (`STANDARD_UNSHEATHE_STICK`; its strikes are probably the `SWORD` set), the dummy breaking and its experience orb. Then the beetles and the end question.
+- The rest of the dummy lesson: the stick (`STANDARD_UNSHEATHE_STICK`; its strikes are probably the `SWORD` set; its instructions `TEXT_QST_028_PREMELEE_INSTRUCTIONS_STICK_PC` and nags `_STICK_USAGE`, `_STICK_REPEAT`), the dummy breaking (`TEXT_CS_028_PREMELEE_PASSED`) and its experience orb (`_INSTRUCTIONS_XP_PC`, `_XP_REPEAT`). Then the beetles and the end question.

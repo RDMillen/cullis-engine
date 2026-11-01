@@ -112,6 +112,7 @@ Command-line options:
 | `--no-lights` | Leave out placed lights (lamps, fires) in the screenshot, for comparing |
 | `--mouth ROLE:SHAPE` | Hold that creature's mouth in a shape (`NOVI_LiveFather:AH`), for screenshots |
 | `--with-present` | Start the birthday quest with the sweets bought (to test the ending) |
+| `--guild-at-ring` | Start the Guild training at the walk to the training ring, the Guildmaster waiting there (to test the dummy lesson; with `--region HeroGuildComplexInside --section Q_GuildTraining`) |
 | `--anim NAME --anim-time T` | Pose the Hero with an animation |
 | `--nav`, `--ledges` | Draw the walkable area; print walk-grid ledges near the camera (diagnostics) |
 | `--screenshot out.png --size 1280x800` | Render one frame to a file without opening a window |

@@ -64,7 +64,8 @@ pub fn load(
             at: d.placement.position,
             radius: RADIUS,
         };
-        let entity = world.spawn_dummy(transform, target, Animator::new(skin.rig.clone(), clips));
+        let animator = Animator::new(skin.rig.clone(), clips);
+        let entity = world.spawn_dummy(transform, target, d.script_name.clone(), animator);
         let mut drawn = AnimatedModel::new(
             entity,
             ModelRenderer::new(device, queue, &model),

@@ -107,6 +107,11 @@ fn run_window(data_dir: PathBuf, wld: Wld, args: Args) -> Result<(), Error> {
                     {
                         quest.skip_to_present();
                     }
+                    if let (true, Some(story)) = (args.guild_at_ring, &mut app.session.story)
+                        && let story::Act::Guild(quest) = &mut story.act
+                    {
+                        quest.skip_to_ring();
+                    }
                     app
                 })
                 .map_err(|e| e.to_string())?,

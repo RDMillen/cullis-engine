@@ -301,6 +301,8 @@ type MapThings = (
 #[derive(Debug, Clone)]
 pub struct DummyPlacement {
     pub definition: String,
+    /// Its `ScriptName`, if any (the lesson's dummy is `PreMeleeDummy`).
+    pub script_name: Option<String>,
     /// `DEFAULT`, `GET_HIT`, `WOBBLE` and `GET_HIT_SPIN` from its table.
     pub animations: [Option<u32>; 4],
     pub placement: Placement,
@@ -631,6 +633,7 @@ fn load_placements(
             let definition = t.definition()?;
             Some(DummyPlacement {
                 definition: definition.to_owned(),
+                script_name: t.script_name().map(str::to_owned),
                 animations: reactions(definition)?,
                 placement: Placement {
                     role: MeshRole::Plain,

@@ -10,8 +10,10 @@
 //!    (`TEXT_CS_028_PREMELEE_WAKEUP`).
 //! 3. The ring: the Guildmaster, by the training dummy, tells him to get in the
 //!    ring, and the cutscene puts him inside it, past its closed gate (as the
-//!    original does), then asks him to punch it (`TEXT_CS_028_PREMELEE_PUNCH`).
-//!    The lesson itself comes next.
+//!    original does), then asks him to punch it (`TEXT_CS_028_PREMELEE_PUNCH`),
+//!    with the instructions on screen. He nags if the boy does not
+//!    (`_HIT_DUMMY`); after a few punches he hands him a stick
+//!    (`TEXT_CS_028_PREMELEE_STICK`). The stick and the dummy breaking come next.
 //!
 //! Positions are the quest's markers (`MK_GTP_BED_GM1`, `M_MeleeTeacherStand`, …)
 //! in world coordinates: the Guild map's origin is (4576, 3552).
@@ -43,6 +45,13 @@ const RING_GUILDMASTER: [f32; 3] = [4759.6, 3642.6, 17.3];
 const RING_WHISPER: [f32; 3] = [4758.2, 3644.1, 17.7];
 const RING_HERO: [f32; 3] = [4767.7, 3640.8, 17.0];
 pub const DUMMY: [f32; 2] = [4769.7, 3640.1];
+/// The lesson's dummy, by its `ScriptName`.
+pub const DUMMY_NAME: &str = "PreMeleeDummy";
+/// Punches before the Guildmaster hands over the stick (a guess: not counted
+/// in the original).
+pub const PUNCHES_FOR_STICK: u32 = 5;
+/// Seconds without a punch before the Guildmaster urges the boy on (a guess).
+const NAG_AFTER: f32 = 20.0;
 
 /// The hour the boy wakes.
 const MORNING: f32 = 7.0;
@@ -62,20 +71,32 @@ enum Stage {
     ToMapRoom,
     /// On the way to the training ring.
     ToRing,
-    /// At the ring: the dummy lesson.
+    /// At the ring: punching the dummy.
     Dummy,
+    /// Given the stick.
+    Stick,
 }
 
 /// The Guild training, from the arrival.
 #[derive(Debug, Clone)]
 pub struct GuildTraining {
     stage: Stage,
+    /// Punches on the lesson's dummy, and seconds since the last (or since the
+    /// lesson began).
+    punches: u32,
+    idle: f32,
+    /// Skipped to the walk to the ring: people are put in place on the next
+    /// update ([`GuildTraining::skip_to_ring`]).
+    skipped: bool,
 }
 
 impl Default for GuildTraining {
     fn default() -> Self {
         Self {
             stage: Stage::Arriving,
+            punches: 0,
+            idle: 0.0,
+            skipped: false,
         }
     }
 }
@@ -87,7 +108,20 @@ impl GuildTraining {
 
     /// Whether the dummy lesson has begun.
     pub fn at_dummy(&self) -> bool {
-        self.stage == Stage::Dummy
+        matches!(self.stage, Stage::Dummy | Stage::Stick)
+    }
+
+    /// For testing the lesson: skips the arrival, the night and the morning to
+    /// the walk to the ring, with the Guildmaster and Whisper put in their
+    /// places there on the next update.
+    pub fn skip_to_ring(&mut self) {
+        self.stage = Stage::ToRing;
+        self.skipped = true;
+    }
+
+    /// Whether the boy has been given the stick.
+    pub fn has_stick(&self) -> bool {
+        self.stage == Stage::Stick
     }
 }
 
@@ -107,9 +141,40 @@ impl Quest for GuildTraining {
 
     fn hit(&mut self, _: Person<'_>, _: &mut Vec<Beat>) {}
 
+    fn struck(&mut self, thing: &str, out: &mut Vec<Beat>) {
+        if self.stage != Stage::Dummy || thing != DUMMY_NAME {
+            return;
+        }
+        self.punches += 1;
+        self.idle = 0.0;
+        if self.punches >= PUNCHES_FOR_STICK {
+            self.stage = Stage::Stick;
+            // "Not making much of an impact there, are you? Here, try with this."
+            for entry in [
+                "TEXT_CS_028_PREMELEE_STICK_10",
+                "TEXT_CS_028_PREMELEE_STICK_20",
+            ] {
+                out.push(Beat::said_by(GUILDMASTER, entry, Speech));
+            }
+        }
+    }
+
     fn answer(&mut self, _: bool, _: &mut Vec<Beat>) {}
 
-    fn update(&mut self, _: f32, world: &dyn World, out: &mut Vec<Beat>) {
+    fn update(&mut self, dt: f32, world: &dyn World, out: &mut Vec<Beat>) {
+        if std::mem::take(&mut self.skipped) {
+            out.push(Beat::Place {
+                who: GUILDMASTER,
+                at: RING_GUILDMASTER,
+                facing: DUMMY,
+            });
+            out.push(Beat::Place {
+                who: WHISPER,
+                at: RING_WHISPER,
+                facing: DUMMY,
+            });
+            return;
+        }
         match self.stage {
             Stage::Arriving => {
                 self.stage = Stage::ToDorm;
@@ -199,6 +264,20 @@ impl Quest for GuildTraining {
                 ] {
                     out.push(Beat::said_by(GUILDMASTER, entry, Speech));
                 }
+                out.push(Beat::Notice("TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC"));
+            }
+            Stage::Dummy => {
+                self.idle += dt;
+                if self.idle > NAG_AFTER {
+                    self.idle = 0.0;
+                    // "Come on, boy, you can hit it. Walk right up to it and
+                    // give it a thump."
+                    out.push(Beat::said_by(
+                        GUILDMASTER,
+                        "TEXT_QST_028_GUILDMASTER_PREMELEE_HIT_DUMMY",
+                        Speech,
+                    ));
+                }
             }
             _ => {}
         }
@@ -243,6 +322,71 @@ mod tests {
         out
     }
 
+    /// A training at the dummy lesson, the boy by the dummy.
+    fn at_the_dummy() -> GuildTraining {
+        let mut q = GuildTraining::new();
+        for at in [
+            [4648.0, 3668.0, 21.3],
+            BED_GUILDMASTER,
+            BED_HERO,
+            MAP_ROOM_HERO,
+            RING_GUILDMASTER,
+        ] {
+            update(&mut q, at);
+        }
+        assert!(q.at_dummy());
+        q
+    }
+
+    fn strike(q: &mut GuildTraining, thing: &str) -> Vec<Beat> {
+        let mut out = Vec::new();
+        q.struck(thing, &mut out);
+        out
+    }
+
+    #[test]
+    fn skipping_to_the_ring_puts_people_in_place_then_plays_the_ring() {
+        let mut q = GuildTraining::new();
+        q.skip_to_ring();
+        let placed = update(&mut q, RING_GUILDMASTER);
+        assert_eq!(placed.len(), 2);
+        assert!(placed.iter().all(|b| matches!(b, Beat::Place { .. })));
+        update(&mut q, RING_GUILDMASTER);
+        assert!(q.at_dummy());
+    }
+
+    #[test]
+    fn punches_on_the_dummy_earn_the_stick() {
+        let mut q = at_the_dummy();
+        assert!(strike(&mut q, "MeleePractice").is_empty(), "another dummy");
+        for _ in 1..PUNCHES_FOR_STICK {
+            assert!(strike(&mut q, DUMMY_NAME).is_empty());
+        }
+        let given = strike(&mut q, DUMMY_NAME);
+        assert!(given.contains(&Beat::said_by(
+            GUILDMASTER,
+            "TEXT_CS_028_PREMELEE_STICK_20",
+            Speech
+        )));
+        assert!(q.has_stick());
+        assert!(strike(&mut q, DUMMY_NAME).is_empty(), "once");
+    }
+
+    #[test]
+    fn the_guildmaster_urges_a_boy_who_does_not_punch() {
+        let mut q = at_the_dummy();
+        let mut nag = Vec::new();
+        q.update(NAG_AFTER - 1.0, &HeroAt(RING_HERO), &mut nag);
+        assert!(nag.is_empty());
+        q.update(2.0, &HeroAt(RING_HERO), &mut nag);
+        assert_eq!(nag.len(), 1, "{nag:?}");
+        // A punch starts the wait again.
+        strike(&mut q, DUMMY_NAME);
+        let mut quiet = Vec::new();
+        q.update(NAG_AFTER - 1.0, &HeroAt(RING_HERO), &mut quiet);
+        assert!(quiet.is_empty());
+    }
+
     #[test]
     fn arrival_to_the_dummy() {
         let mut q = GuildTraining::new();
@@ -266,7 +410,8 @@ mod tests {
         assert!(update(&mut q, MAP_ROOM_HERO).len() == 3);
         assert!(!q.at_dummy());
         let ring = update(&mut q, RING_GUILDMASTER);
-        assert!(ring.len() == 5 && q.at_dummy());
+        assert!(ring.len() == 6 && q.at_dummy());
+        assert!(ring.contains(&Beat::Notice("TEXT_QST_028_PREMELEE_INSTRUCTIONS_PUNCH_PC")));
         // Put inside the ring after "Get in the ring", before the punching.
         let cut = ring
             .iter()

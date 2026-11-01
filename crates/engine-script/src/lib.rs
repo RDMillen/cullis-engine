@@ -121,6 +121,10 @@ pub trait Quest {
     fn talk(&mut self, who: Person<'_>, out: &mut Vec<Beat>);
     /// The Hero hits `who`.
     fn hit(&mut self, who: Person<'_>, out: &mut Vec<Beat>);
+    /// The Hero strikes the thing with script name `thing` (a training dummy).
+    fn struck(&mut self, thing: &str, out: &mut Vec<Beat>) {
+        let _ = (thing, out);
+    }
     /// The Hero answers the last [`Beat::Ask`]. Talking to someone else first
     /// drops the question.
     fn answer(&mut self, yes: bool, out: &mut Vec<Beat>);

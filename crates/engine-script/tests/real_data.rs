@@ -108,3 +108,30 @@ fn every_line_the_birthday_quest_uses_exists() {
         assert!(said, "{entry} has no text");
     }
 }
+
+#[test]
+#[ignore = "needs FABLE_DIR"]
+fn every_line_the_guild_training_names_exists() {
+    let dir =
+        std::path::PathBuf::from(std::env::var_os("FABLE_DIR").expect("FABLE_DIR")).join("data");
+    let text = TextBank::open(&dir, "English").unwrap();
+    let source = include_str!("../src/guild.rs");
+    let source = &source[..source.find("mod tests").unwrap_or(source.len())];
+    let names: Vec<&str> = source
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|s| s.starts_with("TEXT_"))
+        .collect();
+    assert!(names.len() > 20, "{names:?}");
+    for entry in names {
+        let id = text
+            .id(entry)
+            .unwrap_or_else(|| panic!("{entry} is not in the text"));
+        let said = match text.groups.get(&id) {
+            Some(group) => !group.is_empty() && group.iter().all(|m| text.strings.contains_key(m)),
+            None => text.strings.get(&id).is_some_and(|e| !e.text.is_empty()),
+        };
+        assert!(said, "{entry} has no text");
+    }
+}

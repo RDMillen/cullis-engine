@@ -42,6 +42,9 @@ pub(crate) struct Args {
     /// Start the Prologue quest with Theresa's present bought (for testing the
     /// ending).
     pub(crate) with_present: bool,
+    /// Start the Guild training at the walk to the training ring (for testing
+    /// the dummy lesson).
+    pub(crate) guild_at_ring: bool,
     /// Make the creature with this role start a happy conversation gesture
     /// before `--npc-time` runs (for checking gestures in screenshots).
     pub(crate) gesture: Option<String>,
@@ -73,6 +76,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
         talk: 0,
         strike: 0,
         with_present: false,
+        guild_at_ring: false,
         gesture: None,
         mouth: None,
         size: [1280, 800],
@@ -102,6 +106,7 @@ pub(crate) fn parse_args() -> Result<Args, Error> {
             "--talk" => args.talk = value()?.parse()?,
             "--strike" => args.strike = value()?.parse()?,
             "--with-present" => args.with_present = true,
+            "--guild-at-ring" => args.guild_at_ring = true,
             "--gesture" => args.gesture = Some(value()?),
             "--mouth" => {
                 let v = value()?;

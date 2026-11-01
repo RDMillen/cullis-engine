@@ -83,6 +83,11 @@ pub struct Dummy {
     pub hits: u32,
 }
 
+/// A thing's `ScriptName` from its level file (a component), by which quests
+/// know it: the lesson's dummy is `PreMeleeDummy`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptName(pub String);
+
 /// When the blow of strike `clip` lands: the end of the frame in which one of
 /// the `limbs` (bone names: `Bip01 R Hand`, …) snaps forward fastest, measured
 /// from the pelvis (meshes face their local -y; strikes also carry the whole
@@ -117,17 +122,29 @@ pub fn contact_time(skeleton: &fable_data::mesh::Skeleton, clip: &Clip, limbs: &
 }
 
 impl World {
-    /// Adds a training dummy placed by `transform`, standing still.
+    /// Adds a training dummy placed by `transform`, standing still, named
+    /// `name` if its level file names it.
     pub fn spawn_dummy(
         &mut self,
         transform: Mat4,
         target: Target,
+        name: Option<String>,
         mut animator: Animator,
     ) -> Entity {
         animator.play(DUMMY_DEFAULT);
         animator.advance(0.0);
-        self.ecs
-            .spawn((Placed(transform), target, Dummy::default(), animator))
+        let e = self
+            .ecs
+            .spawn((Placed(transform), target, Dummy::default(), animator));
+        if let Some(name) = name {
+            let _ = self.ecs.insert_one(e, ScriptName(name));
+        }
+        e
+    }
+
+    /// The script name of thing `e`, if it has one.
+    pub fn thing_name(&self, e: Entity) -> Option<String> {
+        self.ecs.get::<&ScriptName>(e).ok().map(|n| n.0.clone())
     }
 
     /// Attack: starts a chain of strikes, or asks for the next strike of the
@@ -149,6 +166,7 @@ impl World {
             return false;
         };
         animator.play_once(first.clip, 0.0);
+        log::debug!(target: "world::combat", "chain {chain} begins (clip {})", first.clip);
         self.hero_state.chains_struck += 1;
         self.hero_state.striking = Some(Striking {
             chain,
@@ -269,8 +287,15 @@ impl World {
             }
         }
         if !playing || finished {
-            match next.filter(|_| s.next) {
-                Some(next) => {
+            log::debug!(
+                target: "world::combat",
+                "strike {}:{} ends (playing {playing}, at {time:.2}, landed {})",
+                s.chain,
+                s.step,
+                s.landed
+            );
+            match (next, s.next) {
+                (Some(next), true) => {
                     s = Striking {
                         step: s.step + 1,
                         landed: false,
@@ -281,7 +306,13 @@ impl World {
                         a.play_once(next.clip, 0.0);
                     }
                 }
-                None => {
+                // Pressed again during a chain's last strike: the next chain.
+                (None, true) => {
+                    self.hero_state.striking = None;
+                    self.attack();
+                    return;
+                }
+                (_, false) => {
                     self.hero_state.striking = None;
                     return;
                 }
@@ -295,6 +326,20 @@ impl World {
     fn blow(&mut self, hero: &Hero, last: bool) -> Option<Foe> {
         let facing = facing(hero);
         let locked = self.hero_state.locked;
+        if log::log_enabled!(target: "world::combat", log::Level::Debug)
+            && let Some((_, at, radius)) = self.foes().min_by(|a, b| {
+                let d = |p: Vec3| (p - hero.position).truncate().length();
+                d(a.1).total_cmp(&d(b.1))
+            })
+        {
+            let to = (at - hero.position).truncate();
+            log::debug!(
+                target: "world::combat",
+                "blow: nearest foe {:.2} to its edge, facing it {:.2}",
+                to.length() - radius,
+                to.normalize_or_zero().dot(facing)
+            );
+        }
         let foe = self
             .foes()
             .filter(|&(_, at, radius)| {
@@ -393,6 +438,7 @@ mod tests {
         let dummy = w.spawn_dummy(
             Mat4::from_translation(at),
             Target { at, radius: 0.3 },
+            Some("TestDummy".into()),
             Animator::new(Rig::default(), dummy_clips),
         );
         (w, hero, dummy)
@@ -414,6 +460,7 @@ mod tests {
         assert!(w.take_blows().is_empty(), "not yet at 0.1 s");
         run(&mut w, &mut hero, 5);
         assert_eq!(w.take_blows(), [Foe::Thing(dummy)]);
+        assert_eq!(w.thing_name(dummy).as_deref(), Some("TestDummy"));
         let (hits, reeling) = {
             let mut q = w.ecs.query_one::<(&Dummy, &Animator)>(dummy).unwrap();
             let (d, a) = q.get().unwrap();
@@ -438,6 +485,49 @@ mod tests {
         assert_eq!(w.take_blows().len(), 2);
         let a = w.ecs.get::<&Animator>(dummy).unwrap().current();
         assert_eq!(a, DUMMY_SPIN);
+    }
+
+    #[test]
+    fn strikes_pressed_apart_take_turns_and_each_lands() {
+        let (mut w, mut hero, _) = arena();
+        // A second chain, of clip 1 alone.
+        w.hero_combat.chains = vec![
+            vec![Strike {
+                clip: 0,
+                contact: 0.2,
+            }],
+            vec![Strike {
+                clip: 1,
+                contact: 0.2,
+            }],
+        ];
+        let mut blows = 0;
+        for _ in 0..4 {
+            assert!(w.attack());
+            run(&mut w, &mut hero, 30);
+            blows += w.take_blows().len();
+        }
+        assert_eq!(blows, 4);
+    }
+
+    #[test]
+    fn pressing_during_a_chains_last_strike_starts_the_next_chain() {
+        let (mut w, mut hero, _) = arena();
+        w.hero_combat.chains = vec![
+            vec![Strike {
+                clip: 0,
+                contact: 0.2,
+            }],
+            vec![Strike {
+                clip: 1,
+                contact: 0.2,
+            }],
+        ];
+        w.attack();
+        run(&mut w, &mut hero, 2);
+        w.attack();
+        run(&mut w, &mut hero, 40);
+        assert_eq!(w.take_blows().len(), 2, "both chains struck");
     }
 
     #[test]

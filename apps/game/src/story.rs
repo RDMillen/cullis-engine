@@ -168,6 +168,19 @@ impl Story {
         self.present(Some(i), false, npcs, hero, text, subs);
     }
 
+    /// The Hero strikes the thing with script name `thing` (a training dummy).
+    pub fn struck(
+        &mut self,
+        thing: &str,
+        npcs: &[Npc],
+        hero: Vec2,
+        text: &TextBank,
+        subs: &mut Subtitles,
+    ) {
+        quest(&mut self.act).struck(thing, &mut self.beats);
+        self.present(None, false, npcs, hero, text, subs);
+    }
+
     /// The Hero answers the question on screen.
     pub fn answer(
         &mut self,
@@ -243,7 +256,8 @@ impl Story {
                     by: about,
                 }),
                 Beat::Notice(entry) => {
-                    subs.push(Item::Notice(text.get(entry).unwrap_or(entry).to_owned()));
+                    let notice = crate::input::fill_keys(text.get(entry).unwrap_or(entry));
+                    subs.push(Item::Notice(notice));
                 }
                 effect => subs.push(Item::Effect(effect)),
             }
